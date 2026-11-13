@@ -143,7 +143,7 @@ function toIsbn13(s) { s = cleanIsbn(s); if (isbn13ok(s)) return s; if (isbn10ok
 function isbn10of(i13) { if (!i13 || !i13.startsWith("978")) return null; const b = i13.slice(3, 12); let t = 0; for (let i = 0; i < 9; i++) t += (+b[i]) * (10 - i); const c = (11 - t % 11) % 11; return b + (c === 10 ? "X" : c); }
 function findDuplicate(d, exceptId) {
   const i = toIsbn13(d.isbn);
-  return S.books.find(b => b.id !== exceptId && ((i && toIsbn13(b.isbn) === i) || (d.title && b.title && b.title.trim().toLowerCase() === d.title.trim().toLowerCase() && (b.author || "").toLowerCase() === (d.author || "").toLowerCase())));
+  return S.books.find(b => b.id !== exceptId && !dupConflict(d, b) && ((i && toIsbn13(b.isbn) === i) || (d.title && b.title && b.title.trim().toLowerCase() === d.title.trim().toLowerCase() && (b.author || "").toLowerCase() === (d.author || "").toLowerCase())));
 }
 function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Skript nicht ladbar: " + src)); document.head.append(s); }); }
 const blobToDataURL = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
@@ -244,7 +244,8 @@ function fromDNB(r) {
   const edition = trimPunct(dnbFirst(r, "250", "a"));
   const serF = dnbFields(r, "490")[0];
   const series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "";
-  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, edition, series, seriesNo };
+  const part = trimPunct(dnbFirst(r, "245", "n")); // Bandzählung eines mehrbändigen Werks, z. B. „8“
+  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, edition, series, seriesNo, part };
 }
 async function dnbQuery(cql, max = 15) {
   const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
@@ -580,7 +581,13 @@ async function wishBought(id) {
 }
 
 /* ================= Darstellung: Regal ================= */
-function renderAll() { renderNav(); renderShelf(); renderTable(); renderWall(); renderWish(); }
+// Nur die sichtbare Ansicht zeichnen – beim Wechsel (hashchange → renderAll) wird die neue frisch gezeichnet.
+// Spart bei großen Sammlungen viel Zeit, weil sonst jede Änderung auch die ganze Tabelle neu aufbaut.
+function renderAll() {
+  renderNav();
+  const v = view();
+  if (v === "verwaltung") renderTable(); else if (v === "wand") renderWall(); else if (v === "wunsch") renderWish(); else renderShelf();
+}
 function view() { return location.hash === "#verwaltung" ? "verwaltung" : location.hash === "#wand" ? "wand" : location.hash === "#wunsch" ? "wunsch" : "regal"; }
 function renderNav() {
   const v = view();
@@ -1924,6 +1931,45 @@ async function editSpineDirect(b) {
 function hasSignInfo(b) { return !!(b.signed || b.signedBy || b.dedication); }
 function signSummary(b) { return [b.signed ? "✍ signiert" + (b.signedBy ? " von " + b.signedBy : "") : (b.signedBy ? "✍ " + b.signedBy : ""), b.dedication ? "🖋 Widmung" : ""].filter(Boolean).join(" · "); }
 function extrasSummary(b) { return [signSummary(b), (b.images || []).length ? "🖼 " + b.images.length : "", (b.files || []).length ? "📎 " + b.files.length : ""].filter(Boolean).join(" · "); }
+
+/* ---------- Mögliche Dubletten (Zusammenführen: duplicates.js) ---------- */
+// Gleiche ISBN – oder gleicher Titel + Autor, solange ISBN bzw. Band-Nr. nicht widersprechen.
+// Paare, die als „verschiedene Bücher“ bestätigt wurden, stehen im optionalen Feld b.notDup (Liste von Buch-IDs).
+const notDupPair = (a, b) => (a.notDup || []).includes(b.id) || (b.notDup || []).includes(a.id);
+// Band-Nummer aus Rücken- oder Titeltext: „… am Kamin 8 13427“ → 8, „Band 3“ → 3, „… · 32“ → 32.
+// Nur 1–3-stellig; Jahreszahlen und Verlags-Bestellnummern (4–6 Ziffern) zählen nicht, Zahlen mitten im Titel („aus 40 Jahren“) auch nicht.
+function volFromText(s) {
+  s = String(s || "");
+  let m = s.match(/\b(?:band|bd\.?|teil|folge|vol\.?|volume|tome)\s*(\d{1,3})\b/i); if (m) return String(+m[1]);
+  m = s.match(/(?:^|[^\d.,])(\d{1,3})\s*[.)]?\s*(?:[·|\-–]\s*)?(?:\d{4,6})?\s*$/); if (m) return String(+m[1]);
+  return "";
+}
+// Band eines gespeicherten Buchs: Band-Nr. (falls kurz) oder aus dem erkannten Rückentext
+function volOf(b) { const s = String(b.seriesNo ?? "").trim(); return /^\d{1,3}$/.test(s) ? String(+s) : volFromText(b.spine?.text); }
+function dupConflict(a, b) {
+  const i = toIsbn13(a.isbn), j = toIsbn13(b.isbn); if (i && j && i !== j) return true;
+  const x = String(a.seriesNo ?? "").trim(), y = String(b.seriesNo ?? "").trim();
+  const short = s => /^\d{1,3}$/.test(s); // Band-Nr. (kurz) und Verlagsnummer (lang) sind nicht vergleichbar
+  if (x && y && x !== y && short(x) === short(y)) return true;
+  const u = volOf(a), v = volOf(b); return !!(u && v && u !== v); // verschiedene Bände einer Reihe – auch wenn (fälschlich) dieselbe ISBN
+}
+function dupGroups(books = S.books) {
+  const parent = new Map(books.map(b => [b.id, b.id]));
+  const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  const buckets = new Map(), put = (k, b) => { if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(b); };
+  for (const b of books) {
+    const i = toIsbn13(b.isbn); if (i) put("i" + i, b);
+    const t = normS(b.title); if (t) put("t" + t + "\u0001" + normS(b.author), b);
+  }
+  for (const [k, list] of buckets) for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) {
+    const a = list[x], b = list[y];
+    if (notDupPair(a, b) || dupConflict(a, b)) continue;
+    parent.set(find(a.id), find(b.id));
+  }
+  const groups = new Map();
+  for (const b of books) { const r = find(b.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(b); }
+  return [...groups.values()].filter(g => g.length > 1);
+}
 const COLS = [
   { k: "cover", l: "", nos: true, w: 62 },
   { k: "title", l: "Titel", w: 220 }, { k: "author", l: "Autor", w: 170 }, { k: "year", l: "Jahr", w: 70 },
@@ -1951,7 +1997,7 @@ const FILTER_HELP = {
   date: "2025 · 03.2025 · >2024 · 2023..2025 · leer = nie · mehrere mit |",
 };
 // gespeicherte Tabellen-Einstellungen (nur dieses Gerät). Felder nur ergänzen – ältere Stände ohne hidden/widths/… bleiben gültig.
-const T_FILTER_KEYS = ["all", "unread", "reading", "read", "fav", "unplaced", "gone", "wish", "nocover", "incomplete"];
+const T_FILTER_KEYS = ["all", "unread", "reading", "read", "fav", "unplaced", "gone", "wish", "nocover", "incomplete", "dup"];
 const DEFAULT_SORTS = () => [{ key: "addedAt", dir: -1 }];
 (() => { try { const t = JSON.parse(localStorage.getItem("tableView") || "null"); if (t) {
   S.colF = t.colF || {}; S.tSorts = t.sorts; S.showColF = t.showF; S.tHidden = t.hidden; S.tW = t.widths; S.tView = t.view;
@@ -2173,11 +2219,12 @@ function clickSort(k, add) {
 }
 
 /* ---------- Darstellung ---------- */
-const T_FILTER_NAMES = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen", fav: "♥ Lieblingsbücher", unplaced: "Nicht eingeräumt", gone: "📦 Hatte ich mal", wish: "⭐ Wunschliste", nocover: "Ohne Cover", incomplete: "Unvollständig" };
-const tFilterPass = b => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : (b.status || "unread") === S.tFilter);
+const T_FILTER_NAMES = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen", fav: "♥ Lieblingsbücher", unplaced: "Nicht eingeräumt", gone: "📦 Hatte ich mal", wish: "⭐ Wunschliste", nocover: "Ohne Cover", incomplete: "Unvollständig", dup: "🧩 Mögliche Dubletten" };
+const tFilterPass = (b, dup) => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : S.tFilter === "dup" ? dup.has(b.id) : (b.status || "unread") === S.tFilter);
 function filteredBooks(exceptCol) {
   const preds = activeColFilters().filter(([k]) => k !== exceptCol).map(([k, q]) => colPredicate(k, q)).filter(Boolean);
-  return S.books.filter(b => tFilterPass(b) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
+  const dup = S.tFilter === "dup" ? new Set(dupGroups().flat().map(b => b.id)) : null;
+  return S.books.filter(b => tFilterPass(b, dup) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
 }
 function tableList() { return filteredBooks().sort(cmpBooks); }
 const anyTableFilter = () => !!(activeColFilters().length || S.tq || S.tTag || S.tFilter !== "all");
@@ -2247,13 +2294,15 @@ function renderTable() {
     S.tableDirty = true; return;
   }
   const c = counts(S.books.filter(inStock)); const inc = S.books.filter(b => missingOf(b).length).length;
+  const nDup = dupGroups().reduce((n, g) => n + g.length, 0);
   $("#stats").replaceChildren(
     el("span", {}, el("b", { text: c.all }), "Bücher im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
     el("span", {}, el("b", { text: c.reading }), "gerade dabei"), el("span", {}, el("b", { text: c.unread }), "ungelesen"),
     el("span", {}, el("b", { style: inc ? "color:var(--warn)" : "", text: inc }), "mit fehlenden Daten"),
     el("span", {}, el("b", { text: S.books.filter(isGone).length }), "hatte ich mal"),
     el("span", {}, el("b", { text: S.books.filter(isWish).length }), "auf der Wunschliste"));
-  renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc]]);
+  renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc], ...(nDup || S.tFilter === "dup" ? [["dup", "🧩 Mögliche Dubletten", "var(--warn)", nDup]] : [])]);
+  const dupBtn = $("#dupRun"); if (dupBtn) { dupBtn.textContent = "🧩 Dubletten prüfen" + (nDup ? ` (${nDup})` : ""); dupBtn.classList.toggle("warn", !!nDup); }
   const tts = $("#ttagSlot"); if (tts) { tagDatalist(); fillNode(tts, tagFilterSelect(S.tTag, t => { S.tTag = t; renderTable(); }, S.books)); }
   const cols = visCols();
   const colgroup = el("colgroup", {}, ...cols.map(col => el("col", { "data-k": col.k, style: `width:${colW(col)}px` })));
@@ -2299,13 +2348,43 @@ function tableRow(b, cols = visCols()) {
     return el("td", { class: req && !String(b[k] ?? "").trim() ? "miss" : null }, cellInput(b, k));
   }));
 }
+const T_PAGE = 150;
+S.tLimit = T_PAGE;
+let tMoreObs = null;
+function moreRow() {
+  const rest = S.tList.length - S.tLimit;
+  const tr = el("tr", { class: "tmore" }, el("td", { colspan: S.tCols.length },
+    el("span", { text: `Noch ${rest} ${rest === 1 ? "Buch" : "Bücher"} …` }),
+    el("button", { class: "btn sm", onclick: () => showMoreRows(Infinity) }, "Alle anzeigen")));
+  // automatisch nachladen, sobald die Zeile in die Nähe des sichtbaren Bereichs kommt
+  if ("IntersectionObserver" in window) {
+    if (tMoreObs) tMoreObs.disconnect();
+    tMoreObs = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) showMoreRows(T_PAGE); }, { root: $(".tablewrap"), rootMargin: "400px" });
+    requestAnimationFrame(() => { if (tr.isConnected) tMoreObs.observe(tr); });
+  }
+  return tr;
+}
+function showMoreRows(n) {
+  const body = $("#tbl").tBodies[0]; if (!body || !S.tList) return;
+  const old = body.querySelector("tr.tmore"); if (old) old.remove();
+  if (tMoreObs) tMoreObs.disconnect();
+  const from = S.tLimit; S.tLimit = Math.min(S.tList.length, from + n);
+  body.append(...S.tList.slice(from, S.tLimit).map(b => tableRow(b, S.tCols)));
+  if (S.tList.length > S.tLimit) body.append(moreRow());
+}
 function clearAllTableFilters() { S.colF = {}; S.tq = ""; $("#tq").value = ""; S.tTag = ""; S.tFilter = "all"; saveTableView(); renderTable(); }
 function renderTableRows() {
   const tbl = $("#tbl");
   const list = tableList();
   const anyFilter = anyTableFilter();
   const cols = visCols();
-  const body = el("tbody", {}, ...list.map(b => tableRow(b, cols)));
+  // Große Listen in Stücken zeichnen: erst T_PAGE Zeilen, beim Scrollen mehr. Neu anfangen nur, wenn sich Filter/Sortierung ändern –
+  // nicht beim Bearbeiten einer Zelle (sonst springt die Liste).
+  const sig = canon({ colF: S.colF, sorts: S.tSorts, tFilter: S.tFilter, tTag: S.tTag, tq: S.tq });
+  if (sig !== S.tSig) { const first = S.tSig == null; S.tSig = sig; S.tLimit = T_PAGE; const w = $(".tablewrap"); if (w && !first) w.scrollTop = 0; } // neue Auswahl: oben beginnen
+  S.tList = list; S.tCols = cols;
+  const body = el("tbody", {}, ...list.slice(0, S.tLimit).map(b => tableRow(b, cols)));
+  if (list.length > S.tLimit) body.append(moreRow());
   if (!list.length) body.append(el("tr", {}, el("td", { colspan: cols.length, style: "padding:30px;text-align:center;color:var(--muted);white-space:normal" },
     !S.loaded ? "Lade …" : !S.books.length ? "Noch keine Bücher erfasst." : "Keine Treffer.",
     S.loaded && S.books.length && anyFilter ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: clearAllTableFilters }, "Alle Filter aufheben") : null)));
@@ -2463,6 +2542,7 @@ function exportCsv(only) {
 }
 $("#exportCsv").addEventListener("click", exportCsv);
 $("#coverRun").addEventListener("click", () => coverRun());
+$("#dupRun").addEventListener("click", () => openDuplicates());
 async function remindBackup() {
   if (!S.books.length) return;
   if (typeof autoBackupActive === "function" && await autoBackupActive()) return;
@@ -2517,6 +2597,25 @@ function googleKeyBox() {
 }
 
 /* ================= Start ================= */
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+/* ---------- Neue App-Version ---------- */
+// Der Service Worker übernimmt eine neue Version sofort (skipWaiting/claim). Die offene Seite läuft aber noch mit dem alten Code –
+// deshalb ein Hinweis zum Neuladen statt automatischem Neuladen (könnte eine offene Eingabe verwerfen).
+function showUpdateBar() {
+  if ($(".updbar")) return;
+  document.body.append(el("div", { class: "updbar", role: "status" },
+    el("span", { text: "Neue Version der App ist da." }),
+    el("button", { class: "btn sm primary", onclick: () => location.reload() }, "Jetzt aktualisieren"),
+    el("button", { class: "x", title: "Später", "aria-label": "Hinweis schließen", onclick: e => e.currentTarget.parentElement.remove() }, "✕")));
+}
+function watchForUpdates(sw = navigator.serviceWorker) {
+  let hadController = !!sw.controller; // beim allerersten Installieren gibt es nichts zu aktualisieren
+  sw.addEventListener("controllerchange", () => { if (hadController) showUpdateBar(); hadController = true; });
+  // installierte Apps bleiben lange offen: beim Zurückkehren nach Updates sehen
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sw.getRegistration().then(r => r && r.update()).catch(() => {}); });
+}
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  watchForUpdates();
+}
 renderAll();
 loadAll();

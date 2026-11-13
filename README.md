@@ -58,11 +58,13 @@ Ablauf:
    (bei Bedarf eine Sicherung importieren oder den Abgleich mit einer **eigenen Test-Datenbank**, z. B. `buecherregal-test`, einschalten).
 3. Passt alles: auf GitHub **Pull request** `develop → main` öffnen. GitHub Actions lässt die Tests laufen; wenn sie grün sind, **Merge**.
    Vercel veröffentlicht `main` dann automatisch.
-4. Nie direkt auf `main` committen. (Ein technischer Schutz dafür ist bei privaten Repositories nur in bezahlten GitHub-Plänen verfügbar.)
+4. Nie direkt auf `main` committen. Technisch absichern lässt sich das mit einer **Branch-Schutzregel** (Settings → Branches bzw. Rules):
+   bei öffentlichen Repositories kostenlos, bei privaten nur in bezahlten GitHub-Plänen.
+5. Nach dem Merge zeigt die installierte App beim nächsten Öffnen den Hinweis **„Neue Version der App ist da“** – „Jetzt aktualisieren“ lädt sie neu.
 
 ## Veröffentlichen (Hosting)
 
-Die Kamera funktioniert nur über **https**. Empfohlen: **Vercel** – kostenlos (Hobby-Tarif) und funktioniert auch mit privatem Repository.
+Die Kamera funktioniert nur über **https**. Empfohlen: **Vercel** – kostenlos (Hobby-Tarif), mit öffentlichem wie privatem Repository.
 
 1. Auf https://vercel.com mit dem GitHub-Konto ein kostenloses Konto anlegen → **Add New… → Project**.
 2. Bei GitHub den Zugriff erlauben und `private-bookshelf` **importieren**.
@@ -79,10 +81,12 @@ Die Kamera funktioniert nur über **https**. Empfohlen: **Vercel** – kostenlos
 Die `develop`-Adresse öffnet sich dann nur, wenn du im selben Browser bei Vercel angemeldet bist – auch am Handy. Wer das nicht möchte,
 stellt es unter **Settings → Deployment Protection** ab. Die Produktionsadresse `https://<projekt>.vercel.app` ist davon nicht betroffen.
 
-Hinweis: Das Repository bleibt privat, die **Produktionsadresse** der App ist aber öffentlich aufrufbar. Das ist unkritisch, weil dort nur das
-leere Programm liegt – deine Bücher stehen nur im Browser deiner Geräte.
+**Was ist öffentlich?** Die **Produktionsadresse** der App ist für jeden aufrufbar – und das Repository ist es auch, solange es auf GitHub
+als *Public* eingestellt ist (umstellen: Settings → General → Danger Zone → *Change visibility*; Vercel funktioniert in beiden Fällen).
+Beides ist unkritisch: Dort liegt nur das Programm. Deine Bücher stehen nur im Browser deiner Geräte und – falls eingerichtet – in der
+CouchDB auf deinem PC; Zugangsdaten und KI-Schlüssel gehören nie ins Repository.
 
-Alternativen: Repository öffentlich machen und **GitHub Pages** nutzen (Settings → Pages → Branch `main`, Ordner – dann aber den
+Alternativen: **GitHub Pages** bei öffentlichem Repository (Settings → Pages → Branch `main`, Ordner – dann aber den
 Inhalt von `app/` ins Wurzelverzeichnis bzw. einen `docs/`-Ordner legen), oder GitHub Pages mit einem bezahlten GitHub-Plan für private Repositories.
 
 ### Wichtig beim Umzug auf eine neue Adresse
@@ -98,5 +102,14 @@ Die Bücher hängen an der **Webadresse**, unter der die App läuft. Wenn du die
 - Datenbank (IndexedDB `buecherregal` v2) und Sicherungsformat (Version 1 und 2) nur **additiv** ändern.
 - Bei jeder Änderung in `app/` die `VERSION` in `app/sw.js` erhöhen, damit installierte Apps aktualisieren.
 - Neue Funktion → neuer Test in `tests/`.
-- Abgleich (`app/sync.js`): Tests in `tests/sync.spec.js` laufen gegen einen nachgebildeten CouchDB-Server. Gegen einen echten Server:
-  `COUCH_REAL_URL=http://localhost:5984 COUCH_REAL_USER=admin COUCH_REAL_PASS=… npx playwright test sync-real`
+- Abgleich (`app/sync.js`): Tests in `tests/sync.spec.js` laufen gegen einen nachgebildeten CouchDB-Server.
+  **Gegen den echten Server** (ab und zu, z. B. vor einem Pull Request mit Änderungen am Abgleich) – mit der eigenen
+  Test-Datenbank `buecherregal-test`, in der der App-Benutzer Mitglied ist (in Fauxton wie `buecherregal` anlegen, Teil 1, Schritte 5 und 7):
+  ```powershell
+  $env:COUCH_REAL_URL="https://DEIN-PC.tailXXXX.ts.net"; $env:COUCH_REAL_DB="buecherregal-test"
+  $env:COUCH_REAL_USER="buecher"; $env:COUCH_REAL_PASS="…"
+  npx playwright test sync-real
+  ```
+  Der Test prüft die ganze Kette (Browser → Tailscale-https → CORS → CouchDB) mit zwei „Geräten“, leert die Test-Datenbank vorher
+  und nachher und **verweigert jede Datenbank ohne „test“ im Namen** – die echten Bücher bleiben unberührt. Ohne `COUCH_REAL_URL`
+  wird er übersprungen (auch bei GitHub).

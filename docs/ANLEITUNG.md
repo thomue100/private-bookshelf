@@ -136,9 +136,16 @@ Unter den Spaltenüberschriften der Tabelle liegt eine **Filterzeile** (ein-/aus
 
 **Spalten anpassen:** „▦ Spalten“ blendet Spalten ein und aus (der Titel bleibt immer sichtbar). Die **Breite** änderst du, indem du in der Überschrift den rechten Rand einer Spalte ziehst; Doppelklick auf den Rand stellt die Standardbreite wieder her. „Breiten zurücksetzen“ gilt für alle Spalten. Der CSV-Export enthält immer alle Spalten.
 
+**Dubletten finden:** „🧩 Dubletten prüfen“ in der Verwaltung zeigt Bücher mit gleicher ISBN (auch ISBN-10 = ISBN-13) oder gleichem Titel und Autor – außer wenn ISBN oder Band-Nr. verschieden sind, dann gelten sie als verschiedene Bände. Je Gruppe:
+- **Zusammenführen:** Der ausgewählte Eintrag bleibt (vorgeschlagen wird der eingeräumte, vollständigere). Er übernimmt, was ihm fehlt: Angaben, Cover, Schlagworte, Notizen, Lesezeiten, Bewertung, weitere Bilder und Dateien, notfalls den Platz im Regal. Die anderen werden gelöscht.
+- **Sind verschiedene Bücher:** z. B. zwei Exemplare. Die App merkt sich das (auch in Sicherung und Abgleich) und zeigt die Gruppe nicht mehr an.
+- Stimmt nur eine ISBN nicht, „Öffnen“ und korrigieren. Der Filter-Knopf „🧩 Mögliche Dubletten“ zeigt dieselben Bücher in der Tabelle.
+
 **Ansichten speichern:** Unter „⭐ Ansichten“ speicherst du die aktuelle Einstellung unter einem Namen, z. B. „Ungelesene Krimis“ oder „Inventur Wohnzimmer“. Gespeichert werden Filter, Suche, Filter-Knopf, Schlagwort, Sortierung, ausgeblendete Spalten und Spaltenbreiten. Ein Klick auf den Namen stellt alles wieder her. Hast du danach etwas verändert, steht „(geändert)“ dahinter. Unter demselben Namen erneut speichern aktualisiert die Ansicht, × löscht sie (die Bücher bleiben unverändert). „↺ Grundeinstellung“ setzt die Tabelle komplett zurück.
 
 **Sortieren über mehrere Spalten:** Klick auf eine Überschrift sortiert danach (nochmal = umgekehrt). **Umschalt+Klick** fügt eine weitere Sortierstufe hinzu (z. B. Autor, dann Jahr absteigend). Am Handy über „＋ dann nach …“. Leere Werte stehen immer am Ende.
+
+Bei großen Sammlungen zeigt die Tabelle zuerst 150 Bücher und lädt beim Herunterscrollen automatisch weitere nach („Alle anzeigen“ holt sofort alle). Zählung, Filter, Sortierung und CSV-Export gelten immer für alle Bücher.
 
 Über der Tabelle stehen „x von y“, die aktiven Filter (einzeln mit × entfernbar, „Alle aufheben“) und die Sortierstufen. **„⬇ CSV (… gefiltert)“** exportiert genau die angezeigten Bücher in der angezeigten Reihenfolge. Filter, Sortierung, Spalten und gespeicherte Ansichten bleiben **auf diesem Gerät** gespeichert – sie gehören nicht zu den Buchdaten und werden weder gesichert noch abgeglichen.
 
@@ -178,7 +185,10 @@ Unter **Buch hinzufügen → Weg C**, im **Echten Regal → 📷 Fach-Foto einle
 1. Ziel-Fach wählen (oder „nicht einsortieren“) und ein ganzes Fach von vorne fotografieren bzw. ein Foto wählen.
 2. Die App erkennt alle Buchrücken von links nach rechts – auch liegende Bücher, Bücher oben auf der Reihe und eine hintere Reihe. CDs, Karten, Prospekte werden als „kein Buch“ erkannt und standardmäßig übersprungen.
 3. Für jedes Buch sucht sie in DNB, Google Books und Open Library die passende Ausgabe (Verlag wie „dtv“ zählt mit).
-4. **Prüfliste:** Foto mit nummerierten Rahmen, je Buch der ausgeschnittene Rücken, erkannter Titel/Autor (änderbar, dann „🔎 Neu suchen“), Katalogtreffer zur Auswahl oder „nur erkannte Angaben“. Bücher, die du schon hast, werden erkannt und nur einsortiert. Zwei gleiche Bücher im Foto werden zwei Exemplare.
+4. **Prüfliste:** Foto mit nummerierten Rahmen, je Buch der ausgeschnittene Rücken, erkannter Titel/Autor/**Band** (änderbar, dann „🔎 Neu suchen“), Katalogtreffer zur Auswahl oder „nur erkannte Angaben“. Bücher, die du schon hast, werden erkannt und nur einsortiert.
+   - **Nachfrage bei Unsicherheit:** Unsichere Rücken sind **gelb markiert** (im Foto mit „?“), oben steht, wie viele es sind – mit „Nur unsichere zeigen“. Gründe sind z. B.: Rücken schlecht lesbar, mehrere ähnliche Katalogeinträge, Band nicht im Katalog, oder dasselbe Buch zweimal im Foto. Entweder korrigieren und neu suchen, einen Katalogtreffer wählen – oder **„✓ Passt so“**. Beim Übernehmen fragt die App nach, solange noch etwas ungeprüft ist.
+   - **Reihen mit Bänden** (z. B. „Weihnachtsgeschichten am Kamin 8“): Die Band-Nummer zählt. Ein Katalogtreffer wird nur automatisch gewählt, wenn er denselben Band nennt – sonst werden die erkannten Angaben mit Reihe und Band übernommen (ohne fremde ISBN). Verschiedene Bände werden nie zu „Weiteres Exemplar“.
+   - **Zwei gleiche Bücher im Foto** werden nach deinem „✓ Passt so“ zu zwei Exemplaren – und gelten danach nicht als Dublette.
 5. **Übernehmen:** Neue Bücher werden angelegt und in Reihenfolge ins Fach gestellt (liegend, oben drauf, hinten wie erkannt). Wahlweise ersetzt das den bisherigen Fach-Inhalt oder wird angehängt. Die **Buchrücken-Bilder** werden direkt aus dem Foto geschnitten, Dicke und Höhe aus dem Foto berechnet.
 
 **Erkennung – drei Wege** (wählbar beim Fach-Foto):
@@ -210,6 +220,8 @@ Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 
 - Die Daten liegen im Speicher des Browsers. **Wenn du die Browserdaten/Websitedaten löschst, ist das Regal weg.** Die App erinnert dich alle 14 Tage an eine Sicherung.
 - Die Sicherungsdatei (`.json`) enthält alles inklusive Cover-Fotos. Bewahre sie gut auf.
+- **Am PC am bequemsten:** Menü ⋯ → **💾 Automatische Sicherung** (Chrome/Edge). Ein Stand pro Tag, die letzten 14 Tage bleiben. Ordner auf einem USB-Stick oder einer externen Festplatte wählen.
+- **Auch mit Abgleich wichtig:** Der Abgleich verteilt jede Änderung auf alle Geräte – auch ein versehentliches Löschen. Nur eine ältere Sicherung holt so etwas zurück.
 - „CSV für Excel“ (Verwaltung oder Menü) gibt dir eine Tabelle zum Weiterverarbeiten.
 
 ## 6. An Freunde weitergeben
@@ -217,6 +229,8 @@ Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 Schick ihnen einfach deine Adresse (z. B. `https://DEIN-NAME.github.io/buecherregal/`). Jede Person hat ihr **eigenes, privates Regal** auf ihrem Gerät – niemand sieht die Bücher der anderen, auch du nicht.
 
 ## Gut zu wissen
+
+- **Neue Version:** Wurde die App aktualisiert, erscheint unten „Neue Version der App ist da“. „Jetzt aktualisieren“ lädt sie neu; mit ✕ geht es später beim nächsten Öffnen.
 
 - Erfassen braucht Internet (für Buchdaten und Cover). Ansehen, Notizen, Bewertungen und Verwaltung funktionieren auch offline.
 - Diktieren (🎙) gibt es in Chrome, Edge und Safari. Sonst geht das Mikrofon der Handy-Tastatur.

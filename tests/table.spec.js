@@ -193,6 +193,52 @@ test("Benannte Ansichten speichern, anwenden, als geändert erkennen und lösche
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("tableViews")))).toEqual([]);
 });
 
+test("Große Sammlung: Tabelle zeigt erst 150 Zeilen, lädt beim Scrollen nach, Filter und Zählung gelten für alle", async ({ page }) => {
+  await openApp(page, "#verwaltung");
+  await page.evaluate(async () => {
+    for (let i = 0; i < 400; i++) await DB.put({ id: "g" + i, title: "Band " + String(i).padStart(3, "0"), author: i % 2 ? "Anna A" : "Bert B", year: "2000", status: "unread", addedAt: new Date(Date.now() - i * 1000).toISOString() });
+    S.books = await DB.all(); renderAll();
+  });
+  const rows = () => page.locator("#tbl tbody tr:not(.tmore)").count();
+  await expect.poll(rows).toBe(150);
+  await expect(page.locator(".tcount")).toContainText("400 von 400");
+  await expect(page.locator("tr.tmore")).toContainText("Noch 250 Bücher");
+
+  // Scrollen lädt nach
+  await page.locator(".tablewrap").evaluate(w => { w.scrollTop = w.scrollHeight; });
+  await expect.poll(rows).toBeGreaterThanOrEqual(300);
+
+  // Zelle bearbeiten setzt die Liste nicht zurück
+  const n = await rows();
+  const cell = page.locator("#tbl tbody tr:not(.tmore) td:nth-child(4) input").nth(5);
+  await cell.fill("1999"); await cell.press("Enter");
+  await expect.poll(() => page.evaluate(() => S.books.filter(b => b.year === "1999").length)).toBe(1);
+  expect(await rows()).toBe(n);
+
+  // Filter: neu von vorn, Zählung über alle
+  await filter(page, "Autor", "anna");
+  await expect(page.locator(".tcount")).toContainText("200 von 400");
+  await expect.poll(rows).toBe(150);
+  expect(await page.locator(".tablewrap").evaluate(w => w.scrollTop)).toBe(0); // neue Auswahl beginnt oben
+  // ohne vorheriges Scrollen klicken – Scrollen allein würde schon nachladen
+  await page.locator("tr.tmore").getByRole("button", { name: "Alle anzeigen" }).dispatchEvent("click");
+  await expect.poll(rows).toBe(200);
+  await expect(page.locator("tr.tmore")).toHaveCount(0);
+});
+
+test("Nur die sichtbare Ansicht wird gezeichnet; beim Wechsel ist sie aktuell", async ({ page }) => {
+  await setup(page); // steht auf #verwaltung
+  await page.goto("/#regal"); await page.waitForFunction(() => S.loaded);
+  const calls = await page.evaluate(async () => {
+    let n = 0; const orig = renderTable; window.renderTable = () => { n++; orig(); };
+    await patchBook("b0", { title: "Momo (neu)" }); await new Promise(r => setTimeout(r, 100));
+    return n;
+  });
+  expect(calls).toBe(0);
+  await page.click("nav a[data-view=verwaltung]");
+  await expect(page.locator("#tbl tbody tr td:nth-child(2) input[value='Momo (neu)']")).toHaveCount(1);
+});
+
 test("Gespeicherte Tabellen-Einstellung im alten Format (ohne Spalten/Breiten) wird übernommen", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => localStorage.setItem("tableView", JSON.stringify({ colF: { author: "ende" }, sorts: [{ key: "year", dir: -1 }], showF: true })));
