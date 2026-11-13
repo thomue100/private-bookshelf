@@ -432,6 +432,36 @@ select.sadd{width:auto;padding:3px 8px;font-size:12.5px;border-radius:999px}
 .fhelp{font-size:12px;line-height:1.7}
 .fhelp code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:11.5px}
 .btn.on{border-color:var(--accent);color:var(--accent)}
+/* Tabelle: feste Spaltenbreiten, ziehbar */
+#tbl{table-layout:fixed;min-width:100%}
+#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis}
+#tbl td input,#tbl td select{min-width:0}
+#tbl thead tr:first-child th{padding-right:12px}
+.colgrip{position:absolute;top:0;right:0;width:10px;height:100%;cursor:col-resize;touch-action:none;z-index:2}
+.colgrip::after{content:"";position:absolute;top:8px;bottom:8px;right:3px;width:2px;border-radius:2px;background:var(--line)}
+th:hover .colgrip::after,.colgrip:hover::after{background:var(--accent)}
+body.colresizing,body.colresizing *{cursor:col-resize!important;user-select:none}
+/* Menüs „Ansichten“ und „Spalten“ */
+.tpop{position:relative}
+.tpop>summary{list-style:none;user-select:none;font-family:inherit;font-weight:500}
+.tpop>summary::-webkit-details-marker{display:none}
+.tpanel{position:absolute;right:0;top:calc(100% + 4px);z-index:30;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 8px 28px rgba(0,0,0,.16);padding:10px 12px;width:min(320px,calc(100vw - 32px));max-height:min(70vh,520px);overflow:auto;display:flex;flex-direction:column;gap:8px;font-size:13px}
+.tphead{font-weight:600;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.tpcols{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px}
+.tpick{display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer}
+.tpick input{width:16px;height:16px;accent-color:var(--accent)}
+.tpick.fixed{color:var(--muted);cursor:default}
+.tpbtns{display:flex;flex-wrap:wrap;gap:6px}
+.tpbtns:empty{display:none}
+.tviews{display:flex;flex-direction:column;gap:2px}
+.tvrow{display:flex;align-items:center;border-radius:8px}
+.tvrow.on{background:var(--accent-soft)}
+.tvrow .tvname{flex:1;text-align:left;border:0;background:none;cursor:pointer;font:inherit;color:var(--ink);padding:6px 8px;border-radius:8px}
+.tvrow .tvname:hover{background:var(--bg)}
+.tvrow .sx{border:0;background:none;cursor:pointer;color:var(--muted);font-size:16px;padding:2px 8px}
+.tvsave{display:flex;gap:6px}
+.tvsave .field{flex:1;min-width:0;padding:5px 8px;font-size:13px}
+@media (max-width:600px){.tpanel{position:fixed;top:auto;bottom:calc(90px + env(safe-area-inset-bottom,0px));left:16px;right:16px;width:auto;z-index:40}} /* über dem „+ Buch“-Knopf */
 /* Einfügen */
 .pasterow{display:flex;gap:8px;align-items:stretch;margin-top:10px}
 .pasterow .drop{flex:1;margin:0}

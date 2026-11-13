@@ -12,9 +12,7 @@ async function blobUrl(id) {
 function forgetBlobUrl(id) { const u = blobUrls.get(id); if (u) { URL.revokeObjectURL(u); blobUrls.delete(id); } }
 function fmtSize(n) { n = +n || 0; return n > 1e6 ? (n / 1e6).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB"; }
 const FILE_ICON = n => /\.pdf$/i.test(n) ? "📕" : /\.(epub|mobi|azw3?|kfx|fb2)$/i.test(n) ? "📘" : /\.(mp3|m4a|m4b|ogg|wav)$/i.test(n) ? "🎧" : /\.(jpe?g|png|gif|webp|heic)$/i.test(n) ? "🖼" : "📄";
-function hasSignInfo(b) { return !!(b.signed || b.signedBy || b.dedication); }
-function signSummary(b) { return [b.signed ? "✍ signiert" + (b.signedBy ? " von " + b.signedBy : "") : (b.signedBy ? "✍ " + b.signedBy : ""), b.dedication ? "🖋 Widmung" : ""].filter(Boolean).join(" · "); }
-function extrasSummary(b) { return [signSummary(b), (b.images || []).length ? "🖼 " + b.images.length : "", (b.files || []).length ? "📎 " + b.files.length : ""].filter(Boolean).join(" · "); }
+// hasSignInfo, signSummary, extrasSummary stehen in app.js (werden schon beim ersten Anzeigen der Tabelle gebraucht)
 async function deleteBookBlobs(b) { for (const x of [...(b.images || []), ...(b.files || [])]) { forgetBlobUrl(x.id); await DB.delBlob(x.id).catch(() => {}); } }
 
 async function openStoredFile(f, download) {
