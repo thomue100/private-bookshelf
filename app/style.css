@@ -473,6 +473,12 @@ body.colresizing,body.colresizing *{cursor:col-resize!important;user-select:none
 .tvsave{display:flex;gap:6px}
 .tvsave .field{flex:1;min-width:0;padding:5px 8px;font-size:13px}
 @media (max-width:600px){.tpanel{position:fixed;top:auto;bottom:calc(90px + env(safe-area-inset-bottom,0px));left:16px;right:16px;width:auto;z-index:40}} /* über dem „+ Buch“-Knopf */
+/* Mehrfachauswahl */
+#tbl .seltd{text-align:center;padding:0}
+#tbl .seltd input{width:18px;height:18px;min-width:0;accent-color:var(--accent);cursor:pointer;vertical-align:middle}
+#tbl tr.selrow td{background:var(--accent-soft)}
+.selbar{background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:6px 10px}
+.selbar .btn.danger{border-color:#b3261e}
 tr.tmore td{padding:14px 12px;color:var(--muted);font-size:13px}
 tr.tmore .btn{margin-left:10px}
 /* Dubletten */

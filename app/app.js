@@ -1971,6 +1971,7 @@ function dupGroups(books = S.books) {
   return [...groups.values()].filter(g => g.length > 1);
 }
 const COLS = [
+  { k: "sel", l: "", nos: true, w: 40, fixed: true }, // Auswahl für Mehrfach-Aktionen (immer sichtbar)
   { k: "cover", l: "", nos: true, w: 62 },
   { k: "title", l: "Titel", w: 220 }, { k: "author", l: "Autor", w: 170 }, { k: "year", l: "Jahr", w: 70 },
   { k: "isbn", l: "ISBN", w: 140 }, { k: "publisher", l: "Verlag", w: 130 }, { k: "series", l: "Reihe", w: 140 }, { k: "seriesNo", l: "Band", w: 60 }, { k: "pages", l: "Seiten", w: 70 }, { k: "price", l: "Preis €", w: 80 }, { k: "value", l: "Wert €", w: 80 },
@@ -1983,7 +1984,7 @@ const COLS = [
 ];
 // Spaltentypen für Filter: Text (Standard), Zahl, Datum, Auswahl
 const COL_TYPE = { year: "num", seriesNo: "num", pages: "num", price: "num", value: "num", addedAt: "date", reads: "date", status: "sel", rating: "sel", favorite: "sel", cover: "sel" };
-const COL_NAME = { cover: "Cover", rating: "Bewertung", favorite: "Lieblingsbuch", price: "Preis", value: "Wert", location: "Standort", seriesNo: "Band", act: "Aktionen" };
+const COL_NAME = { sel: "Auswahl", cover: "Cover", rating: "Bewertung", favorite: "Lieblingsbuch", price: "Preis", value: "Wert", location: "Standort", seriesNo: "Band", act: "Aktionen" };
 const colLabel = k => COL_NAME[k] || COLS.find(c => c.k === k)?.l || k;
 const SEL_OPTS = {
   status: [["", "alle"], ...Object.entries(STATUS)],
@@ -2022,7 +2023,49 @@ function saveViews() { try { localStorage.setItem("tableViews", JSON.stringify(S
 
 /* ---------- Spalten: sichtbar, Breite ---------- */
 const MIN_COL_W = 40;
-const visCols = () => COLS.filter(c => !S.tHidden.includes(c.k));
+const visCols = () => COLS.filter(c => c.fixed || !S.tHidden.includes(c.k));
+
+/* ---------- Mehrfachauswahl (z. B. mehrere Bücher löschen) ---------- */
+S.tSel = new Set(); // ausgewählte Buch-IDs – wird geleert, sobald sich Filter oder Sortierung ändern
+function updSel() {
+  const list = S.tList || [];
+  const n = list.filter(b => S.tSel.has(b.id)).length;
+  const all = $("#tbl thead input.selall");
+  if (all) { all.checked = !!list.length && n === list.length; all.indeterminate = n > 0 && n < list.length; }
+  for (const tr of $("#tbl").querySelectorAll("tbody tr[data-id]")) {
+    const on = S.tSel.has(tr.dataset.id); tr.classList.toggle("selrow", on);
+    const cb = tr.querySelector("input.selcb"); if (cb) cb.checked = on;
+  }
+  renderTableBar(list, anyTableFilter());
+}
+function selectAllShown(on) { S.tSel = new Set(on ? (S.tList || []).map(b => b.id) : []); S.tSelLast = null; updSel(); }
+function selCell(b) {
+  const cb = el("input", { type: "checkbox", class: "selcb", checked: S.tSel.has(b.id) || null, "aria-label": "Auswählen: " + (b.title || "ohne Titel"), title: "Auswählen · Umschalt+Klick: Bereich" });
+  cb.addEventListener("click", e => {
+    const list = S.tList || [], idx = list.indexOf(b);
+    if (e.shiftKey && S.tSelLast != null && idx >= 0) { // Bereich bis zum zuletzt angeklickten Buch
+      for (const x of list.slice(Math.min(idx, S.tSelLast), Math.max(idx, S.tSelLast) + 1)) cb.checked ? S.tSel.add(x.id) : S.tSel.delete(x.id);
+    } else if (cb.checked) S.tSel.add(b.id); else S.tSel.delete(b.id);
+    S.tSelLast = idx; updSel();
+  });
+  return el("td", { class: "seltd" }, cb);
+}
+async function deleteSelected() {
+  const books = (S.tList || []).filter(b => S.tSel.has(b.id));
+  if (!books.length) return;
+  const n = books.length;
+  const names = books.slice(0, 6).map(b => "• " + (b.title || "ohne Titel") + (b.author ? " – " + b.author : "")).join("\n") + (n > 6 ? `\n… und ${n - 6} weitere` : "");
+  const syncOn = typeof SY !== "undefined" && SY.conf?.on;
+  if (!(await confirmBox(`${n === 1 ? "Dieses Buch" : `Diese ${n} Bücher`} endgültig löschen?\n\n${names}\n\nAuch ihre Bilder und Dateien werden gelöscht.` +
+    (syncOn ? " Durch den Abgleich verschwinden sie auch auf deinen anderen Geräten." : "") +
+    "\n\nTipp: Bücher, die du nur weggegeben hast, besser als „📦 Hatte ich mal“ markieren.", n === 1 ? "Löschen" : `${n} Bücher löschen`))) return;
+  const t = toast(`Lösche ${n} …`, 60000);
+  for (const b of books) await removeBook(b.id);
+  t.remove();
+  S.tSel.clear(); S.tSelLast = null;
+  toast(n === 1 ? "1 Buch gelöscht." : `${n} Bücher gelöscht.`);
+  renderAll();
+}
 const colW = col => Math.max(MIN_COL_W, Math.round(+S.tW[col.k] || col.w));
 function setColHidden(k, hide) {
   if (k === "title") return;
@@ -2260,6 +2303,7 @@ function setColF(k, v, inp) {
 }
 function filterCell(col) {
   const k = col.k;
+  if (k === "sel") return el("th", { class: "fth" });
   if (k === "act") return el("th", { class: "fth" }, activeColFilters().length ? el("button", { class: "btn sm ghost", title: "Alle Spaltenfilter aufheben", onclick: () => { S.colF = {}; saveTableView(); renderTable(); } }, "✕ Filter") : null);
   const ty = COL_TYPE[k] || "text";
   const cur = S.colF[k] || "";
@@ -2307,8 +2351,13 @@ function renderTable() {
   const cols = visCols();
   const colgroup = el("colgroup", {}, ...cols.map(col => el("col", { "data-k": col.k, style: `width:${colW(col)}px` })));
   tbl.style.width = cols.reduce((s, c) => s + colW(c), 0) + "px";
+  const selAllTh = () => {
+    const cb = el("input", { type: "checkbox", class: "selall", "aria-label": "Alle angezeigten Bücher auswählen", title: "Alle angezeigten Bücher auswählen (auch die noch nicht geladenen)" });
+    cb.addEventListener("change", () => selectAllShown(cb.checked));
+    return el("th", { class: "nos seltd", "data-k": "sel" }, cb);
+  };
   const thead = el("thead", {},
-    el("tr", {}, ...cols.map(col => el("th", {
+    el("tr", {}, ...cols.map(col => col.k === "sel" ? selAllTh() : el("th", {
       class: col.nos ? "nos" : null, "data-k": col.k,
       title: col.nos ? null : "Klick: danach sortieren (nochmal: umkehren) · Umschalt+Klick: als weitere Sortierstufe · rechten Rand ziehen: Breite",
       onclick: col.nos ? null : e => { if (e.target.closest(".colgrip") || Date.now() - (S.tResized || 0) < 300) return; clickSort(col.k, e.shiftKey); },
@@ -2325,8 +2374,9 @@ function tableRow(b, cols = visCols()) {
     return i;
   };
   const miss = missingOf(b);
-  return el("tr", { class: isGone(b) ? "gonerow" : isWish(b) ? "wishrow" : null }, ...cols.map(col => {
+  const cell = col => {
     const k = col.k;
+    if (k === "sel") return selCell(b);
     if (k === "cover") { const src = coverSrc(b); return el("td", {}, el("div", { class: "thumb" + (needsCover(b) ? " nocov" : ""), title: needsCover(b) ? "Cover online suchen" : "Details öffnen", onclick: () => needsCover(b) ? findCoverFor(b.id) : openDetail(b.id) }, src ? el("img", { src, alt: "", loading: "lazy", onerror: e => e.target.remove() }) : (needsCover(b) ? el("span", { text: "🖼" }) : null))); }
     if (k === "status") { const s = el("select", {}, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v, selected: (b.status || "unread") === v || null }, l))); s.addEventListener("change", () => patchBook(b.id, statusPatch(b, s.value))); return el("td", {}, s); }
     if (k === "tags") { const i = el("input", { value: (b.tags || []).join(", "), placeholder: "", list: "taglist", title: "Mehrere mit Komma trennen" }); i.addEventListener("change", () => patchBook(b.id, { tags: normTags(i.value) })); i.addEventListener("keydown", e => { if (e.key === "Enter") i.blur(); }); return el("td", {}, i); }
@@ -2346,7 +2396,9 @@ function tableRow(b, cols = visCols()) {
       el("button", { class: "btn sm ghost danger", title: "Löschen", onclick: async () => { if (await confirmBox(`„${b.title || "Dieses Buch"}“ wirklich löschen?`)) { await removeBook(b.id); toast("Gelöscht."); } } }, "🗑"));
     const req = FIELDS.find(f => f.k === k)?.req;
     return el("td", { class: req && !String(b[k] ?? "").trim() ? "miss" : null }, cellInput(b, k));
-  }));
+  };
+  const cls = [isGone(b) ? "gonerow" : isWish(b) ? "wishrow" : "", S.tSel.has(b.id) ? "selrow" : ""].filter(Boolean).join(" ");
+  return el("tr", { class: cls || null, "data-id": b.id }, ...cols.map(col => { const td = cell(col); td.setAttribute("data-k", col.k); return td; }));
 }
 const T_PAGE = 150;
 S.tLimit = T_PAGE;
@@ -2381,15 +2433,16 @@ function renderTableRows() {
   // Große Listen in Stücken zeichnen: erst T_PAGE Zeilen, beim Scrollen mehr. Neu anfangen nur, wenn sich Filter/Sortierung ändern –
   // nicht beim Bearbeiten einer Zelle (sonst springt die Liste).
   const sig = canon({ colF: S.colF, sorts: S.tSorts, tFilter: S.tFilter, tTag: S.tTag, tq: S.tq });
-  if (sig !== S.tSig) { const first = S.tSig == null; S.tSig = sig; S.tLimit = T_PAGE; const w = $(".tablewrap"); if (w && !first) w.scrollTop = 0; } // neue Auswahl: oben beginnen
+  if (sig !== S.tSig) { const first = S.tSig == null; S.tSig = sig; S.tLimit = T_PAGE; S.tSel.clear(); S.tSelLast = null; const w = $(".tablewrap"); if (w && !first) w.scrollTop = 0; } // neue Auswahl: oben beginnen, Häkchen weg
   S.tList = list; S.tCols = cols;
+  if (S.tSel.size) { const ids = new Set(list.map(b => b.id)); for (const id of [...S.tSel]) if (!ids.has(id)) S.tSel.delete(id); } // gelöschte/ausgeblendete nicht mehr ausgewählt
   const body = el("tbody", {}, ...list.slice(0, S.tLimit).map(b => tableRow(b, cols)));
   if (list.length > S.tLimit) body.append(moreRow());
   if (!list.length) body.append(el("tr", {}, el("td", { colspan: cols.length, style: "padding:30px;text-align:center;color:var(--muted);white-space:normal" },
     !S.loaded ? "Lade …" : !S.books.length ? "Noch keine Bücher erfasst." : "Keine Treffer.",
     S.loaded && S.books.length && anyFilter ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: clearAllTableFilters }, "Alle Filter aufheben") : null)));
   const old = tbl.tBodies[0]; if (old) old.replaceWith(body); else tbl.append(body);
-  renderTableBar(list, anyFilter);
+  updSel(); // Häkchen-Zustand im Kopf + Leiste über der Tabelle
 }
 function renderTableBar(list, anyFilter) {
   const host = $("#tbar"); if (!host) return;
@@ -2401,7 +2454,13 @@ function renderTableBar(list, anyFilter) {
   const addSel = el("select", { class: "field sadd", title: "Weitere Sortierstufe hinzufügen" }, el("option", { value: "" }, "＋ dann nach …"),
     ...COLS.filter(c => !c.nos && !S.tSorts.some(s => s.key === c.k)).map(c => el("option", { value: c.k }, colLabel(c.k))));
   addSel.addEventListener("change", () => { if (addSel.value) { S.tSorts.push({ key: addSel.value, dir: 1 }); saveTableView(); renderTable(); } });
+  const nSel = S.tSel.size;
   fillNode(host,
+    nSel ? el("div", { class: "tbrow selbar", role: "region", "aria-label": "Auswahl" },
+      el("b", { text: `${nSel} ausgewählt` }),
+      el("button", { class: "btn sm danger", onclick: deleteSelected }, nSel === 1 ? "🗑 Löschen" : `🗑 ${nSel} Bücher löschen`),
+      nSel < list.length ? el("button", { class: "btn sm ghost", onclick: () => selectAllShown(true) }, `Alle ${list.length} auswählen`) : null,
+      el("button", { class: "btn sm ghost", onclick: () => selectAllShown(false) }, "Auswahl aufheben")) : null,
     el("div", { class: "tbrow" },
       el("span", { class: "tcount" }, el("b", { text: list.length }), ` von ${S.books.length}`),
       el("span", { class: "tlbl", text: "Sortiert:" }), ...S.tSorts.map(sortChip), addSel,
@@ -2431,7 +2490,7 @@ function columnsMenu() {
   const n = S.tHidden.length;
   return popMenu("colPickOpen", "▦ Spalten" + (n ? ` (${n} aus)` : ""),
     el("div", { class: "tphead", text: "Angezeigte Spalten" }),
-    el("div", { class: "tpcols" }, ...COLS.map(c => {
+    el("div", { class: "tpcols" }, ...COLS.filter(c => !c.fixed).map(c => {
       const cb = el("input", { type: "checkbox", checked: !S.tHidden.includes(c.k) || null, disabled: c.k === "title" || null, "aria-label": "Spalte " + colLabel(c.k) });
       cb.addEventListener("change", () => setColHidden(c.k, !cb.checked));
       return el("label", { class: "tpick" + (c.k === "title" ? " fixed" : "") }, cb, colLabel(c.k));

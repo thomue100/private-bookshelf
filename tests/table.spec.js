@@ -12,7 +12,7 @@ async function setup(page) {
   await page.goto("/#verwaltung");
   await page.waitForFunction(() => S.loaded);
 }
-const titles = page => page.locator("#tbl tbody tr td:nth-child(2) input").evaluateAll(els => els.map(e => e.value));
+const titles = page => page.locator("#tbl tbody tr td[data-k=title] input").evaluateAll(els => els.map(e => e.value));
 const sorted = async page => (await titles(page)).sort();
 const fin = (page, k) => page.locator(`tr.frow input[aria-label='Filter ${k}']`);
 async function filter(page, k, v) { await fin(page, k).fill(v); await fin(page, k).press("Enter"); }
@@ -68,7 +68,7 @@ test("Mehrstufige Sortierung (Umschalt+Klick) und gespeicherte Ansicht nach Neul
   await page.click("thead th:has-text('Autor')");
   await page.click("thead th:has-text('Jahr')", { modifiers: ["Shift"] });
   await page.click("thead th:has-text('Jahr')", { modifiers: ["Shift"] }); // zweiter Klick: absteigend
-  const rows = () => page.locator("#tbl tbody tr").evaluateAll(rs => rs.map(r => [r.children[2].querySelector("input").value, r.children[3].querySelector("input").value]));
+  const rows = () => page.locator("#tbl tbody tr").evaluateAll(rs => rs.map(r => [r.querySelector("td[data-k=author] input").value, r.querySelector("td[data-k=year] input").value]));
   await expect.poll(async () => (await rows()).slice(0, 4)).toEqual([["The Detection Club", "2000"], ["Umberto Eco", "2000"], ["Michael Ende", "2000"], ["Michael Ende", "1979"]]); // Autor nach Nachname
   await expect(page.locator(".schip")).toHaveCount(2);
 
@@ -80,7 +80,7 @@ test("Mehrstufige Sortierung (Umschalt+Klick) und gespeicherte Ansicht nach Neul
   await expect(page.locator(".schip")).toHaveCount(2);
 
   // Zelle bearbeiten, während ein Filter aktiv ist
-  const cell = page.locator("#tbl tbody tr td:nth-child(4) input").first();
+  const cell = page.locator("#tbl tbody tr td[data-k=year] input").first();
   await cell.fill("1970"); await cell.press("Enter");
   await expect.poll(() => page.evaluate(() => S.books.filter(b => b.year === "1970").length)).toBe(1);
 });
@@ -210,7 +210,7 @@ test("Große Sammlung: Tabelle zeigt erst 150 Zeilen, lädt beim Scrollen nach, 
 
   // Zelle bearbeiten setzt die Liste nicht zurück
   const n = await rows();
-  const cell = page.locator("#tbl tbody tr:not(.tmore) td:nth-child(4) input").nth(5);
+  const cell = page.locator("#tbl tbody tr:not(.tmore) td[data-k=year] input").nth(5);
   await cell.fill("1999"); await cell.press("Enter");
   await expect.poll(() => page.evaluate(() => S.books.filter(b => b.year === "1999").length)).toBe(1);
   expect(await rows()).toBe(n);
@@ -236,7 +236,52 @@ test("Nur die sichtbare Ansicht wird gezeichnet; beim Wechsel ist sie aktuell", 
   });
   expect(calls).toBe(0);
   await page.click("nav a[data-view=verwaltung]");
-  await expect(page.locator("#tbl tbody tr td:nth-child(2) input[value='Momo (neu)']")).toHaveCount(1);
+  await expect(page.locator("#tbl tbody tr td[data-k=title] input[value='Momo (neu)']")).toHaveCount(1);
+});
+
+test("Mehrere Bücher auswählen und löschen: Einzeln, Bereich (Umschalt), alle gefilterten; mit Rückfrage", async ({ page }) => {
+  await setup(page);
+  const sel = t => page.locator(`#tbl tbody tr:has(td[data-k=title] input[value='${t}']) input.selcb`);
+  const bar = page.locator(".selbar");
+  await expect(bar).toHaveCount(0);
+
+  // Sortierung nach Titel, dann Bereich Buddenbrooks … Der Name der Rose per Umschalt+Klick
+  await page.click("thead th[data-k=title]");
+  await sel("Buddenbrooks").click();
+  await sel("Der Name der Rose").click({ modifiers: ["Shift"] }); // Buddenbrooks, Der Name der Rose (alphabetisch direkt danach)
+  await sel("Tschick").click();
+  await expect(bar).toContainText("3 ausgewählt");
+  await expect(page.locator("#tbl tbody tr.selrow")).toHaveCount(3);
+  await expect(page.locator("thead input.selall")).toHaveJSProperty("indeterminate", true);
+
+  // Abbrechen löscht nichts
+  await bar.getByRole("button", { name: "3 Bücher löschen" }).click();
+  await expect(page.locator(".overlay.confirm")).toContainText("Diese 3 Bücher endgültig löschen?");
+  await expect(page.locator(".overlay.confirm")).toContainText("Tschick");
+  await page.locator(".overlay.confirm").getByRole("button", { name: "Abbrechen" }).click();
+  expect(await page.evaluate(() => S.books.length)).toBe(12);
+
+  await bar.getByRole("button", { name: "3 Bücher löschen" }).click();
+  await page.locator(".overlay.confirm").getByRole("button", { name: "3 Bücher löschen" }).click();
+  await expect.poll(() => page.evaluate(() => S.books.length)).toBe(9);
+  expect(await page.evaluate(() => ["b10", "b4", "b5"].every(id => S.deleted[id]))).toBe(true); // Löschvermerke für Sicherung/Abgleich
+  await expect(bar).toHaveCount(0);
+
+  // Alle gefilterten auswählen (auch nicht sichtbare Zeilen zählen) – Filter ändern hebt die Auswahl auf
+  await filter(page, "Autor", "ende");
+  await page.locator("thead input.selall").check();
+  await expect(bar).toContainText("2 ausgewählt");
+  await filter(page, "Autor", "hesse");
+  await expect(bar).toHaveCount(0);
+  await page.locator("thead input.selall").check();
+  await bar.getByRole("button", { name: "2 Bücher löschen" }).click();
+  await page.locator(".overlay.confirm").getByRole("button", { name: "2 Bücher löschen" }).click();
+  await expect.poll(() => page.evaluate(() => S.books.map(b => b.author).filter(a => /Hesse/.test(a)).length)).toBe(0);
+  expect(await page.evaluate(() => S.books.length)).toBe(7);
+
+  // Die Auswahl-Spalte lässt sich nicht ausblenden
+  await colsMenu(page).locator("summary").click();
+  await expect(page.getByLabel("Spalte Auswahl")).toHaveCount(0);
 });
 
 test("Gespeicherte Tabellen-Einstellung im alten Format (ohne Spalten/Breiten) wird übernommen", async ({ page }) => {
@@ -245,6 +290,6 @@ test("Gespeicherte Tabellen-Einstellung im alten Format (ohne Spalten/Breiten) w
   await page.reload();
   await page.waitForFunction(() => S.loaded);
   await expect.poll(() => sorted(page)).toEqual(["Die unendliche Geschichte", "Momo"]);
-  await expect(page.locator("#tbl thead tr").first().locator("th")).toHaveCount(22); // alle Spalten sichtbar
+  await expect(page.locator("#tbl thead tr").first().locator("th")).toHaveCount(23); // alle Spalten sichtbar (inkl. Auswahl)
   expect(await page.evaluate(() => [S.tHidden, S.tW, S.tFilter, S.tView])).toEqual([[], {}, "all", ""]);
 });
