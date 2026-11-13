@@ -1,8 +1,9 @@
 // Grundcheck: alle Ansichten laden fehlerfrei, Offline-Liste ist vollständig, Handy-Ansicht läuft nicht über.
 import { test, expect, openApp, seedBooks } from "./helpers.js";
 import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const APP = new URL("../app/", import.meta.url).pathname;
+const APP = fileURLToPath(new URL("../app/", import.meta.url));
 
 test("Service Worker: alle App-Dateien stehen in der Offline-Liste", () => {
   const sw = readFileSync(APP + "sw.js", "utf8");

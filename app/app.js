@@ -88,7 +88,7 @@ async function putBook(b) {
   if (i >= 0) S.books[i] = b; else S.books.push(b);
   if (S.urls.has(b.id)) { URL.revokeObjectURL(S.urls.get(b.id)); S.urls.delete(b.id); }
   spineCol.delete(b.id);
-  if (typeof scheduleAutoBackup === "function") scheduleAutoBackup();
+  dataChanged();
   if (!b.spine?.imageBlob && spineImg.has(b.id)) { URL.revokeObjectURL(spineImg.get(b.id).url); spineImg.delete(b.id); }
   scheduleRender();
 }
@@ -102,10 +102,12 @@ async function removeBook(id) {
   await DB.del(id);
   S.books = S.books.filter(b => b.id !== id);
   S.deleted[id] = new Date().toISOString();
-  if (typeof scheduleAutoBackup === "function") scheduleAutoBackup();
+  dataChanged();
   await DB.setMeta("deleted", S.deleted);
   scheduleRender();
 }
+// Nach jeder Änderung: lokale Ordner-Sicherung und (falls eingerichtet) Server-Abgleich einplanen
+function dataChanged() { if (typeof scheduleAutoBackup === "function") scheduleAutoBackup(); if (typeof scheduleSync === "function") scheduleSync(); }
 let rT; function scheduleRender() { clearTimeout(rT); rT = setTimeout(renderAll, 30); }
 
 /* ================= Hilfen ================= */
@@ -1465,7 +1467,7 @@ function modBookCount(m) { ensureLayers(m); return [m.fachs, m.back, m.top].redu
 const isLying = id => !!(S.shelves.lying && S.shelves.lying[id]);
 function setLying(id, v) { S.shelves.lying = S.shelves.lying || {}; if (v) S.shelves.lying[id] = true; else delete S.shelves.lying[id]; }
 
-async function saveShelves() { S.shelves.updatedAt = new Date().toISOString(); await DB.setMeta("shelves", S.shelves); if (typeof scheduleAutoBackup === "function") scheduleAutoBackup(); }
+async function saveShelves() { S.shelves.updatedAt = new Date().toISOString(); await DB.setMeta("shelves", S.shelves); dataChanged(); }
 function curWall() { return S.shelves.walls.find(w => w.id === S.wallId) || S.shelves.walls[0] || null; }
 function newModule(type, color) { const m = { id: uid().slice(0, 8), type, color: color || "#f3f2ee", orient: "h" }; ensureLayers(m); return m; }
 function allFachs() {
@@ -2282,7 +2284,7 @@ async function importData(data) {
   let wallNote = "";
   if (data.shelves?.walls && (data.shelves.updatedAt || "") > (S.shelves.updatedAt || "")) { S.shelves = data.shelves; await DB.setMeta("shelves", S.shelves); wallNote = " Regal-Aufstellung übernommen."; }
   renderAll();
-  if (typeof scheduleAutoBackup === "function") scheduleAutoBackup();
+  dataChanged();
   return `Abgleich fertig: ${added} neu, ${updated} aktualisiert, ${removed} gelöscht, ${skipped} unverändert.${wallNote}`;
 }
 function exportCsv(only) {
@@ -2314,6 +2316,7 @@ $("#menuBtn").addEventListener("click", e => {
     item("⬇ Sicherung importieren & abgleichen", importFlow),
     el("hr"),
     item("💾 Automatische Sicherung …", openAutoBackup),
+    item("🔄 Abgleich mit eigenem Server …", openSyncSettings),
     item("📊 Als CSV für Excel exportieren", exportCsv),
     item("🔗 Suchseiten wählen (ZVAB, SLUB …)", providerSettings),
     item("📷 Fach-Foto einlesen", () => openShelfScan()),
@@ -2326,12 +2329,13 @@ $("#menuBtn").addEventListener("click", e => {
 function aboutBox() {
   const sh = sheet("Über diese App");
   sh.body.append(
-    el("p", { text: "Mein Bücherregal speichert alle Daten ausschließlich in diesem Browser auf diesem Gerät – es gibt kein Konto und keinen Server." }),
+    el("p", { text: "Mein Bücherregal speichert alle Daten in diesem Browser auf diesem Gerät – es gibt kein Konto. Wer möchte, kann zusätzlich einen eigenen Server (z. B. auf dem PC) für den automatischen Abgleich eintragen." }),
     el("p", { text: "Buchdaten kommen von der Deutschen Nationalbibliothek (sehr vollständig für deutschsprachige und aktuelle Ausgaben), Google Books und Open Library. Die Texterkennung auf Covern läuft direkt im Browser (Tesseract)." }),
     el("p", { text: "Handy und PC abgleichen: Menü ⋯ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
     el("p", { text: "Wichtig: Wenn du die Browserdaten löschst, ist auch das Regal weg. Exportiere deshalb ab und zu eine Sicherung." }),
     el("p", { class: "saved", text: `${S.books.length} Bücher gespeichert.` }),
     autoBackupBox(),
+    syncBox(),
     googleKeyBox(),
     gcsKeyBox(),
     aiKeyBox());

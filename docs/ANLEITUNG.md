@@ -6,7 +6,7 @@ Eine eigenständige Web-App für deine private Bibliothek. Sie läuft im Browser
 
 Damit die Kamera funktioniert, muss die App über **https** erreichbar sein.
 
-> **Im GitHub-Projekt `private-bookshelf`** liegen die App-Dateien im Ordner `app/`. Dort wird über Cloudflare Pages veröffentlicht – die Schritte stehen in der `README.md`. Die folgende Anleitung gilt, wenn du die App als ZIP-Paket weitergibst.
+> **Im GitHub-Projekt `private-bookshelf`** liegen die App-Dateien im Ordner `app/`. Dort wird über Vercel veröffentlicht – die Schritte stehen in der `README.md`. Die folgende Anleitung gilt, wenn du die App als ZIP-Paket weitergibst.
 
 Am einfachsten geht das mit **GitHub Pages**:
 
@@ -193,6 +193,13 @@ Jedes Gerät hat sein eigenes Regal. So bringst du sie zusammen:
 2. Am PC: Menü **⋯ → „Sicherung importieren & abgleichen“** → Datei wählen.
 
 Die Bücher werden zusammengeführt: Neue kommen dazu, bei Änderungen gewinnt die jeweils neuere, Gelöschtes wird auch drüben gelöscht. Das funktioniert in beide Richtungen.
+
+### Automatisch abgleichen über den eigenen PC (optional)
+
+Statt Dateien hin- und herzuschicken, kann sich die App über eine kleine Datenbank (CouchDB) auf deinem PC selbst abgleichen –
+ohne Cloud, auch unterwegs, sobald der PC an ist. Einrichtung Schritt für Schritt: **`ABGLEICH-EINRICHTEN.md`**.
+Danach: Menü **⋯ → „🔄 Abgleich mit eigenem Server“**. Das **⟳** oben zeigt, ob gerade abgeglichen wird (rot = Problem, antippen).
+Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 
 ## 5. Sicherheit deiner Daten
 

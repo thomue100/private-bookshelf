@@ -11,7 +11,11 @@ test("Sicherung schreibt Tagesdatei + Dateien-Ordner und stellt nach Datenverlus
     await DB.putBlob({ id, bookId: "b2", blob: new Blob(["%PDF-1.4 test"], { type: "application/pdf" }) });
     await patchBook("b2", { files: [{ id, name: "Vorleser.pdf", type: "application/pdf", size: 13 }], tags: ["Klassiker"] });
   });
-  expect(await page.evaluate(() => runAutoBackup(true))).toBe(true);
+  await page.evaluate(() => openAutoBackup());
+  await expect(page.locator(".abbox")).toContainText("Noch keine Sicherung geschrieben");
+  await page.click(".abbox >> text=Jetzt sichern");
+  await expect(page.locator(".abbox")).toContainText("Letzte Sicherung:"); // Anzeige aktualisiert sich
+  await page.click(".sheet-h .x");
   const files = await page.evaluate(async () => {
     const out = []; for await (const [n, h] of AB.handle.entries()) out.push(n + (h.kind === "directory" ? "/" : ""));
     const f = await AB.handle.getDirectoryHandle("Dateien"); for await (const [n] of f.entries()) out.push("Dateien/" + n);

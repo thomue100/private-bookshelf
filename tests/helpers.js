@@ -2,8 +2,9 @@
 // oder mit festen Antworten beantwortet (Kataloge, KI, Bilder).
 import { test as base, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-export const fixture = name => new URL(`./fixtures/${name}`, import.meta.url).pathname;
+export const fixture = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 export const fixtureBytes = name => readFileSync(fixture(name));
 const json = (route, body, status = 200) => route.fulfill({ status, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(body) });
 const EMPTY_DNB = '<?xml version="1.0"?><searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><numberOfRecords>0</numberOfRecords></searchRetrieveResponse>';

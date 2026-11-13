@@ -438,3 +438,11 @@ select.sadd{width:auto;padding:3px 8px;font-size:12.5px;border-radius:999px}
 .pastebox{outline:none;cursor:pointer;caret-color:transparent}
 .pastebox:focus{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 .fhelp summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+
+/* Abgleich mit eigenem Server */
+.sybox .lbl{margin-top:10px}
+.syncdot{font-size:18px;padding:6px 10px;color:var(--accent)}
+.syncdot.busy{animation:syspin 1.2s linear infinite}
+.syncdot.err{color:#b3261e}
+@keyframes syspin{to{transform:rotate(360deg)}}
+@media (max-width:600px){ .syncdot{padding:4px 2px;font-size:16px} .bar:has(.syncdot){gap:4px} .bar:has(.syncdot) nav a{padding:6px 8px} }
