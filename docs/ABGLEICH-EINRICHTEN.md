@@ -19,11 +19,14 @@ Zeitbedarf: einmalig etwa 30–45 Minuten. Du brauchst den Windows-PC und dein H
    Gut aufschreiben – das ist der Hauptschlüssel für die Datenbank.
    Den Haken **„Install as Windows service“** gesetzt lassen: Dann startet CouchDB automatisch mit dem PC und läuft unsichtbar im Hintergrund.
 3. Im Browser **http://127.0.0.1:5984/_utils** öffnen. Das ist „Fauxton“, die Verwaltungsoberfläche von CouchDB. Mit dem Admin anmelden.
-4. Links auf **Setup** (Schraubenschlüssel) → **Configure a Single Node**.
+4. **Dieser Schritt ist Pflicht**, auch wenn CouchDB schon zu laufen scheint: Links auf **Setup** (Schraubenschlüssel) → **Configure a Single Node**.
    - Admin-Benutzer/Passwort wie oben eingeben.
    - Bei **Bind address** `127.0.0.1` eintragen (nicht `0.0.0.0`). So ist die Datenbank im Heimnetz nicht direkt erreichbar –
      den Zugang für dein Handy übernimmt gleich Tailscale.
    - **Configure Node** klicken.
+
+   **Prüfen:** Links auf **Databases** – dort müssen jetzt `_users` und `_replicator` stehen. Fehlen sie, war die Einrichtung nicht
+   erfolgreich: Dann gibt es keine Benutzerverwaltung, und Schritt 6 schlägt fehl. Schritt 4 einfach wiederholen.
 
 ### Datenbank und App-Benutzer anlegen
 
@@ -101,8 +104,10 @@ Webseiten, die länger nicht besucht wurden, sonst unter Umständen auf. Mit dem
 | Kein Zugriff auf die Datenbank | Teil 1, Schritt 7: `buecher` als Member eintragen |
 | Die Datenbank gibt es noch nicht | Teil 1, Schritt 5: `buecherregal` anlegen (Name genau so) |
 
-Der Abgleich ersetzt keine Sicherung: Die **automatische Sicherung in einen Ordner** (Menü ⋯ → 💾) bzw. ab und zu
-„Sicherung exportieren“ bleiben sinnvoll – z. B. auf einen USB-Stick.
+**Der Abgleich ersetzt keine Sicherung.** Er verteilt jede Änderung auf alle Geräte – auch ein versehentliches Löschen oder Überschreiben.
+Gegen solche Fehler hilft nur ein älterer Stand: Schalte am PC die **automatische Sicherung in einen Ordner** ein (Menü ⋯ → 💾, Chrome oder
+Edge). Sie legt jeden Tag eine Datei an und behält die letzten 14 Tage. Am besten einen Ordner auf einem USB-Stick oder einer externen
+Festplatte wählen (keinen Ordner, der mit OneDrive o. Ä. abgeglichen wird); zurückholen geht dort mit „Aus Sicherungsordner wiederherstellen“.
 
 ## Ausschalten
 

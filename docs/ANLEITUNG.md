@@ -136,6 +136,11 @@ Unter den Spaltenüberschriften der Tabelle liegt eine **Filterzeile** (ein-/aus
 
 **Spalten anpassen:** „▦ Spalten“ blendet Spalten ein und aus (der Titel bleibt immer sichtbar). Die **Breite** änderst du, indem du in der Überschrift den rechten Rand einer Spalte ziehst; Doppelklick auf den Rand stellt die Standardbreite wieder her. „Breiten zurücksetzen“ gilt für alle Spalten. Der CSV-Export enthält immer alle Spalten.
 
+**Dubletten finden:** „🧩 Dubletten prüfen“ in der Verwaltung zeigt Bücher mit gleicher ISBN (auch ISBN-10 = ISBN-13) oder gleichem Titel und Autor – außer wenn ISBN oder Band-Nr. verschieden sind, dann gelten sie als verschiedene Bände. Je Gruppe:
+- **Zusammenführen:** Der ausgewählte Eintrag bleibt (vorgeschlagen wird der eingeräumte, vollständigere). Er übernimmt, was ihm fehlt: Angaben, Cover, Schlagworte, Notizen, Lesezeiten, Bewertung, weitere Bilder und Dateien, notfalls den Platz im Regal. Die anderen werden gelöscht.
+- **Sind verschiedene Bücher:** z. B. zwei Exemplare. Die App merkt sich das (auch in Sicherung und Abgleich) und zeigt die Gruppe nicht mehr an.
+- Stimmt nur eine ISBN nicht, „Öffnen“ und korrigieren. Der Filter-Knopf „🧩 Mögliche Dubletten“ zeigt dieselben Bücher in der Tabelle.
+
 **Ansichten speichern:** Unter „⭐ Ansichten“ speicherst du die aktuelle Einstellung unter einem Namen, z. B. „Ungelesene Krimis“ oder „Inventur Wohnzimmer“. Gespeichert werden Filter, Suche, Filter-Knopf, Schlagwort, Sortierung, ausgeblendete Spalten und Spaltenbreiten. Ein Klick auf den Namen stellt alles wieder her. Hast du danach etwas verändert, steht „(geändert)“ dahinter. Unter demselben Namen erneut speichern aktualisiert die Ansicht, × löscht sie (die Bücher bleiben unverändert). „↺ Grundeinstellung“ setzt die Tabelle komplett zurück.
 
 **Sortieren über mehrere Spalten:** Klick auf eine Überschrift sortiert danach (nochmal = umgekehrt). **Umschalt+Klick** fügt eine weitere Sortierstufe hinzu (z. B. Autor, dann Jahr absteigend). Am Handy über „＋ dann nach …“. Leere Werte stehen immer am Ende.
@@ -210,6 +215,8 @@ Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 
 - Die Daten liegen im Speicher des Browsers. **Wenn du die Browserdaten/Websitedaten löschst, ist das Regal weg.** Die App erinnert dich alle 14 Tage an eine Sicherung.
 - Die Sicherungsdatei (`.json`) enthält alles inklusive Cover-Fotos. Bewahre sie gut auf.
+- **Am PC am bequemsten:** Menü ⋯ → **💾 Automatische Sicherung** (Chrome/Edge). Ein Stand pro Tag, die letzten 14 Tage bleiben. Ordner auf einem USB-Stick oder einer externen Festplatte wählen.
+- **Auch mit Abgleich wichtig:** Der Abgleich verteilt jede Änderung auf alle Geräte – auch ein versehentliches Löschen. Nur eine ältere Sicherung holt so etwas zurück.
 - „CSV für Excel“ (Verwaltung oder Menü) gibt dir eine Tabelle zum Weiterverarbeiten.
 
 ## 6. An Freunde weitergeben
@@ -217,6 +224,8 @@ Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 Schick ihnen einfach deine Adresse (z. B. `https://DEIN-NAME.github.io/buecherregal/`). Jede Person hat ihr **eigenes, privates Regal** auf ihrem Gerät – niemand sieht die Bücher der anderen, auch du nicht.
 
 ## Gut zu wissen
+
+- **Neue Version:** Wurde die App aktualisiert, erscheint unten „Neue Version der App ist da“. „Jetzt aktualisieren“ lädt sie neu; mit ✕ geht es später beim nächsten Öffnen.
 
 - Erfassen braucht Internet (für Buchdaten und Cover). Ansehen, Notizen, Bewertungen und Verwaltung funktionieren auch offline.
 - Diktieren (🎙) gibt es in Chrome, Edge und Safari. Sonst geht das Mikrofon der Handy-Tastatur.
