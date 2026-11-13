@@ -136,6 +136,8 @@ Unter den Spaltenüberschriften der Tabelle liegt eine **Filterzeile** (ein-/aus
 
 **Spalten anpassen:** „▦ Spalten“ blendet Spalten ein und aus (der Titel bleibt immer sichtbar). Die **Breite** änderst du, indem du in der Überschrift den rechten Rand einer Spalte ziehst; Doppelklick auf den Rand stellt die Standardbreite wieder her. „Breiten zurücksetzen“ gilt für alle Spalten. Der CSV-Export enthält immer alle Spalten.
 
+**Mehrere Bücher auf einmal löschen:** Vorne in jeder Zeile steht ein Kästchen zum Ankreuzen. **Umschalt+Klick** kreuzt alles bis zum zuletzt angeklickten Buch an; das Kästchen in der Überschrift wählt **alle angezeigten** Bücher (praktisch zusammen mit einem Filter, z. B. „Ohne Cover“ oder einem Autor). Über der Tabelle erscheint dann „… ausgewählt“ mit **🗑 Löschen** – die App zeigt vorher, welche Bücher betroffen sind, und fragt nach. Wechselst du Filter oder Sortierung, wird die Auswahl aufgehoben. Weggegebene Bücher besser als „📦 Hatte ich mal“ markieren statt löschen.
+
 **Dubletten finden:** „🧩 Dubletten prüfen“ in der Verwaltung zeigt Bücher mit gleicher ISBN (auch ISBN-10 = ISBN-13) oder gleichem Titel und Autor – außer wenn ISBN oder Band-Nr. verschieden sind, dann gelten sie als verschiedene Bände. Je Gruppe:
 - **Zusammenführen:** Der ausgewählte Eintrag bleibt (vorgeschlagen wird der eingeräumte, vollständigere). Er übernimmt, was ihm fehlt: Angaben, Cover, Schlagworte, Notizen, Lesezeiten, Bewertung, weitere Bilder und Dateien, notfalls den Platz im Regal. Die anderen werden gelöscht.
 - **Sind verschiedene Bücher:** z. B. zwei Exemplare. Die App merkt sich das (auch in Sicherung und Abgleich) und zeigt die Gruppe nicht mehr an.
