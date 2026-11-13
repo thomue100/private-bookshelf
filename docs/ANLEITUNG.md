@@ -132,10 +132,15 @@ Unter den Spaltenüberschriften der Tabelle liegt eine **Filterzeile** (ein-/aus
 - **Datum** (Hinzugefügt, Gelesen): `2025`, `03.2025`, `>2024`, `2023..2025`, `leer` (= nie gelesen). Bei „Gelesen“ zählt jeder Lesedurchgang.
 - **Auswahl** für Cover (mit/ohne), Status, Bewertung (ab n Sternen) und Lieblingsbuch.
 - Ungültige Eingaben werden rot markiert und ignoriert. Esc leert ein Filterfeld.
+- **Vorschläge:** Titel, Autor, Jahr, Verlag, Reihe, Genre, Schlagworte, Standort und „Fehlt“ schlagen beim Hineinklicken die vorhandenen Werte vor – die häufigsten zuerst, mit Anzahl. Es erscheinen nur Werte, die zu den übrigen Filtern passen (z. B. bei Status „Gelesen“ nur Autoren gelesener Bücher). Nach `|` kommt der nächste Vorschlag dazu, so wählst du mehrere Werte aus.
+
+**Spalten anpassen:** „▦ Spalten“ blendet Spalten ein und aus (der Titel bleibt immer sichtbar). Die **Breite** änderst du, indem du in der Überschrift den rechten Rand einer Spalte ziehst; Doppelklick auf den Rand stellt die Standardbreite wieder her. „Breiten zurücksetzen“ gilt für alle Spalten. Der CSV-Export enthält immer alle Spalten.
+
+**Ansichten speichern:** Unter „⭐ Ansichten“ speicherst du die aktuelle Einstellung unter einem Namen, z. B. „Ungelesene Krimis“ oder „Inventur Wohnzimmer“. Gespeichert werden Filter, Suche, Filter-Knopf, Schlagwort, Sortierung, ausgeblendete Spalten und Spaltenbreiten. Ein Klick auf den Namen stellt alles wieder her. Hast du danach etwas verändert, steht „(geändert)“ dahinter. Unter demselben Namen erneut speichern aktualisiert die Ansicht, × löscht sie (die Bücher bleiben unverändert). „↺ Grundeinstellung“ setzt die Tabelle komplett zurück.
 
 **Sortieren über mehrere Spalten:** Klick auf eine Überschrift sortiert danach (nochmal = umgekehrt). **Umschalt+Klick** fügt eine weitere Sortierstufe hinzu (z. B. Autor, dann Jahr absteigend). Am Handy über „＋ dann nach …“. Leere Werte stehen immer am Ende.
 
-Über der Tabelle stehen „x von y“, die aktiven Filter (einzeln mit × entfernbar, „Alle aufheben“) und die Sortierstufen. **„⬇ CSV (… gefiltert)“** exportiert genau die angezeigten Bücher in der angezeigten Reihenfolge. Filter und Sortierung bleiben auf dem Gerät gespeichert.
+Über der Tabelle stehen „x von y“, die aktiven Filter (einzeln mit × entfernbar, „Alle aufheben“) und die Sortierstufen. **„⬇ CSV (… gefiltert)“** exportiert genau die angezeigten Bücher in der angezeigten Reihenfolge. Filter, Sortierung, Spalten und gespeicherte Ansichten bleiben **auf diesem Gerät** gespeichert – sie gehören nicht zu den Buchdaten und werden weder gesichert noch abgeglichen.
 
 ## Lieblingsbücher
 

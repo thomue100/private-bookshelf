@@ -1920,6 +1920,10 @@ async function editSpineDirect(b) {
 }
 
 /* ================= Verwaltung (Tabelle) ================= */
+// Kurzangaben zu Widmung/Signatur/Anhängen – hier statt in attachments.js, weil die Tabelle sie schon beim ersten Rendern braucht
+function hasSignInfo(b) { return !!(b.signed || b.signedBy || b.dedication); }
+function signSummary(b) { return [b.signed ? "✍ signiert" + (b.signedBy ? " von " + b.signedBy : "") : (b.signedBy ? "✍ " + b.signedBy : ""), b.dedication ? "🖋 Widmung" : ""].filter(Boolean).join(" · "); }
+function extrasSummary(b) { return [signSummary(b), (b.images || []).length ? "🖼 " + b.images.length : "", (b.files || []).length ? "📎 " + b.files.length : ""].filter(Boolean).join(" · "); }
 const COLS = [
   { k: "cover", l: "", nos: true, w: 62 },
   { k: "title", l: "Titel", w: 220 }, { k: "author", l: "Autor", w: 170 }, { k: "year", l: "Jahr", w: 70 },
@@ -1933,7 +1937,7 @@ const COLS = [
 ];
 // Spaltentypen für Filter: Text (Standard), Zahl, Datum, Auswahl
 const COL_TYPE = { year: "num", seriesNo: "num", pages: "num", price: "num", value: "num", addedAt: "date", reads: "date", status: "sel", rating: "sel", favorite: "sel", cover: "sel" };
-const COL_NAME = { cover: "Cover", rating: "Bewertung", favorite: "Lieblingsbuch", price: "Preis", value: "Wert", location: "Standort", seriesNo: "Band" };
+const COL_NAME = { cover: "Cover", rating: "Bewertung", favorite: "Lieblingsbuch", price: "Preis", value: "Wert", location: "Standort", seriesNo: "Band", act: "Aktionen" };
 const colLabel = k => COL_NAME[k] || COLS.find(c => c.k === k)?.l || k;
 const SEL_OPTS = {
   status: [["", "alle"], ...Object.entries(STATUS)],
@@ -1946,12 +1950,97 @@ const FILTER_HELP = {
   num: "Zahl · >1990 · <=20 · 1980-1990 · leer / !leer · mehrere mit |",
   date: "2025 · 03.2025 · >2024 · 2023..2025 · leer = nie · mehrere mit |",
 };
-// gespeicherte Tabellen-Einstellungen (nur dieses Gerät)
-(() => { try { const t = JSON.parse(localStorage.getItem("tableView") || "null"); if (t) { S.colF = t.colF || {}; S.tSorts = t.sorts; S.showColF = t.showF; } } catch {} })();
-S.colF = S.colF || {};
-S.tSorts = Array.isArray(S.tSorts) && S.tSorts.length ? S.tSorts : [{ key: "addedAt", dir: -1 }];
+// gespeicherte Tabellen-Einstellungen (nur dieses Gerät). Felder nur ergänzen – ältere Stände ohne hidden/widths/… bleiben gültig.
+const T_FILTER_KEYS = ["all", "unread", "reading", "read", "fav", "unplaced", "gone", "wish", "nocover", "incomplete"];
+const DEFAULT_SORTS = () => [{ key: "addedAt", dir: -1 }];
+(() => { try { const t = JSON.parse(localStorage.getItem("tableView") || "null"); if (t) {
+  S.colF = t.colF || {}; S.tSorts = t.sorts; S.showColF = t.showF; S.tHidden = t.hidden; S.tW = t.widths; S.tView = t.view;
+  if (T_FILTER_KEYS.includes(t.tFilter)) S.tFilter = t.tFilter;
+  if (typeof t.tTag === "string") S.tTag = t.tTag;
+  if (typeof t.tq === "string") S.tq = t.tq;
+} } catch {} })();
+S.colF = S.colF && typeof S.colF === "object" ? S.colF : {};
+S.tSorts = Array.isArray(S.tSorts) && S.tSorts.length ? S.tSorts : DEFAULT_SORTS();
 if (typeof S.showColF !== "boolean") S.showColF = true;
-function saveTableView() { try { localStorage.setItem("tableView", JSON.stringify({ colF: S.colF, sorts: S.tSorts, showF: S.showColF })); } catch {} }
+S.tHidden = Array.isArray(S.tHidden) ? S.tHidden.filter(k => k !== "title" && COLS.some(c => c.k === k)) : [];
+S.tW = S.tW && typeof S.tW === "object" ? S.tW : {};
+S.tView = typeof S.tView === "string" ? S.tView : "";
+S.tTag = S.tTag || "";
+if (S.tq) $("#tq").value = S.tq;
+function saveTableView() {
+  try { localStorage.setItem("tableView", JSON.stringify({ colF: S.colF, sorts: S.tSorts, showF: S.showColF, hidden: S.tHidden, widths: S.tW, tFilter: S.tFilter, tTag: S.tTag, tq: S.tq, view: S.tView })); } catch {}
+}
+// benannte Ansichten (Filter, Sortierung, Spalten, Breiten)
+S.tViews = (() => { try { const v = JSON.parse(localStorage.getItem("tableViews") || "[]"); return Array.isArray(v) ? v.filter(x => x && typeof x.name === "string" && x.name.trim()) : []; } catch { return []; } })();
+function saveViews() { try { localStorage.setItem("tableViews", JSON.stringify(S.tViews)); } catch {} }
+
+/* ---------- Spalten: sichtbar, Breite ---------- */
+const MIN_COL_W = 40;
+const visCols = () => COLS.filter(c => !S.tHidden.includes(c.k));
+const colW = col => Math.max(MIN_COL_W, Math.round(+S.tW[col.k] || col.w));
+function setColHidden(k, hide) {
+  if (k === "title") return;
+  S.tHidden = hide ? [...new Set([...S.tHidden, k])] : S.tHidden.filter(x => x !== k);
+  saveTableView(); renderTable();
+}
+function colGrip(col) {
+  const g = el("span", { class: "colgrip", title: "Ziehen: Spaltenbreite ändern · Doppelklick: Standardbreite" });
+  g.addEventListener("click", e => e.stopPropagation());
+  g.addEventListener("dblclick", e => { e.stopPropagation(); delete S.tW[col.k]; saveTableView(); renderTable(); });
+  g.addEventListener("pointerdown", e => {
+    if (e.button) return;
+    e.preventDefault(); e.stopPropagation();
+    const tbl = $("#tbl"), c = tbl.querySelector(`col[data-k="${col.k}"]`); if (!c) return;
+    const x0 = e.clientX, w0 = colW(col), rest = (parseFloat(tbl.style.width) || tbl.offsetWidth) - w0;
+    let w = w0;
+    g.setPointerCapture(e.pointerId); document.body.classList.add("colresizing");
+    const move = ev => { w = Math.max(MIN_COL_W, Math.round(w0 + ev.clientX - x0)); c.style.width = w + "px"; tbl.style.width = rest + w + "px"; };
+    const up = () => {
+      g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up);
+      document.body.classList.remove("colresizing"); S.tResized = Date.now();
+      if (w !== w0) { S.tW[col.k] = w; saveTableView(); renderTableBar(tableList(), anyTableFilter()); }
+    };
+    g.addEventListener("pointermove", move); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
+  });
+  return g;
+}
+
+/* ---------- benannte Ansichten ---------- */
+const canon = v => Array.isArray(v) ? "[" + v.map(canon).join(",") + "]" : v && typeof v === "object" ? "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}" : JSON.stringify(v ?? null);
+const viewSnap = () => ({ colF: { ...S.colF }, sorts: S.tSorts.map(s => ({ key: s.key, dir: s.dir })), showF: S.showColF, hidden: [...S.tHidden], widths: { ...S.tW }, tFilter: S.tFilter, tTag: S.tTag || "", tq: S.tq || "" });
+const currentView = () => S.tViews.find(v => v.name === S.tView) || null;
+const viewChanged = v => { const { name, ...rest } = v; return canon(rest) !== canon(viewSnap()); };
+function applyView(v) {
+  S.colF = { ...(v.colF || {}) };
+  S.tSorts = Array.isArray(v.sorts) && v.sorts.length ? v.sorts.map(s => ({ key: s.key, dir: s.dir })) : DEFAULT_SORTS();
+  S.showColF = v.showF !== false;
+  S.tHidden = (v.hidden || []).filter(k => k !== "title" && COLS.some(c => c.k === k));
+  S.tW = { ...(v.widths || {}) };
+  S.tFilter = T_FILTER_KEYS.includes(v.tFilter) ? v.tFilter : "all";
+  S.tTag = v.tTag || ""; S.tq = v.tq || ""; $("#tq").value = S.tq;
+  S.tView = v.name; S.viewsOpen = false;
+  saveTableView(); renderTable(); toast(`Ansicht „${v.name}“`);
+}
+function saveViewAs(name) {
+  name = String(name || "").trim();
+  if (!name) { toast("Bitte einen Namen für die Ansicht eingeben."); return; }
+  const i = S.tViews.findIndex(v => v.name.toLowerCase() === name.toLowerCase());
+  const v = { name: i >= 0 ? S.tViews[i].name : name, ...viewSnap() };
+  if (i >= 0) S.tViews[i] = v; else S.tViews.push(v);
+  saveViews(); S.tView = v.name; S.viewsOpen = false; saveTableView(); renderTable();
+  toast(i >= 0 ? `Ansicht „${v.name}“ aktualisiert.` : `Ansicht „${v.name}“ gespeichert.`);
+}
+async function deleteView(v) {
+  if (!(await confirmBox(`Ansicht „${v.name}“ löschen? Die Bücher bleiben unverändert.`))) return;
+  S.tViews = S.tViews.filter(x => x !== v); saveViews();
+  if (S.tView === v.name) S.tView = "";
+  saveTableView(); renderTable();
+}
+function resetTableView() {
+  S.colF = {}; S.tSorts = DEFAULT_SORTS(); S.showColF = true; S.tHidden = []; S.tW = {};
+  S.tFilter = "all"; S.tTag = ""; S.tq = ""; $("#tq").value = ""; S.tView = ""; S.viewsOpen = false;
+  saveTableView(); renderTable(); toast("Tabelle auf Grundeinstellung zurückgesetzt.");
+}
 
 /* ---------- Werte je Spalte ---------- */
 const normS = s => String(s ?? "").toLowerCase().replace(/ß/g, "ss").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
@@ -2085,11 +2174,34 @@ function clickSort(k, add) {
 
 /* ---------- Darstellung ---------- */
 const T_FILTER_NAMES = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen", fav: "♥ Lieblingsbücher", unplaced: "Nicht eingeräumt", gone: "📦 Hatte ich mal", wish: "⭐ Wunschliste", nocover: "Ohne Cover", incomplete: "Unvollständig" };
-function tableList() {
-  const tf = b => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : (b.status || "unread") === S.tFilter);
-  const preds = activeColFilters().map(([k, q]) => colPredicate(k, q)).filter(Boolean);
-  const list = S.books.filter(b => tf(b) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
-  return list.sort(cmpBooks);
+const tFilterPass = b => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : (b.status || "unread") === S.tFilter);
+function filteredBooks(exceptCol) {
+  const preds = activeColFilters().filter(([k]) => k !== exceptCol).map(([k, q]) => colPredicate(k, q)).filter(Boolean);
+  return S.books.filter(b => tFilterPass(b) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
+}
+function tableList() { return filteredBooks().sort(cmpBooks); }
+const anyTableFilter = () => !!(activeColFilters().length || S.tq || S.tTag || S.tFilter !== "all");
+
+/* ---------- Vorschläge in den Spaltenfiltern ---------- */
+// Werte, die in den gerade sichtbaren Büchern vorkommen (die anderen Filter gelten mit), häufigste zuerst.
+const SUGGEST_COLS = new Set(["title", "author", "year", "publisher", "series", "genre", "tags", "location", "missing"]);
+function suggestValues(k) {
+  const cnt = new Map();
+  const add = v => { v = String(v ?? "").trim(); if (v) cnt.set(v, (cnt.get(v) || 0) + 1); };
+  for (const b of filteredBooks(k)) {
+    if (k === "tags") (b.tags || []).forEach(add);
+    else if (k === "missing") { const m = missingOf(b); m.length ? m.forEach(add) : add("vollständig"); }
+    else if (k === "year") { const n = colNum(b, "year"); if (n != null) add(String(n)); }
+    else add(colText(b, k));
+  }
+  return [...cnt].sort((a, b) => b[1] - a[1] || coll.compare(a[0], b[0])).slice(0, 300);
+}
+function fillSuggest(dl, k, inp, force) {
+  const v = inp.value, cut = v.lastIndexOf("|");
+  const pre = cut >= 0 ? v.slice(0, cut + 1).trimEnd() + " " : ""; // „a | b“: Vorschläge hängen an das schon Getippte an
+  if (!force && dl.dataset.pre === pre) return;
+  dl.dataset.pre = pre;
+  dl.replaceChildren(...suggestValues(k).map(([s, n]) => el("option", { value: pre + s, label: n === 1 ? "1 Buch" : n + " Bücher" })));
 }
 function markF(inp, k) {
   const q = S.colF[k] || "", on = String(q).trim() !== "";
@@ -2113,11 +2225,21 @@ function filterCell(col) {
     inp = el("input", { type: "search", value: cur, placeholder: PH[k] || "filtern …", title: FILTER_HELP[ty], "aria-label": "Filter " + colLabel(k) });
     let t; inp.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => setColF(k, inp.value, inp), 160); });
     inp.addEventListener("keydown", e => { if (e.key === "Escape" && inp.value) { e.stopPropagation(); inp.value = ""; setColF(k, "", inp); } if (e.key === "Enter") { clearTimeout(t); setColF(k, inp.value, inp); } });
+    if (SUGGEST_COLS.has(k)) {
+      const dl = el("datalist", { id: "fsug-" + k });
+      inp.setAttribute("list", dl.id);
+      inp.addEventListener("focus", () => fillSuggest(dl, k, inp, true));
+      inp.addEventListener("click", () => fillSuggest(dl, k, inp, true)); // Liste öffnet beim Klick – andere Filter können sich geändert haben
+      inp.addEventListener("input", () => fillSuggest(dl, k, inp));
+      markF(inp, k);
+      return el("th", { class: "fth" }, inp, dl);
+    }
   }
   markF(inp, k);
   return el("th", { class: "fth" }, inp);
 }
 function renderTable() {
+  saveTableView();
   const tbl = $("#tbl");
   const ae = document.activeElement;
   if (tbl.contains(ae) && ae.tagName !== "BUTTON") {
@@ -2133,17 +2255,20 @@ function renderTable() {
     el("span", {}, el("b", { text: S.books.filter(isWish).length }), "auf der Wunschliste"));
   renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc]]);
   const tts = $("#ttagSlot"); if (tts) { tagDatalist(); fillNode(tts, tagFilterSelect(S.tTag, t => { S.tTag = t; renderTable(); }, S.books)); }
+  const cols = visCols();
+  const colgroup = el("colgroup", {}, ...cols.map(col => el("col", { "data-k": col.k, style: `width:${colW(col)}px` })));
+  tbl.style.width = cols.reduce((s, c) => s + colW(c), 0) + "px";
   const thead = el("thead", {},
-    el("tr", {}, ...COLS.map(col => el("th", {
-      class: col.nos ? "nos" : null, style: `min-width:${col.w}px`,
-      title: col.nos ? null : "Klick: danach sortieren (nochmal: umkehren) · Umschalt+Klick: als weitere Sortierstufe",
-      onclick: col.nos ? null : e => clickSort(col.k, e.shiftKey),
-    }, col.l, el("span", { class: "sortb", text: sortBadge(col.k) })))),
-    S.showColF ? el("tr", { class: "frow" }, ...COLS.map(filterCell)) : null);
-  tbl.replaceChildren(thead, el("tbody"));
+    el("tr", {}, ...cols.map(col => el("th", {
+      class: col.nos ? "nos" : null, "data-k": col.k,
+      title: col.nos ? null : "Klick: danach sortieren (nochmal: umkehren) · Umschalt+Klick: als weitere Sortierstufe · rechten Rand ziehen: Breite",
+      onclick: col.nos ? null : e => { if (e.target.closest(".colgrip") || Date.now() - (S.tResized || 0) < 300) return; clickSort(col.k, e.shiftKey); },
+    }, col.l, el("span", { class: "sortb", text: sortBadge(col.k) }), colGrip(col)))),
+    S.showColF ? el("tr", { class: "frow" }, ...cols.map(filterCell)) : null);
+  tbl.replaceChildren(colgroup, thead, el("tbody"));
   renderTableRows();
 }
-function tableRow(b) {
+function tableRow(b, cols = visCols()) {
   const cellInput = (b, k) => {
     const i = el("input", { value: b[k] ?? "" });
     i.addEventListener("change", () => { const v = k === "isbn" ? (toIsbn13(i.value) || i.value.trim()) : i.value.trim(); patchBook(b.id, { [k]: v }); });
@@ -2151,7 +2276,7 @@ function tableRow(b) {
     return i;
   };
   const miss = missingOf(b);
-  return el("tr", { class: isGone(b) ? "gonerow" : isWish(b) ? "wishrow" : null }, ...COLS.map(col => {
+  return el("tr", { class: isGone(b) ? "gonerow" : isWish(b) ? "wishrow" : null }, ...cols.map(col => {
     const k = col.k;
     if (k === "cover") { const src = coverSrc(b); return el("td", {}, el("div", { class: "thumb" + (needsCover(b) ? " nocov" : ""), title: needsCover(b) ? "Cover online suchen" : "Details öffnen", onclick: () => needsCover(b) ? findCoverFor(b.id) : openDetail(b.id) }, src ? el("img", { src, alt: "", loading: "lazy", onerror: e => e.target.remove() }) : (needsCover(b) ? el("span", { text: "🖼" }) : null))); }
     if (k === "status") { const s = el("select", {}, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v, selected: (b.status || "unread") === v || null }, l))); s.addEventListener("change", () => patchBook(b.id, statusPatch(b, s.value))); return el("td", {}, s); }
@@ -2178,9 +2303,10 @@ function clearAllTableFilters() { S.colF = {}; S.tq = ""; $("#tq").value = ""; S
 function renderTableRows() {
   const tbl = $("#tbl");
   const list = tableList();
-  const anyFilter = activeColFilters().length || S.tq || S.tTag || S.tFilter !== "all";
-  const body = el("tbody", {}, ...list.map(tableRow));
-  if (!list.length) body.append(el("tr", {}, el("td", { colspan: COLS.length, style: "padding:30px;text-align:center;color:var(--muted)" },
+  const anyFilter = anyTableFilter();
+  const cols = visCols();
+  const body = el("tbody", {}, ...list.map(b => tableRow(b, cols)));
+  if (!list.length) body.append(el("tr", {}, el("td", { colspan: cols.length, style: "padding:30px;text-align:center;color:var(--muted);white-space:normal" },
     !S.loaded ? "Lade …" : !S.books.length ? "Noch keine Bücher erfasst." : "Keine Treffer.",
     S.loaded && S.books.length && anyFilter ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: clearAllTableFilters }, "Alle Filter aufheben") : null)));
   const old = tbl.tBodies[0]; if (old) old.replaceWith(body); else tbl.append(body);
@@ -2201,6 +2327,7 @@ function renderTableBar(list, anyFilter) {
       el("span", { class: "tcount" }, el("b", { text: list.length }), ` von ${S.books.length}`),
       el("span", { class: "tlbl", text: "Sortiert:" }), ...S.tSorts.map(sortChip), addSel,
       el("span", { style: "flex:1" }),
+      viewsMenu(), columnsMenu(),
       el("button", { class: "btn sm" + (S.showColF ? " on" : ""), title: "Filterzeile unter den Spaltenüberschriften", onclick: () => { S.showColF = !S.showColF; saveTableView(); renderTable(); } }, S.showColF ? "Spaltenfilter ausblenden" : "⛃ Spaltenfilter"),
       anyFilter && list.length ? el("button", { class: "btn sm", onclick: () => exportCsv(list) }, `⬇ CSV (${list.length} gefiltert)`) : null),
     anyFilter ? el("div", { class: "tbrow" },
@@ -2216,6 +2343,45 @@ function renderTableBar(list, anyFilter) {
       " · Datum: ", el("code", { text: "2025" }), " ", el("code", { text: ">03.2025" }), " ", el("code", { text: "2023..2025" }),
       " · Umschalt+Klick auf eine Überschrift = weitere Sortierstufe") : null);
 }
+function popMenu(stateKey, label, ...body) {
+  return el("details", { class: "tpop", open: S[stateKey] || null, ontoggle: e => { S[stateKey] = e.currentTarget.open; } },
+    el("summary", { class: "btn sm" + (S[stateKey] ? " on" : "") }, label),
+    el("div", { class: "tpanel" }, ...body));
+}
+function columnsMenu() {
+  const n = S.tHidden.length;
+  return popMenu("colPickOpen", "▦ Spalten" + (n ? ` (${n} aus)` : ""),
+    el("div", { class: "tphead", text: "Angezeigte Spalten" }),
+    el("div", { class: "tpcols" }, ...COLS.map(c => {
+      const cb = el("input", { type: "checkbox", checked: !S.tHidden.includes(c.k) || null, disabled: c.k === "title" || null, "aria-label": "Spalte " + colLabel(c.k) });
+      cb.addEventListener("change", () => setColHidden(c.k, !cb.checked));
+      return el("label", { class: "tpick" + (c.k === "title" ? " fixed" : "") }, cb, colLabel(c.k));
+    })),
+    el("div", { class: "tpbtns" },
+      n ? el("button", { class: "btn sm", onclick: () => { S.tHidden = []; saveTableView(); renderTable(); } }, "Alle zeigen") : null,
+      Object.keys(S.tW).length ? el("button", { class: "btn sm", title: "Alle Spalten wieder in Standardbreite", onclick: () => { S.tW = {}; saveTableView(); renderTable(); } }, "Breiten zurücksetzen") : null),
+    el("div", { class: "saved", text: "Breite ändern: in der Überschrift den rechten Rand der Spalte ziehen. Doppelklick dort = Standardbreite." }));
+}
+function viewsMenu() {
+  const cur = currentView(), changed = cur && viewChanged(cur);
+  const name = el("input", { class: "field", type: "text", value: cur ? cur.name : "", placeholder: "Name, z. B. „Ungelesene Krimis“", "aria-label": "Name der Ansicht", maxlength: 60 });
+  return popMenu("viewsOpen", "⭐ " + (cur ? cur.name + (changed ? " (geändert)" : "") : "Ansichten"),
+    el("div", { class: "tphead", text: "Gespeicherte Ansichten" }),
+    S.tViews.length
+      ? el("div", { class: "tviews" }, ...S.tViews.map(v => el("div", { class: "tvrow" + (cur === v ? " on" : "") },
+          el("button", { class: "tvname", title: "Diese Ansicht anwenden", onclick: () => applyView(v) }, v.name),
+          el("button", { class: "sx", title: "Ansicht löschen", "aria-label": `Ansicht ${v.name} löschen`, onclick: () => deleteView(v) }, "×"))))
+      : el("div", { class: "saved", text: "Noch keine. Stelle Filter, Sortierung und Spalten ein und speichere sie hier unter einem Namen." }),
+    el("form", { class: "tvsave", onsubmit: e => { e.preventDefault(); saveViewAs(name.value); } },
+      name, el("button", { class: "btn sm", type: "submit", title: "Unter vorhandenem Namen: Ansicht aktualisieren" }, "Speichern")),
+    el("div", { class: "saved", text: "Gespeichert werden Filter, Suche, Sortierung, ausgeblendete Spalten und Spaltenbreiten – nur auf diesem Gerät." }),
+    el("div", { class: "tpbtns" }, el("button", { class: "btn sm ghost", onclick: resetTableView }, "↺ Grundeinstellung")));
+}
+// Menüs schließen, wenn daneben geklickt wird
+document.addEventListener("click", e => {
+  if (!e.target.isConnected) return; // Knopf im Menü hat die Leiste gerade neu aufgebaut
+  for (const d of document.querySelectorAll("details.tpop[open]")) if (!d.contains(e.target)) d.open = false;
+});
 $("#tbl").addEventListener("focusout", () => setTimeout(() => { if (S.tableDirty && !$("#tbl").contains(document.activeElement)) { S.tableDirty = false; renderTable(); } }, 50));
 $("#tq").addEventListener("input", e => { S.tq = e.target.value; renderTable(); });
 
