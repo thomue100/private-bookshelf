@@ -1,0 +1,1 @@
+{"app": "buecherregal", "version": 1, "exportedAt": "2026-11-01T10:00:00Z", "books": [{"id": "old1", "title": "Momo", "author": "Michael Ende", "year": "1973", "status": "read", "rating": 5, "notes": "Alte Sicherung", "startedAt": "2020-01-01", "finishedAt": "2020-02-01", "addedAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z"}], "deleted": {}}

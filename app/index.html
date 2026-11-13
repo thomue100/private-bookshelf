@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mein Bücherregal</title>
+<meta name="theme-color" content="#9c3d2e">
+<meta name="description" content="Deine private Bibliothek – Bücher per Barcode oder Cover erfassen, Lesestatus, Bewertungen und Notizen.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header style="padding-top:env(safe-area-inset-top)">
+  <div class="wrap bar">
+    <div class="brand">📚 <span>Mein Bücherregal</span></div>
+    <nav>
+      <a href="#regal" data-view="regal">Bücher</a>
+      <a href="#wand" data-view="wand"><span class="long">Echtes </span>Regal</a>
+      <a href="#wunsch" data-view="wunsch">⭐<span class="long"> Wunschliste</span></a>
+      <a href="#verwaltung" data-view="verwaltung">Verwaltung</a>
+    </nav>
+    <div class="menu">
+      <button class="btn ghost" id="menuBtn" aria-label="Menü">⋯</button>
+    </div>
+    <button class="btn primary addtop" data-add>＋ Buch hinzufügen</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banner"></div>
+
+  <section id="v-regal">
+    <div class="tools">
+      <div class="chips" id="filters"></div>
+      <input class="field search" id="q" type="search" placeholder="Suchen: Titel, Autor …">
+      <span id="seriesSlot"></span>
+      <span id="tagSlot"></span>
+      <select class="field" id="sort" aria-label="Sortierung">
+        <option value="added-desc">Zuletzt hinzugefügt</option>
+        <option value="added-asc">Zuerst hinzugefügt</option>
+        <option value="title">Titel A–Z</option>
+        <option value="author">Autor A–Z (Nachname)</option>
+        <option value="series">Reihe &amp; Band</option>
+      </select>
+    </div>
+    <div id="shelf" class="grid"></div>
+  </section>
+
+  <section id="v-wand" class="hidden"></section>
+
+  <section id="v-wunsch" class="hidden"></section>
+
+  <section id="v-verwaltung" class="hidden">
+    <div class="stats" id="stats"></div>
+    <div class="tools">
+      <div class="chips" id="tfilters"></div>
+      <input class="field search" id="tq" type="search" placeholder="In allen Feldern suchen …">
+      <span id="ttagSlot"></span>
+      <button class="btn sm" id="coverRun">🖼 Cover nachtragen</button>
+      <button class="btn sm" id="exportCsv">⬇ CSV für Excel</button>
+    </div>
+    <div id="tbar"></div>
+    <div class="tablewrap"><table id="tbl"></table></div>
+  </section>
+</main>
+
+<button class="btn primary fab" data-add>＋ Buch</button>
+
+<input type="file" id="fileCam" accept="image/*" capture="environment" class="hidden">
+<input type="file" id="filePick" accept="image/*" class="hidden">
+<input type="file" id="fileImport" accept=".json,application/json" class="hidden">
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js" defer></script>
+<script src="app.js" defer></script>
+<script src="attachments.js" defer></script>
+<script src="shelfscan.js" defer></script>
+<script src="autobackup.js" defer></script>
+<script src="coverfinder.js" defer></script>
+</body>
+</html>

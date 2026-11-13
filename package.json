@@ -1,0 +1,17 @@
+{
+  "name": "private-bookshelf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mein Bücherregal – private Bibliothek als Web-App (PWA), Daten bleiben im Browser.",
+  "type": "module",
+  "scripts": {
+    "start": "node tests/server.mjs",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  },
+  "engines": { "node": ">=20" }
+}
