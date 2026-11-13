@@ -1924,6 +1924,32 @@ async function editSpineDirect(b) {
 function hasSignInfo(b) { return !!(b.signed || b.signedBy || b.dedication); }
 function signSummary(b) { return [b.signed ? "✍ signiert" + (b.signedBy ? " von " + b.signedBy : "") : (b.signedBy ? "✍ " + b.signedBy : ""), b.dedication ? "🖋 Widmung" : ""].filter(Boolean).join(" · "); }
 function extrasSummary(b) { return [signSummary(b), (b.images || []).length ? "🖼 " + b.images.length : "", (b.files || []).length ? "📎 " + b.files.length : ""].filter(Boolean).join(" · "); }
+
+/* ---------- Mögliche Dubletten (Zusammenführen: duplicates.js) ---------- */
+// Gleiche ISBN – oder gleicher Titel + Autor, solange ISBN bzw. Band-Nr. nicht widersprechen.
+// Paare, die als „verschiedene Bücher“ bestätigt wurden, stehen im optionalen Feld b.notDup (Liste von Buch-IDs).
+const notDupPair = (a, b) => (a.notDup || []).includes(b.id) || (b.notDup || []).includes(a.id);
+function dupConflict(a, b) {
+  const i = toIsbn13(a.isbn), j = toIsbn13(b.isbn); if (i && j && i !== j) return true;
+  const x = String(a.seriesNo ?? "").trim(), y = String(b.seriesNo ?? "").trim(); return !!(x && y && x !== y);
+}
+function dupGroups(books = S.books) {
+  const parent = new Map(books.map(b => [b.id, b.id]));
+  const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  const buckets = new Map(), put = (k, b) => { if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(b); };
+  for (const b of books) {
+    const i = toIsbn13(b.isbn); if (i) put("i" + i, b);
+    const t = normS(b.title); if (t) put("t" + t + "\u0001" + normS(b.author), b);
+  }
+  for (const [k, list] of buckets) for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) {
+    const a = list[x], b = list[y];
+    if (notDupPair(a, b) || (k[0] === "t" && dupConflict(a, b))) continue;
+    parent.set(find(a.id), find(b.id));
+  }
+  const groups = new Map();
+  for (const b of books) { const r = find(b.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(b); }
+  return [...groups.values()].filter(g => g.length > 1);
+}
 const COLS = [
   { k: "cover", l: "", nos: true, w: 62 },
   { k: "title", l: "Titel", w: 220 }, { k: "author", l: "Autor", w: 170 }, { k: "year", l: "Jahr", w: 70 },
@@ -1951,7 +1977,7 @@ const FILTER_HELP = {
   date: "2025 · 03.2025 · >2024 · 2023..2025 · leer = nie · mehrere mit |",
 };
 // gespeicherte Tabellen-Einstellungen (nur dieses Gerät). Felder nur ergänzen – ältere Stände ohne hidden/widths/… bleiben gültig.
-const T_FILTER_KEYS = ["all", "unread", "reading", "read", "fav", "unplaced", "gone", "wish", "nocover", "incomplete"];
+const T_FILTER_KEYS = ["all", "unread", "reading", "read", "fav", "unplaced", "gone", "wish", "nocover", "incomplete", "dup"];
 const DEFAULT_SORTS = () => [{ key: "addedAt", dir: -1 }];
 (() => { try { const t = JSON.parse(localStorage.getItem("tableView") || "null"); if (t) {
   S.colF = t.colF || {}; S.tSorts = t.sorts; S.showColF = t.showF; S.tHidden = t.hidden; S.tW = t.widths; S.tView = t.view;
@@ -2173,11 +2199,12 @@ function clickSort(k, add) {
 }
 
 /* ---------- Darstellung ---------- */
-const T_FILTER_NAMES = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen", fav: "♥ Lieblingsbücher", unplaced: "Nicht eingeräumt", gone: "📦 Hatte ich mal", wish: "⭐ Wunschliste", nocover: "Ohne Cover", incomplete: "Unvollständig" };
-const tFilterPass = b => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : (b.status || "unread") === S.tFilter);
+const T_FILTER_NAMES = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen", fav: "♥ Lieblingsbücher", unplaced: "Nicht eingeräumt", gone: "📦 Hatte ich mal", wish: "⭐ Wunschliste", nocover: "Ohne Cover", incomplete: "Unvollständig", dup: "🧩 Mögliche Dubletten" };
+const tFilterPass = (b, dup) => S.tFilter === "all" || (S.tFilter === "incomplete" ? missingOf(b).length : S.tFilter === "fav" ? b.favorite : S.tFilter === "unplaced" ? (inStock(b) && !locationOf(b.id)) : S.tFilter === "gone" ? isGone(b) : S.tFilter === "wish" ? isWish(b) : S.tFilter === "nocover" ? needsCover(b) : S.tFilter === "dup" ? dup.has(b.id) : (b.status || "unread") === S.tFilter);
 function filteredBooks(exceptCol) {
   const preds = activeColFilters().filter(([k]) => k !== exceptCol).map(([k, q]) => colPredicate(k, q)).filter(Boolean);
-  return S.books.filter(b => tFilterPass(b) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
+  const dup = S.tFilter === "dup" ? new Set(dupGroups().flat().map(b => b.id)) : null;
+  return S.books.filter(b => tFilterPass(b, dup) && (!S.tTag || hasTag(b, S.tTag)) && matchQ(b, S.tq) && preds.every(p => p(b)));
 }
 function tableList() { return filteredBooks().sort(cmpBooks); }
 const anyTableFilter = () => !!(activeColFilters().length || S.tq || S.tTag || S.tFilter !== "all");
@@ -2247,13 +2274,15 @@ function renderTable() {
     S.tableDirty = true; return;
   }
   const c = counts(S.books.filter(inStock)); const inc = S.books.filter(b => missingOf(b).length).length;
+  const nDup = dupGroups().reduce((n, g) => n + g.length, 0);
   $("#stats").replaceChildren(
     el("span", {}, el("b", { text: c.all }), "Bücher im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
     el("span", {}, el("b", { text: c.reading }), "gerade dabei"), el("span", {}, el("b", { text: c.unread }), "ungelesen"),
     el("span", {}, el("b", { style: inc ? "color:var(--warn)" : "", text: inc }), "mit fehlenden Daten"),
     el("span", {}, el("b", { text: S.books.filter(isGone).length }), "hatte ich mal"),
     el("span", {}, el("b", { text: S.books.filter(isWish).length }), "auf der Wunschliste"));
-  renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc]]);
+  renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc], ...(nDup || S.tFilter === "dup" ? [["dup", "🧩 Mögliche Dubletten", "var(--warn)", nDup]] : [])]);
+  const dupBtn = $("#dupRun"); if (dupBtn) { dupBtn.textContent = "🧩 Dubletten prüfen" + (nDup ? ` (${nDup})` : ""); dupBtn.classList.toggle("warn", !!nDup); }
   const tts = $("#ttagSlot"); if (tts) { tagDatalist(); fillNode(tts, tagFilterSelect(S.tTag, t => { S.tTag = t; renderTable(); }, S.books)); }
   const cols = visCols();
   const colgroup = el("colgroup", {}, ...cols.map(col => el("col", { "data-k": col.k, style: `width:${colW(col)}px` })));
@@ -2463,6 +2492,7 @@ function exportCsv(only) {
 }
 $("#exportCsv").addEventListener("click", exportCsv);
 $("#coverRun").addEventListener("click", () => coverRun());
+$("#dupRun").addEventListener("click", () => openDuplicates());
 async function remindBackup() {
   if (!S.books.length) return;
   if (typeof autoBackupActive === "function" && await autoBackupActive()) return;
@@ -2517,6 +2547,25 @@ function googleKeyBox() {
 }
 
 /* ================= Start ================= */
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+/* ---------- Neue App-Version ---------- */
+// Der Service Worker übernimmt eine neue Version sofort (skipWaiting/claim). Die offene Seite läuft aber noch mit dem alten Code –
+// deshalb ein Hinweis zum Neuladen statt automatischem Neuladen (könnte eine offene Eingabe verwerfen).
+function showUpdateBar() {
+  if ($(".updbar")) return;
+  document.body.append(el("div", { class: "updbar", role: "status" },
+    el("span", { text: "Neue Version der App ist da." }),
+    el("button", { class: "btn sm primary", onclick: () => location.reload() }, "Jetzt aktualisieren"),
+    el("button", { class: "x", title: "Später", "aria-label": "Hinweis schließen", onclick: e => e.currentTarget.parentElement.remove() }, "✕")));
+}
+function watchForUpdates(sw = navigator.serviceWorker) {
+  let hadController = !!sw.controller; // beim allerersten Installieren gibt es nichts zu aktualisieren
+  sw.addEventListener("controllerchange", () => { if (hadController) showUpdateBar(); hadController = true; });
+  // installierte Apps bleiben lange offen: beim Zurückkehren nach Updates sehen
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sw.getRegistration().then(r => r && r.update()).catch(() => {}); });
+}
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  watchForUpdates();
+}
 renderAll();
 loadAll();
