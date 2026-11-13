@@ -96,7 +96,7 @@ async function restoreFromFolder() {
 
 /* ---------- Oberfläche ---------- */
 const abBoxes = new Set();
-function abRefresh() { for (const f of [...abBoxes]) { if (!f.isConnected) abBoxes.delete(f); else f(); } }
+function abRefresh() { for (const f of [...abBoxes]) { if (!f.box?.isConnected) abBoxes.delete(f); else f(); } }
 function autoBackupBox(noTitle) {
   const box = el("div", { class: "sec abbox" });
   const draw = async () => {
@@ -120,7 +120,7 @@ function autoBackupBox(noTitle) {
         active ? el("button", { class: "btn ghost danger", onclick: disableAutoBackup }, "Ausschalten") : null),
       el("p", { class: "saved", text: "Wichtig: Wähle einen Ordner, der nicht mit einer Cloud abgeglichen wird (unter Windows ist „Dokumente“ manchmal mit OneDrive verbunden) – z. B. einen neuen Ordner „Bücherregal-Sicherung“ direkt auf Laufwerk C: oder auf einer externen Festplatte." }));
   };
-  draw(); abBoxes.add(draw);
+  draw.box = box; draw(); abBoxes.add(draw);
   return box;
 }
 function openAutoBackup() { const sh = sheet("💾 Automatische Sicherung"); const bx = autoBackupBox(true); bx.style.marginTop = "0"; fillNode(sh.body, bx); }

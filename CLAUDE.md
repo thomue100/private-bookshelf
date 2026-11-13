@@ -2,7 +2,8 @@
 
 Persönliche Bücherverwaltung als PWA („Mein Bücherregal“). Bücher werden am Handy oder PC erfasst
 (Barcode, Cover-Foto, Fach-Foto, von Hand) und bleiben **ausschließlich im Browser des Geräts** (IndexedDB).
-Abgleich zwischen Geräten nur per Sicherungsdatei (Export/Import) oder automatischer Sicherung in einen lokalen Ordner.
+Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Sicherung in einen lokalen Ordner oder – optional –
+über einen **eigenen CouchDB-Server des Nutzers** (auf seinem PC, erreichbar über Tailscale; siehe `docs/ABGLEICH-EINRICHTEN.md`).
 
 ## Grundsätze (nicht verhandelbar)
 
@@ -14,8 +15,9 @@ Abgleich zwischen Geräten nur per Sicherungsdatei (Export/Import) oder automati
    - **Sicherungen Version 1 und 2 müssen importierbar bleiben** (`importData`). Format: `{app:"buecherregal", version:2, books, deleted, shelves}`;
      Cover als `coverData` (data-URL), Buchrücken-Bild als `spine.imageData`, Anhänge optional mit `data`.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
-2. **Keine Cloud für Buchdaten.** Nichts an eigene Server schicken. Erlaubt sind nur Abfragen an Kataloge/Suchen
-   (Google Books, DNB, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API mit dem Schlüssel des Nutzers.
+2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
+   Abfragen an Kataloge/Suchen (Google Books, DNB, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
+   mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
 3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (OCR, Hand-Eingabe, Claude-Chat-Brücke).
 4. **Kein Build-Schritt, keine Frameworks.** Reines HTML/CSS/JavaScript in `app/`, direkt auslieferbar. Externe Bibliotheken nur per CDN
    und nur bei Bedarf nachgeladen (Tesseract, ZXing).
@@ -31,6 +33,7 @@ Abgleich zwischen Geräten nur per Sicherungsdatei (Export/Import) oder automati
 | `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke, OCR), Prüfliste, Übernahme ins Fach; Cover per KI |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
 | `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche |
+| `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |
 | `app/sw.js` | Service Worker (offline) |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |
@@ -41,10 +44,19 @@ Wichtig: Alle Skripte teilen sich den globalen Gültigkeitsbereich (keine Module
 Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGone`, `needsCover`, `buildBackup`, `importData`,
 `locationOf`/`placeBook`/`unshelve`/`saveShelves`, `renderAll`, `openDetail(id, edit)`, `findCoverFor`, `coverRun`, `runAutoBackup`.
 
+Abgleich (`sync.js`): Server-Dokumente `book:<id>` = `{type:"book", updatedAt, book:{…Felder ohne Blobs}, _attachments}` mit Anhängen
+`cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`. Neuere `updatedAt` gewinnt.
+Lokaler Stand in Meta `syncConf` (Zugang) und `syncState` (`since`, je Dokument `rev`/`upd`/Anhang-Digests). Änderungen an Büchern
+immer über `putBook`/`patchBook`/`removeBook`/`saveShelves` – die rufen `dataChanged()` und lösen Sicherung und Abgleich aus.
+Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-Versionen auf anderen Geräten müssen mitlesen können).
+
 Regal-Modell (`S.shelves`): `walls[] → columns[] → modules[]` mit `type` `"6112"` (2 Fächer, 69,6×35,4 cm), `"1112"` (4 Fächer, 69,6×69,6 cm)
 oder `"gap"`, `orient` `"h"|"v"`; Fächer `L/R`, `T/B` (hochkant), `TL/TR/BL/BR`; je Fach Ebenen `fachs` (vorne), `back`, `top`; liegende Bücher in `lying`.
 
 ## Arbeitsweise
+
+- **Zweige:** Entwickelt wird auf `develop` (oder einem Zweig davon). `main` ist die Produktion und bekommt Änderungen nur per
+  Pull Request `develop → main`, nachdem die Tests grün sind. Nie direkt auf `main` committen oder pushen.
 
 - **Vor jedem Abschluss `npm test` ausführen** – alle Tests müssen grün sein. Neue Funktionen bekommen einen Test in `tests/`.
 - Änderungen an Dateien in `app/`: **`VERSION` in `app/sw.js` erhöhen** (z. B. `"v18"` → `"v19"`), sonst sehen installierte Apps die Änderung nicht.

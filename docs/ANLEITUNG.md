@@ -194,6 +194,13 @@ Jedes Gerät hat sein eigenes Regal. So bringst du sie zusammen:
 
 Die Bücher werden zusammengeführt: Neue kommen dazu, bei Änderungen gewinnt die jeweils neuere, Gelöschtes wird auch drüben gelöscht. Das funktioniert in beide Richtungen.
 
+### Automatisch abgleichen über den eigenen PC (optional)
+
+Statt Dateien hin- und herzuschicken, kann sich die App über eine kleine Datenbank (CouchDB) auf deinem PC selbst abgleichen –
+ohne Cloud, auch unterwegs, sobald der PC an ist. Einrichtung Schritt für Schritt: **`ABGLEICH-EINRICHTEN.md`**.
+Danach: Menü **⋯ → „🔄 Abgleich mit eigenem Server“**. Das **⟳** oben zeigt, ob gerade abgeglichen wird (rot = Problem, antippen).
+Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
+
 ## 5. Sicherheit deiner Daten
 
 - Die Daten liegen im Speicher des Browsers. **Wenn du die Browserdaten/Websitedaten löschst, ist das Regal weg.** Die App erinnert dich alle 14 Tage an eine Sicherung.

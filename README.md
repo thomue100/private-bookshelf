@@ -4,8 +4,10 @@ Private Bücherverwaltung als Web-App (PWA) für Handy und PC:
 Bücher per Barcode, Cover-Foto, Fach-Foto oder von Hand erfassen, im Regal mit Covern stöbern, Lesestatus, Bewertung und
 Notizen pflegen, ein **echtes Regal** aus Montana-Würfeln nachbauen und alles in einer Tabelle verwalten.
 
-**Die Bücher bleiben auf dem Gerät.** Es gibt keinen Server und kein Konto. Handy und PC werden über eine Sicherungsdatei abgeglichen
-(Menü ⋯ → Sicherung exportieren / importieren) oder am PC über eine automatische Sicherung in einen lokalen Ordner.
+**Die Bücher bleiben bei dir.** Es gibt kein Konto und keine Cloud. Jedes Gerät speichert die Bibliothek im Browser und funktioniert auch offline.
+Handy und PC gleichen sich ab
+- **automatisch über den eigenen PC** (CouchDB + Tailscale, optional) – Einrichtung: [`docs/ABGLEICH-EINRICHTEN.md`](docs/ABGLEICH-EINRICHTEN.md),
+- oder von Hand per Sicherungsdatei (Menü ⋯ → Sicherung exportieren / importieren).
 
 Die Bedienungsanleitung steht in [`docs/ANLEITUNG.md`](docs/ANLEITUNG.md).
 
@@ -14,7 +16,7 @@ Die Bedienungsanleitung steht in [`docs/ANLEITUNG.md`](docs/ANLEITUNG.md).
 ```
 app/          die App selbst – genau dieser Ordner wird veröffentlicht (kein Build-Schritt)
 tests/        automatische Tests (Playwright), laufen ohne Internet
-docs/         Anleitung für Nutzer
+docs/         Anleitungen (Bedienung, Abgleich einrichten)
 CLAUDE.md     Regeln für Claude Code (Datenkompatibilität, Service-Worker-Version, Tests)
 ```
 
@@ -43,6 +45,21 @@ müssen weiter funktionieren, und vor dem Abschluss läuft `npm test`. Beispiel-
 
 Bei jedem Push prüft GitHub die Tests automatisch (Reiter **Actions**).
 
+## Zweige: Entwicklung und Produktion
+
+| Zweig | Zweck | Adresse (Cloudflare Pages) |
+|---|---|---|
+| `main` | **Produktion** – die App, die du im Alltag nutzt | `https://<projekt>.pages.dev` |
+| `develop` | **Entwicklung** – hier entstehen neue Funktionen | `https://develop.<projekt>.pages.dev` |
+
+Ablauf:
+1. In IntelliJ auf `develop` arbeiten (`git switch develop`), mit Claude Code ändern, `npm test`, committen, pushen.
+2. Die Testversion unter der `develop`-Adresse ausprobieren. Sie hat ihren **eigenen Speicher** – deine echten Bücher sind dort nicht
+   (bei Bedarf eine Sicherung importieren oder den Abgleich mit einer **eigenen Test-Datenbank**, z. B. `buecherregal-test`, einschalten).
+3. Passt alles: auf GitHub **Pull request** `develop → main` öffnen. GitHub Actions lässt die Tests laufen; wenn sie grün sind, **Merge**.
+   Cloudflare veröffentlicht `main` dann automatisch.
+4. Nie direkt auf `main` committen. (Ein technischer Schutz dafür ist bei privaten Repositories nur in bezahlten GitHub-Plänen verfügbar.)
+
 ## Veröffentlichen (Hosting)
 
 Die Kamera funktioniert nur über **https**. Empfohlen: **Cloudflare Pages** – kostenlos und funktioniert auch mit privatem Repository.
@@ -51,6 +68,8 @@ Die Kamera funktioniert nur über **https**. Empfohlen: **Cloudflare Pages** –
 2. GitHub verbinden und `private-bookshelf` auswählen.
 3. Einstellungen: Framework **Keine**, Build-Befehl **leer lassen**, Ausgabeverzeichnis **`app`**, Produktionszweig `main`.
 4. Speichern – nach ca. einer Minute ist die App unter `https://<projektname>.pages.dev` erreichbar. Jeder Push auf `main` aktualisiert sie.
+5. Andere Zweige veröffentlicht Cloudflare automatisch als Vorschau, `develop` unter `https://develop.<projektname>.pages.dev`
+   (Einstellung „Preview deployments“ auf „All non-production branches“ lassen).
 
 Hinweis: Das Repository bleibt privat, die **Webadresse** der App ist aber öffentlich aufrufbar. Das ist unkritisch, weil dort nur das
 leere Programm liegt – deine Bücher stehen nur im Browser deiner Geräte. Wer die Adresse zusätzlich schützen möchte, kann in Cloudflare
@@ -72,3 +91,5 @@ Die Bücher hängen an der **Webadresse**, unter der die App läuft. Wenn du die
 - Datenbank (IndexedDB `buecherregal` v2) und Sicherungsformat (Version 1 und 2) nur **additiv** ändern.
 - Bei jeder Änderung in `app/` die `VERSION` in `app/sw.js` erhöhen, damit installierte Apps aktualisieren.
 - Neue Funktion → neuer Test in `tests/`.
+- Abgleich (`app/sync.js`): Tests in `tests/sync.spec.js` laufen gegen einen nachgebildeten CouchDB-Server. Gegen einen echten Server:
+  `COUCH_REAL_URL=http://localhost:5984 COUCH_REAL_USER=admin COUCH_REAL_PASS=… npx playwright test sync-real`
