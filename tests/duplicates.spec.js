@@ -81,6 +81,32 @@ test("„Sind verschiedene Bücher“ wird gemerkt, landet in der Sicherung und 
   await ctx2.close();
 });
 
+test("Band-Nummern: verschiedene Bände sind keine Dubletten – auch bei (falsch) gleicher ISBN", async ({ page }) => {
+  await openApp(page, "#verwaltung");
+  const vols = await page.evaluate(() => [
+    "URSULA RICHTER (HG.). Weihnachtsgeschichten am Kamin 8 13427", "Barbara Mürmann · WEIHNACHTSGESCHICHTEN AM KAMIN · 32",
+    "DIE SCHÖNSTEN WEIHNACHTSGESCHICHTEN AM KAMIN AUS 40 JAHREN", "Harry Potter Band 3", "Weihnachtsgeschichten am Kamin 12", "Momo", "1984",
+  ].map(volFromText));
+  expect(vols).toEqual(["8", "32", "", "3", "12", "", ""]);
+
+  // so sieht es nach dem alten Fach-Foto-Import aus: gleiche ISBN, Band nur im Rückentext bzw. als Band-Nr.
+  await page.evaluate(async () => {
+    const sp = t => ({ text: t, color: "#333" });
+    await putBook({ id: "r6", title: "Weihnachtsgeschichten am Kamin", author: "Ursula Richter", isbn: "9783499233265", seriesNo: "23326", spine: sp("URSULA RICHTER (HG.). Weihnachtsgeschichten am Kamin 6 13021") });
+    await putBook({ id: "r7", title: "Weihnachtsgeschichten am Kamin", author: "Ursula Richter", isbn: "9783499233265", seriesNo: "23326", spine: sp("URSULA RICHTER (HG.). Weihnachtsgeschichten am Kamin 7 13262") });
+    await putBook({ id: "m27", title: "Weihnachtsgeschichten am Kamin", author: "Barbara Mürmann", isbn: "9783499015601", seriesNo: "27" });
+    await putBook({ id: "m28", title: "Weihnachtsgeschichten am Kamin", author: "Barbara Mürmann", isbn: "9783499015601", seriesNo: "28", notes: "Weiteres Exemplar" });
+    await putBook({ id: "k1", title: "Krabat", author: "Otfried Preußler", isbn: "9783522175203", seriesNo: "" });
+    await putBook({ id: "k2", title: "Krabat", author: "Otfried Preußler", isbn: "9783522175203" });
+  });
+  expect(await page.evaluate(() => dupGroups().map(g => g.map(b => b.id).sort()))).toEqual([["k1", "k2"]]);
+  // „schon vorhanden?“: Band 9 ist nicht Band 8 – Band 7 schon (Verlagsnummer und Band-Nr. widersprechen sich nicht)
+  expect(await page.evaluate(() => [
+    findDuplicate({ title: "Weihnachtsgeschichten am Kamin", author: "Barbara Mürmann", seriesNo: "29" })?.id ?? null,
+    findDuplicate({ title: "Weihnachtsgeschichten am Kamin", author: "Ursula Richter", seriesNo: "7" })?.id ?? null,
+  ])).toEqual([null, "r7"]);
+});
+
 test("Alte Sicherung (Version 1, ohne notDup) – Dubletten werden erkannt", async ({ page }) => {
   await openApp(page, "#verwaltung");
   await page.evaluate(() => importData({ app: "buecherregal", version: 1, books: [

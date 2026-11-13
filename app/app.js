@@ -143,7 +143,7 @@ function toIsbn13(s) { s = cleanIsbn(s); if (isbn13ok(s)) return s; if (isbn10ok
 function isbn10of(i13) { if (!i13 || !i13.startsWith("978")) return null; const b = i13.slice(3, 12); let t = 0; for (let i = 0; i < 9; i++) t += (+b[i]) * (10 - i); const c = (11 - t % 11) % 11; return b + (c === 10 ? "X" : c); }
 function findDuplicate(d, exceptId) {
   const i = toIsbn13(d.isbn);
-  return S.books.find(b => b.id !== exceptId && ((i && toIsbn13(b.isbn) === i) || (d.title && b.title && b.title.trim().toLowerCase() === d.title.trim().toLowerCase() && (b.author || "").toLowerCase() === (d.author || "").toLowerCase())));
+  return S.books.find(b => b.id !== exceptId && !dupConflict(d, b) && ((i && toIsbn13(b.isbn) === i) || (d.title && b.title && b.title.trim().toLowerCase() === d.title.trim().toLowerCase() && (b.author || "").toLowerCase() === (d.author || "").toLowerCase())));
 }
 function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Skript nicht ladbar: " + src)); document.head.append(s); }); }
 const blobToDataURL = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
@@ -244,7 +244,8 @@ function fromDNB(r) {
   const edition = trimPunct(dnbFirst(r, "250", "a"));
   const serF = dnbFields(r, "490")[0];
   const series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "";
-  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, edition, series, seriesNo };
+  const part = trimPunct(dnbFirst(r, "245", "n")); // Bandzählung eines mehrbändigen Werks, z. B. „8“
+  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, edition, series, seriesNo, part };
 }
 async function dnbQuery(cql, max = 15) {
   const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
@@ -1935,9 +1936,22 @@ function extrasSummary(b) { return [signSummary(b), (b.images || []).length ? "�
 // Gleiche ISBN – oder gleicher Titel + Autor, solange ISBN bzw. Band-Nr. nicht widersprechen.
 // Paare, die als „verschiedene Bücher“ bestätigt wurden, stehen im optionalen Feld b.notDup (Liste von Buch-IDs).
 const notDupPair = (a, b) => (a.notDup || []).includes(b.id) || (b.notDup || []).includes(a.id);
+// Band-Nummer aus Rücken- oder Titeltext: „… am Kamin 8 13427“ → 8, „Band 3“ → 3, „… · 32“ → 32.
+// Nur 1–3-stellig; Jahreszahlen und Verlags-Bestellnummern (4–6 Ziffern) zählen nicht, Zahlen mitten im Titel („aus 40 Jahren“) auch nicht.
+function volFromText(s) {
+  s = String(s || "");
+  let m = s.match(/\b(?:band|bd\.?|teil|folge|vol\.?|volume|tome)\s*(\d{1,3})\b/i); if (m) return String(+m[1]);
+  m = s.match(/(?:^|[^\d.,])(\d{1,3})\s*[.)]?\s*(?:[·|\-–]\s*)?(?:\d{4,6})?\s*$/); if (m) return String(+m[1]);
+  return "";
+}
+// Band eines gespeicherten Buchs: Band-Nr. (falls kurz) oder aus dem erkannten Rückentext
+function volOf(b) { const s = String(b.seriesNo ?? "").trim(); return /^\d{1,3}$/.test(s) ? String(+s) : volFromText(b.spine?.text); }
 function dupConflict(a, b) {
   const i = toIsbn13(a.isbn), j = toIsbn13(b.isbn); if (i && j && i !== j) return true;
-  const x = String(a.seriesNo ?? "").trim(), y = String(b.seriesNo ?? "").trim(); return !!(x && y && x !== y);
+  const x = String(a.seriesNo ?? "").trim(), y = String(b.seriesNo ?? "").trim();
+  const short = s => /^\d{1,3}$/.test(s); // Band-Nr. (kurz) und Verlagsnummer (lang) sind nicht vergleichbar
+  if (x && y && x !== y && short(x) === short(y)) return true;
+  const u = volOf(a), v = volOf(b); return !!(u && v && u !== v); // verschiedene Bände einer Reihe – auch wenn (fälschlich) dieselbe ISBN
 }
 function dupGroups(books = S.books) {
   const parent = new Map(books.map(b => [b.id, b.id]));
@@ -1949,7 +1963,7 @@ function dupGroups(books = S.books) {
   }
   for (const [k, list] of buckets) for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) {
     const a = list[x], b = list[y];
-    if (notDupPair(a, b) || (k[0] === "t" && dupConflict(a, b))) continue;
+    if (notDupPair(a, b) || dupConflict(a, b)) continue;
     parent.set(find(a.id), find(b.id));
   }
   const groups = new Map();

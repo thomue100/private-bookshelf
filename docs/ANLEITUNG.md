@@ -185,7 +185,10 @@ Unter **Buch hinzufügen → Weg C**, im **Echten Regal → 📷 Fach-Foto einle
 1. Ziel-Fach wählen (oder „nicht einsortieren“) und ein ganzes Fach von vorne fotografieren bzw. ein Foto wählen.
 2. Die App erkennt alle Buchrücken von links nach rechts – auch liegende Bücher, Bücher oben auf der Reihe und eine hintere Reihe. CDs, Karten, Prospekte werden als „kein Buch“ erkannt und standardmäßig übersprungen.
 3. Für jedes Buch sucht sie in DNB, Google Books und Open Library die passende Ausgabe (Verlag wie „dtv“ zählt mit).
-4. **Prüfliste:** Foto mit nummerierten Rahmen, je Buch der ausgeschnittene Rücken, erkannter Titel/Autor (änderbar, dann „🔎 Neu suchen“), Katalogtreffer zur Auswahl oder „nur erkannte Angaben“. Bücher, die du schon hast, werden erkannt und nur einsortiert. Zwei gleiche Bücher im Foto werden zwei Exemplare.
+4. **Prüfliste:** Foto mit nummerierten Rahmen, je Buch der ausgeschnittene Rücken, erkannter Titel/Autor/**Band** (änderbar, dann „🔎 Neu suchen“), Katalogtreffer zur Auswahl oder „nur erkannte Angaben“. Bücher, die du schon hast, werden erkannt und nur einsortiert.
+   - **Nachfrage bei Unsicherheit:** Unsichere Rücken sind **gelb markiert** (im Foto mit „?“), oben steht, wie viele es sind – mit „Nur unsichere zeigen“. Gründe sind z. B.: Rücken schlecht lesbar, mehrere ähnliche Katalogeinträge, Band nicht im Katalog, oder dasselbe Buch zweimal im Foto. Entweder korrigieren und neu suchen, einen Katalogtreffer wählen – oder **„✓ Passt so“**. Beim Übernehmen fragt die App nach, solange noch etwas ungeprüft ist.
+   - **Reihen mit Bänden** (z. B. „Weihnachtsgeschichten am Kamin 8“): Die Band-Nummer zählt. Ein Katalogtreffer wird nur automatisch gewählt, wenn er denselben Band nennt – sonst werden die erkannten Angaben mit Reihe und Band übernommen (ohne fremde ISBN). Verschiedene Bände werden nie zu „Weiteres Exemplar“.
+   - **Zwei gleiche Bücher im Foto** werden nach deinem „✓ Passt so“ zu zwei Exemplaren – und gelten danach nicht als Dublette.
 5. **Übernehmen:** Neue Bücher werden angelegt und in Reihenfolge ins Fach gestellt (liegend, oben drauf, hinten wie erkannt). Wahlweise ersetzt das den bisherigen Fach-Inhalt oder wird angehängt. Die **Buchrücken-Bilder** werden direkt aus dem Foto geschnitten, Dicke und Höhe aus dem Foto berechnet.
 
 **Erkennung – drei Wege** (wählbar beim Fach-Foto):
