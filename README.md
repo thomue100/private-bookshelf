@@ -47,33 +47,40 @@ Bei jedem Push prüft GitHub die Tests automatisch (Reiter **Actions**).
 
 ## Zweige: Entwicklung und Produktion
 
-| Zweig | Zweck | Adresse (Cloudflare Pages) |
+| Zweig | Zweck | Adresse (Vercel) |
 |---|---|---|
-| `main` | **Produktion** – die App, die du im Alltag nutzt | `https://<projekt>.pages.dev` |
-| `develop` | **Entwicklung** – hier entstehen neue Funktionen | `https://develop.<projekt>.pages.dev` |
+| `main` | **Produktion** – die App, die du im Alltag nutzt | `https://<projekt>.vercel.app` |
+| `develop` | **Entwicklung** – hier entstehen neue Funktionen | `https://<projekt>-git-develop-<konto>.vercel.app` |
 
 Ablauf:
 1. In IntelliJ auf `develop` arbeiten (`git switch develop`), mit Claude Code ändern, `npm test`, committen, pushen.
 2. Die Testversion unter der `develop`-Adresse ausprobieren. Sie hat ihren **eigenen Speicher** – deine echten Bücher sind dort nicht
    (bei Bedarf eine Sicherung importieren oder den Abgleich mit einer **eigenen Test-Datenbank**, z. B. `buecherregal-test`, einschalten).
 3. Passt alles: auf GitHub **Pull request** `develop → main` öffnen. GitHub Actions lässt die Tests laufen; wenn sie grün sind, **Merge**.
-   Cloudflare veröffentlicht `main` dann automatisch.
+   Vercel veröffentlicht `main` dann automatisch.
 4. Nie direkt auf `main` committen. (Ein technischer Schutz dafür ist bei privaten Repositories nur in bezahlten GitHub-Plänen verfügbar.)
 
 ## Veröffentlichen (Hosting)
 
-Die Kamera funktioniert nur über **https**. Empfohlen: **Cloudflare Pages** – kostenlos und funktioniert auch mit privatem Repository.
+Die Kamera funktioniert nur über **https**. Empfohlen: **Vercel** – kostenlos (Hobby-Tarif) und funktioniert auch mit privatem Repository.
 
-1. Auf https://dash.cloudflare.com ein kostenloses Konto anlegen → **Workers & Pages → Erstellen → Pages → Mit Git verbinden**.
-2. GitHub verbinden und `private-bookshelf` auswählen.
-3. Einstellungen: Framework **Keine**, Build-Befehl **leer lassen**, Ausgabeverzeichnis **`app`**, Produktionszweig `main`.
-4. Speichern – nach ca. einer Minute ist die App unter `https://<projektname>.pages.dev` erreichbar. Jeder Push auf `main` aktualisiert sie.
-5. Andere Zweige veröffentlicht Cloudflare automatisch als Vorschau, `develop` unter `https://develop.<projektname>.pages.dev`
-   (Einstellung „Preview deployments“ auf „All non-production branches“ lassen).
+1. Auf https://vercel.com mit dem GitHub-Konto ein kostenloses Konto anlegen → **Add New… → Project**.
+2. Bei GitHub den Zugriff erlauben und `private-bookshelf` **importieren**.
+3. Einstellungen:
+   - Framework Preset **Other**
+   - Root Directory **`app`** (über **Edit** auswählen)
+   - Build Command **leer lassen**
+   - Produktionszweig **`main`** (Vercel nimmt den Standardzweig des Repositorys; prüfen bzw. ändern unter Settings → Environments → Production)
+4. **Deploy** – nach ca. einer Minute ist die App unter `https://<projekt>.vercel.app` erreichbar. Jeder Push auf `main` aktualisiert sie.
+5. Andere Zweige veröffentlicht Vercel automatisch als Vorschau, `develop` unter
+   `https://<projekt>-git-develop-<konto>.vercel.app` (`<konto>` ist dein Vercel-Kontoname; die genaue Adresse steht unter **Deployments**).
 
-Hinweis: Das Repository bleibt privat, die **Webadresse** der App ist aber öffentlich aufrufbar. Das ist unkritisch, weil dort nur das
-leere Programm liegt – deine Bücher stehen nur im Browser deiner Geräte. Wer die Adresse zusätzlich schützen möchte, kann in Cloudflare
-„Zero Trust → Access“ davorschalten.
+**Vorschauen sind geschützt:** Vercel schaltet für Vorschau-Adressen standardmäßig die **Deployment Protection** („Vercel Authentication“) ein.
+Die `develop`-Adresse öffnet sich dann nur, wenn du im selben Browser bei Vercel angemeldet bist – auch am Handy. Wer das nicht möchte,
+stellt es unter **Settings → Deployment Protection** ab. Die Produktionsadresse `https://<projekt>.vercel.app` ist davon nicht betroffen.
+
+Hinweis: Das Repository bleibt privat, die **Produktionsadresse** der App ist aber öffentlich aufrufbar. Das ist unkritisch, weil dort nur das
+leere Programm liegt – deine Bücher stehen nur im Browser deiner Geräte.
 
 Alternativen: Repository öffentlich machen und **GitHub Pages** nutzen (Settings → Pages → Branch `main`, Ordner – dann aber den
 Inhalt von `app/` ins Wurzelverzeichnis bzw. einen `docs/`-Ordner legen), oder GitHub Pages mit einem bezahlten GitHub-Plan für private Repositories.

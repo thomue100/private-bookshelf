@@ -6,7 +6,7 @@ Eine eigenständige Web-App für deine private Bibliothek. Sie läuft im Browser
 
 Damit die Kamera funktioniert, muss die App über **https** erreichbar sein.
 
-> **Im GitHub-Projekt `private-bookshelf`** liegen die App-Dateien im Ordner `app/`. Dort wird über Cloudflare Pages veröffentlicht – die Schritte stehen in der `README.md`. Die folgende Anleitung gilt, wenn du die App als ZIP-Paket weitergibst.
+> **Im GitHub-Projekt `private-bookshelf`** liegen die App-Dateien im Ordner `app/`. Dort wird über Vercel veröffentlicht – die Schritte stehen in der `README.md`. Die folgende Anleitung gilt, wenn du die App als ZIP-Paket weitergibst.
 
 Am einfachsten geht das mit **GitHub Pages**:
 

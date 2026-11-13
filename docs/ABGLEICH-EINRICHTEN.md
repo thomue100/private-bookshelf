@@ -49,8 +49,8 @@ Zeitbedarf: einmalig etwa 30–45 Minuten. Du brauchst den Windows-PC und dein H
 
 8. Links das Zahnrad **Configuration** → Reiter **CORS** → **Enable CORS**.
 9. **Restrict to specific domains** wählen und die Adressen eintragen, unter denen du die App öffnest – jeweils genau so, ohne `/` am Ende:
-   - `https://DEIN-PROJEKT.pages.dev` (die App im Alltag)
-   - `https://develop.DEIN-PROJEKT.pages.dev` (die Testversion)
+   - `https://DEIN-PROJEKT.vercel.app` (die App im Alltag)
+   - `https://DEIN-PROJEKT-git-develop-DEIN-KONTO.vercel.app` (die Testversion; die genaue Adresse steht bei Vercel unter **Deployments**)
    - `http://localhost:8765` (wenn du am PC mit `npm start` entwickelst)
 
 ## Teil 2 – Tailscale: Handy und PC privat verbinden
@@ -77,7 +77,7 @@ der PC wird dabei **nicht** im Internet sichtbar. Außerdem liefert Tailscale di
 
 **Reihenfolge ist wichtig:** zuerst das Gerät, auf dem deine Bücher vollständig sind.
 
-1. **PC**, die App unter ihrer festen Adresse (z. B. `https://DEIN-PROJEKT.pages.dev`) öffnen.
+1. **PC**, die App unter ihrer festen Adresse (z. B. `https://DEIN-PROJEKT.vercel.app`) öffnen.
    Falls sie dort noch leer ist: erst **Menü ⋯ → Sicherung importieren** mit deiner aktuellen Sicherungsdatei.
 2. **Menü ⋯ → 🔄 Abgleich mit eigenem Server …**
    - Serveradresse: `https://mein-pc.tail1234.ts.net`
