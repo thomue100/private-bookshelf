@@ -102,5 +102,14 @@ Die Bücher hängen an der **Webadresse**, unter der die App läuft. Wenn du die
 - Datenbank (IndexedDB `buecherregal` v2) und Sicherungsformat (Version 1 und 2) nur **additiv** ändern.
 - Bei jeder Änderung in `app/` die `VERSION` in `app/sw.js` erhöhen, damit installierte Apps aktualisieren.
 - Neue Funktion → neuer Test in `tests/`.
-- Abgleich (`app/sync.js`): Tests in `tests/sync.spec.js` laufen gegen einen nachgebildeten CouchDB-Server. Gegen einen echten Server:
-  `COUCH_REAL_URL=http://localhost:5984 COUCH_REAL_USER=admin COUCH_REAL_PASS=… npx playwright test sync-real`
+- Abgleich (`app/sync.js`): Tests in `tests/sync.spec.js` laufen gegen einen nachgebildeten CouchDB-Server.
+  **Gegen den echten Server** (ab und zu, z. B. vor einem Pull Request mit Änderungen am Abgleich) – mit der eigenen
+  Test-Datenbank `buecherregal-test`, in der der App-Benutzer Mitglied ist (in Fauxton wie `buecherregal` anlegen, Teil 1, Schritte 5 und 7):
+  ```powershell
+  $env:COUCH_REAL_URL="https://DEIN-PC.tailXXXX.ts.net"; $env:COUCH_REAL_DB="buecherregal-test"
+  $env:COUCH_REAL_USER="buecher"; $env:COUCH_REAL_PASS="…"
+  npx playwright test sync-real
+  ```
+  Der Test prüft die ganze Kette (Browser → Tailscale-https → CORS → CouchDB) mit zwei „Geräten“, leert die Test-Datenbank vorher
+  und nachher und **verweigert jede Datenbank ohne „test“ im Namen** – die echten Bücher bleiben unberührt. Ohne `COUCH_REAL_URL`
+  wird er übersprungen (auch bei GitHub).
