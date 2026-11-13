@@ -580,7 +580,13 @@ async function wishBought(id) {
 }
 
 /* ================= Darstellung: Regal ================= */
-function renderAll() { renderNav(); renderShelf(); renderTable(); renderWall(); renderWish(); }
+// Nur die sichtbare Ansicht zeichnen – beim Wechsel (hashchange → renderAll) wird die neue frisch gezeichnet.
+// Spart bei großen Sammlungen viel Zeit, weil sonst jede Änderung auch die ganze Tabelle neu aufbaut.
+function renderAll() {
+  renderNav();
+  const v = view();
+  if (v === "verwaltung") renderTable(); else if (v === "wand") renderWall(); else if (v === "wunsch") renderWish(); else renderShelf();
+}
 function view() { return location.hash === "#verwaltung" ? "verwaltung" : location.hash === "#wand" ? "wand" : location.hash === "#wunsch" ? "wunsch" : "regal"; }
 function renderNav() {
   const v = view();
@@ -2328,13 +2334,43 @@ function tableRow(b, cols = visCols()) {
     return el("td", { class: req && !String(b[k] ?? "").trim() ? "miss" : null }, cellInput(b, k));
   }));
 }
+const T_PAGE = 150;
+S.tLimit = T_PAGE;
+let tMoreObs = null;
+function moreRow() {
+  const rest = S.tList.length - S.tLimit;
+  const tr = el("tr", { class: "tmore" }, el("td", { colspan: S.tCols.length },
+    el("span", { text: `Noch ${rest} ${rest === 1 ? "Buch" : "Bücher"} …` }),
+    el("button", { class: "btn sm", onclick: () => showMoreRows(Infinity) }, "Alle anzeigen")));
+  // automatisch nachladen, sobald die Zeile in die Nähe des sichtbaren Bereichs kommt
+  if ("IntersectionObserver" in window) {
+    if (tMoreObs) tMoreObs.disconnect();
+    tMoreObs = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) showMoreRows(T_PAGE); }, { root: $(".tablewrap"), rootMargin: "400px" });
+    requestAnimationFrame(() => { if (tr.isConnected) tMoreObs.observe(tr); });
+  }
+  return tr;
+}
+function showMoreRows(n) {
+  const body = $("#tbl").tBodies[0]; if (!body || !S.tList) return;
+  const old = body.querySelector("tr.tmore"); if (old) old.remove();
+  if (tMoreObs) tMoreObs.disconnect();
+  const from = S.tLimit; S.tLimit = Math.min(S.tList.length, from + n);
+  body.append(...S.tList.slice(from, S.tLimit).map(b => tableRow(b, S.tCols)));
+  if (S.tList.length > S.tLimit) body.append(moreRow());
+}
 function clearAllTableFilters() { S.colF = {}; S.tq = ""; $("#tq").value = ""; S.tTag = ""; S.tFilter = "all"; saveTableView(); renderTable(); }
 function renderTableRows() {
   const tbl = $("#tbl");
   const list = tableList();
   const anyFilter = anyTableFilter();
   const cols = visCols();
-  const body = el("tbody", {}, ...list.map(b => tableRow(b, cols)));
+  // Große Listen in Stücken zeichnen: erst T_PAGE Zeilen, beim Scrollen mehr. Neu anfangen nur, wenn sich Filter/Sortierung ändern –
+  // nicht beim Bearbeiten einer Zelle (sonst springt die Liste).
+  const sig = canon({ colF: S.colF, sorts: S.tSorts, tFilter: S.tFilter, tTag: S.tTag, tq: S.tq });
+  if (sig !== S.tSig) { const first = S.tSig == null; S.tSig = sig; S.tLimit = T_PAGE; const w = $(".tablewrap"); if (w && !first) w.scrollTop = 0; } // neue Auswahl: oben beginnen
+  S.tList = list; S.tCols = cols;
+  const body = el("tbody", {}, ...list.slice(0, S.tLimit).map(b => tableRow(b, cols)));
+  if (list.length > S.tLimit) body.append(moreRow());
   if (!list.length) body.append(el("tr", {}, el("td", { colspan: cols.length, style: "padding:30px;text-align:center;color:var(--muted);white-space:normal" },
     !S.loaded ? "Lade …" : !S.books.length ? "Noch keine Bücher erfasst." : "Keine Treffer.",
     S.loaded && S.books.length && anyFilter ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: clearAllTableFilters }, "Alle Filter aufheben") : null)));

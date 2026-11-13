@@ -145,6 +145,8 @@ Unter den Spaltenüberschriften der Tabelle liegt eine **Filterzeile** (ein-/aus
 
 **Sortieren über mehrere Spalten:** Klick auf eine Überschrift sortiert danach (nochmal = umgekehrt). **Umschalt+Klick** fügt eine weitere Sortierstufe hinzu (z. B. Autor, dann Jahr absteigend). Am Handy über „＋ dann nach …“. Leere Werte stehen immer am Ende.
 
+Bei großen Sammlungen zeigt die Tabelle zuerst 150 Bücher und lädt beim Herunterscrollen automatisch weitere nach („Alle anzeigen“ holt sofort alle). Zählung, Filter, Sortierung und CSV-Export gelten immer für alle Bücher.
+
 Über der Tabelle stehen „x von y“, die aktiven Filter (einzeln mit × entfernbar, „Alle aufheben“) und die Sortierstufen. **„⬇ CSV (… gefiltert)“** exportiert genau die angezeigten Bücher in der angezeigten Reihenfolge. Filter, Sortierung, Spalten und gespeicherte Ansichten bleiben **auf diesem Gerät** gespeichert – sie gehören nicht zu den Buchdaten und werden weder gesichert noch abgeglichen.
 
 ## Lieblingsbücher

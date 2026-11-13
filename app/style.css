@@ -462,6 +462,8 @@ body.colresizing,body.colresizing *{cursor:col-resize!important;user-select:none
 .tvsave{display:flex;gap:6px}
 .tvsave .field{flex:1;min-width:0;padding:5px 8px;font-size:13px}
 @media (max-width:600px){.tpanel{position:fixed;top:auto;bottom:calc(90px + env(safe-area-inset-bottom,0px));left:16px;right:16px;width:auto;z-index:40}} /* über dem „+ Buch“-Knopf */
+tr.tmore td{padding:14px 12px;color:var(--muted);font-size:13px}
+tr.tmore .btn{margin-left:10px}
 /* Dubletten */
 .btn.warn{border-color:var(--warn);color:var(--warn)}
 .dupgroup{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:10px 0;display:flex;flex-direction:column;gap:6px;background:var(--paper)}
