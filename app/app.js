@@ -1478,7 +1478,7 @@ const FACH_LABEL = { L: "links", R: "rechts", T: "oben", B: "unten", TL: "oben l
 const LAYER_LABEL = { front: "", back: "hintere Reihe", top: "liegt oben auf der Reihe" };
 const BOARD = 1.2, FACH_W = 33.0, FACH_H = 33.0;
 const MOD_COLORS = [["Weiß", "#f3f2ee"], ["Hellgrau", "#d6d4cf"], ["Anthrazit", "#3a3a3a"], ["Ruby", "#7d2630"], ["Salbei", "#a7b4a0"], ["Blau", "#3f5d7d"], ["Senf", "#d9a640"]];
-S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = ""; S.showBack = new Set();
+S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = ""; S.showBack = new Set(); S.pickMany = null; S.selMode = false; S.sel = new Set(); S.lens = false;
 
 const upright = m => m.type !== "1112" && m.orient === "v";
 function modDims(m) { const d = MOD[m.type]; return upright(m) ? { w: d.h, h: d.w } : { w: d.w, h: d.h }; }
@@ -1493,6 +1493,19 @@ function layerList(m, k, layer) { ensureLayers(m); return layer === "back" ? m.b
 function modBookCount(m) { ensureLayers(m); return [m.fachs, m.back, m.top].reduce((a, o) => a + Object.values(o).flat().length, 0); }
 const isLying = id => !!(S.shelves.lying && S.shelves.lying[id]);
 function setLying(id, v) { S.shelves.lying = S.shelves.lying || {}; if (v) S.shelves.lying[id] = true; else delete S.shelves.lying[id]; }
+// „Fach ist voll“: Reihe gleichmäßig auf die Fachbreite verteilen (m.fit = { L: true, "L:back": true }, optional)
+const fitKey = (k, layer) => layer === "back" ? k + ":back" : k;
+const isFit = (m, k, layer) => layer !== "top" && !!(m.fit && m.fit[fitKey(k, layer)]);
+function setFit(m, k, layer, v) { m.fit = m.fit || {}; if (v) m.fit[fitKey(k, layer)] = true; else delete m.fit[fitKey(k, layer)]; if (!Object.keys(m.fit).length) delete m.fit; }
+// Ausgewählte Bücher in Regal-Reihenfolge (danach nicht eingeräumte in Auswahl-Reihenfolge)
+function orderedSel() {
+  const seen = new Set(), out = [];
+  for (const f of allFachs()) for (const id of f.list) if (S.sel.has(id) && !seen.has(id)) { seen.add(id); out.push(id); }
+  for (const id of S.sel) if (!seen.has(id) && bookOf(id)) out.push(id);
+  return out;
+}
+const picking = () => S.pickMany?.length ? S.pickMany : S.pick ? [S.pick] : null;
+const endPick = () => { S.pick = null; S.pickMany = null; };
 
 async function saveShelves() { S.shelves.updatedAt = new Date().toISOString(); await DB.setMeta("shelves", S.shelves); dataChanged(); }
 function curWall() { return S.shelves.walls.find(w => w.id === S.wallId) || S.shelves.walls[0] || null; }
@@ -1516,17 +1529,21 @@ function locationText(loc) {
 }
 function locationShort(loc) { return `${loc.w.name}${loc.w.columns.length > 1 ? " · Sp. " + (loc.ci + 1) : ""}${loc.c.modules.length > 1 ? " · W" + (loc.mi + 1) : ""} · ${FACH_LABEL[loc.k]}${loc.layer === "back" ? " · hinten" : loc.layer === "top" ? " · oben drauf" : ""} · #${loc.pos + 1}`; }
 function unshelve(id) { let ch = false; for (const f of allFachs()) { let i; while ((i = f.list.indexOf(id)) >= 0) { f.list.splice(i, 1); ch = true; } } return ch; }
-async function placeBook(id, mod, k, index, layer = "front") {
+async function placeBook(id, mod, k, index, layer = "front") { return placeBooks([id], mod, k, index, layer); }
+// Mehrere Bücher (in dieser Reihenfolge) vor das Buch an Stelle `index` stellen – oder ans Ende
+async function placeBooks(ids, mod, k, index, layer = "front") {
+  ids = [...new Set(ids)].filter(id => bookOf(id)); if (!ids.length) return;
   const list = layerList(mod, k, layer);
-  const old = list.indexOf(id);
   if (index == null) index = list.length;
-  if (old >= 0 && old < index) index--;
-  unshelve(id);
-  list.splice(Math.max(0, Math.min(index, list.length)), 0, id);
+  let anchor = null; for (let i = Math.max(0, index); i < list.length; i++) if (!ids.includes(list[i])) { anchor = list[i]; break; }
+  ids.forEach(unshelve);
+  if (layer === "top") ids.forEach(id => setLying(id, false));
+  list.splice(anchor ? list.indexOf(anchor) : list.length, 0, ...ids);
   await saveShelves();
-  const b = S.books.find(x => x.id === id);
+  const b = bookOf(ids[0]);
   const u = fachUsage(mod, k);
-  toast(`„${b?.title || "Buch"}“ ${layer === "top" ? "oben aufgelegt" : layer === "back" ? "in die hintere Reihe gestellt" : "eingeräumt"}` + (u.full ? " – das Fach ist rechnerisch voll." : "."), 2200);
+  const what = layer === "top" ? "oben aufgelegt" : layer === "back" ? "in die hintere Reihe gestellt" : "eingeräumt";
+  toast((ids.length === 1 ? `„${b?.title || "Buch"}“ ${what}` : `${ids.length} Bücher ${what}`) + (u.full ? " – das Fach ist rechnerisch voll." : "."), 2200);
 }
 function locationBlock(id) {
   const loc = locationOf(id);
@@ -1547,16 +1564,30 @@ function rowGroups(ids) { // fasst aufeinanderfolgende liegende Bücher zu Stape
   const g = []; ids.forEach((id, i) => { const b = bookOf(id); if (!b) return; if (isLying(id) && g.length && g[g.length - 1].lying) g[g.length - 1].items.push({ b, i }); else g.push({ lying: isLying(id), items: [{ b, i }] }); });
   return g;
 }
-function rowMetrics(ids) { // Breite und größte Höhe einer Reihe in cm
+const fitF = (fit, b) => !fit ? 1 : (+b.spine?.thickCm ? fit.meas : fit.est);
+function rowMetrics(ids, fit) { // Breite und größte Höhe einer Reihe in cm
   let w = 0, h = 0;
   for (const g of rowGroups(ids)) {
     if (g.lying) { w += Math.max(...g.items.map(x => spineCm(x.b).h)); h = Math.max(h, g.items.reduce((a, x) => a + spineCm(x.b).w, 0)); }
-    else for (const x of g.items) { const c = spineCm(x.b); w += c.w; h = Math.max(h, c.h); }
+    else for (const x of g.items) { const c = spineCm(x.b); w += c.w * fitF(fit, x.b); h = Math.max(h, c.h); }
   }
   return { w, h };
 }
+// Streckfaktoren für eine „volle“ Reihe: selbst gemessene Dicken bleiben, geschätzte füllen den Rest
+function rowFit(m, k, layer) {
+  if (!isFit(m, k, layer)) return null;
+  let lie = 0, est = 0, meas = 0;
+  for (const g of rowGroups(layerList(m, k, layer))) {
+    if (g.lying) lie += Math.max(...g.items.map(x => spineCm(x.b).h));
+    else for (const x of g.items) { const w = spineCm(x.b).w; if (+x.b.spine?.thickCm) meas += w; else est += w; }
+  }
+  const room = FACH_W - 0.6 - lie, clamp = f => Math.max(0.25, Math.min(8, f));
+  if (est > 0 && room - meas > 0) return { est: clamp((room - meas) / est), meas: 1 };
+  if (est + meas > 0 && room > 0) { const f = clamp(room / (est + meas)); return { est: f, meas: f }; }
+  return null;
+}
 function fachUsage(m, k) {
-  const f = rowMetrics(layerList(m, k, "front")), b = rowMetrics(layerList(m, k, "back"));
+  const f = rowMetrics(layerList(m, k, "front"), rowFit(m, k, "front")), b = rowMetrics(layerList(m, k, "back"), rowFit(m, k, "back"));
   const topH = layerList(m, k, "top").reduce((a, id) => { const x = bookOf(id); return a + (x ? spineCm(x).w : 0); }, 0);
   return { front: f, back: b, topH, full: f.w > FACH_W || b.w > FACH_W || f.h + topH > FACH_H };
 }
@@ -1601,19 +1632,39 @@ function renderWall() {
   sel.addEventListener("change", () => { S.wallId = sel.value; renderWall(); });
   const tools = el("div", { class: "tools" },
     S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
-    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { S.wallEdit = !S.wallEdit; renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
+    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
     el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand"),
     el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
+    el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
+    el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe"),
     el("span", { style: "flex:1" }),
     el("button", { class: "btn sm", title: "Verkleinern", onclick: () => { S.zoom = Math.max(0.5, S.zoom / 1.2); renderWall(); } }, "−"),
     el("button", { class: "btn sm", title: "Vergrößern", onclick: () => { S.zoom = Math.min(4, S.zoom * 1.2); renderWall(); } }, "＋"));
 
-  const pickBook = S.pick && bookOf(S.pick);
-  const pickBar = pickBook ? el("div", { class: "note info pickbar" },
-    el("span", {}, el("b", { text: `„${bookLabel(pickBook)}“${pickBook.author ? " (" + pickBook.author + ")" : ""} einräumen: ` }), "Tippe auf ein Fach (kommt ans Ende), auf das Buch, vor das es soll, oder auf „⇧ drauflegen“ in einem Fach."),
-    el("button", { class: "btn sm", onclick: () => { S.pick = null; renderWall(); } }, "Abbrechen")) : null;
+  const P = picking(), pickBook = P && P.length === 1 && bookOf(P[0]);
+  const pickBar = !P ? null : el("div", { class: "note info pickbar" },
+    pickBook ? el("span", {}, el("b", { text: `„${bookLabel(pickBook)}“${pickBook.author ? " (" + pickBook.author + ")" : ""} einräumen: ` }), "Tippe auf ein Fach (kommt ans Ende), auf das Buch, vor das es soll, oder auf „⇧ drauflegen“ in einem Fach.")
+      : el("span", {}, el("b", { text: `${P.length} Bücher umstellen: ` }), "Tippe auf ein Fach (kommen ans Ende), auf das Buch, vor das sie sollen, oder auf „⇧ drauflegen“ bzw. „⇅ hinten“ in einem Fach."),
+    el("button", { class: "btn sm", onclick: () => { endPick(); renderWall(); } }, "Abbrechen"));
 
-  const wallEl = el("div", { class: "wall" + (S.wallEdit ? " editing" : "") + (pickBook ? " picking" : ""), style: `gap:${1.5 * s}px` });
+  let selBar = null;
+  if (S.selMode) {
+    const ids = orderedSel(), locs = ids.map(id => locationOf(id)).filter(Boolean);
+    const nm = n => n === 1 ? "1 Buch" : n + " Bücher";
+    const toLayer = async (layer, msg) => { const n = await moveToLayer(locs.map(l => l.list[l.pos]), layer); S.sel.clear(); renderAll(); toast(nm(n) + " " + msg, 2000); };
+    selBar = el("div", { class: "note info pickbar selbar" },
+      el("span", {}, el("b", { text: ids.length ? nm(ids.length) + " ausgewählt. " : "Mehrere auswählen: " }),
+        ids.length ? "Was soll damit passieren?" : "Tippe Bücher im Regal oder in der Liste an – „☑ alle“ im Fach wählt eine ganze Reihe."),
+      el("div", { class: "covertools" },
+        el("button", { class: "btn sm", disabled: !locs.some(l => l.layer !== "back") || null, onclick: () => toLayer("back", "in die hintere Reihe gestellt.") }, "⇅ Nach hinten"),
+        el("button", { class: "btn sm", disabled: !locs.some(l => l.layer !== "front") || null, onclick: () => toLayer("front", "in die vordere Reihe gestellt.") }, "⇅ Nach vorne"),
+        el("button", { class: "btn sm", disabled: !ids.length || null, onclick: () => { S.pickMany = ids; S.pick = null; S.selMode = false; S.sel.clear(); renderWall(); } }, "↔ In anderes Fach"),
+        el("button", { class: "btn sm danger", disabled: !locs.length || null, onclick: async () => { locs.forEach(l => { const id = l.list[l.pos]; unshelve(id); setLying(id, false); }); S.sel.clear(); await saveShelves(); renderAll(); toast(nm(locs.length) + " zurück in „Noch nicht eingeräumt“.", 2000); } }, "↩ Herausnehmen"),
+        ids.length ? el("button", { class: "btn sm ghost", onclick: () => { S.sel.clear(); renderWall(); } }, "Auswahl aufheben") : null,
+        el("button", { class: "btn sm primary", onclick: () => { S.selMode = false; S.sel.clear(); renderWall(); } }, "Fertig")));
+  }
+
+  const wallEl = el("div", { class: "wall" + (S.wallEdit ? " editing" : "") + (P ? " picking" : "") + (S.selMode ? " selecting" : "") + (S.lens && !S.wallEdit ? " lensing" : ""), style: `gap:${1.5 * s}px` });
   w.columns.forEach((col, ci) => {
     const colEl = el("div", { class: "wcol", style: `min-width:${colW(col) * s}px` });
     if (S.wallEdit) colEl.append(el("div", { class: "colbar", style: `width:${Math.max(colW(col) * s, 220)}px` },
@@ -1635,10 +1686,12 @@ function renderWall() {
 
   const legend = el("div", { class: "saved", style: "margin-top:10px" },
     "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
-    "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs. Rot umrandet = rechnerisch voll.");
+    "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs. Rot umrandet = rechnerisch voll. ",
+    "Ist ein echtes Fach voll: Buch antippen → „Fach ist voll – auf ganze Breite verteilen“. „☑ Auswählen“ stellt mehrere Bücher auf einmal um, „🔍 Lupe“ vergrößert die Rücken.");
 
-  fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, editInfo,
-    el("div", { class: "wandlayout" }, el("div", { class: "wallscroll" }, wallEl, legend), sidebarEl()));
+  const lens = S.lens && !S.wallEdit ? lensAttach(wallEl, s) : null;
+  fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, selBar, editInfo,
+    el("div", { class: "wandlayout" }, el("div", { class: "wallscroll" }, wallEl, legend), sidebarEl()), lens);
   if (S.highlight) {
     const sp = host.querySelector(`.spine[data-id="${S.highlight}"]`);
     if (sp) { sp.classList.add("hl"); sp.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); }
@@ -1646,6 +1699,62 @@ function renderWall() {
   }
 }
 async function editWall(fn) { fn(); await saveShelves(); renderAll(); }
+// Bücher im selben Fach in eine andere Reihe stellen (hinten anfügen, Reihenfolge bleibt)
+async function moveToLayer(ids, layer) {
+  let n = 0;
+  for (const id of ids) {
+    const loc = locationOf(id); if (!loc || loc.layer === layer) continue;
+    unshelve(id); if (layer === "top") setLying(id, false);
+    layerList(loc.m, loc.k, layer).push(id); n++;
+    const fid = loc.m.id + ":" + loc.k; if (layer === "back") S.showBack.add(fid); else S.showBack.delete(fid);
+  }
+  await saveShelves(); return n;
+}
+const interiorOf = m => `color-mix(in srgb, ${m.color} 84%, #000)`;
+function findModule(id) { for (const w of S.shelves.walls) for (const c of w.columns) for (const m of c.modules) if (m.id === id) return m; return null; }
+/* Lupe: zeigt das Fach unter Maus/Finger stark vergrößert (neu gezeichnet, damit die Schrift scharf bleibt) */
+let lensLast = null; // letzte Lupen-Position – übersteht ein Neuzeichnen der Wand
+function lensAttach(wallEl, s) {
+  const inner = el("div", { class: "lensin" }), lens = el("div", { class: "lens hidden" }, inner), cap = el("div", { class: "lenscap hidden" });
+  const Z = Math.min(60, Math.max(16, s * 2.5));
+  let cur = null, start = null, moved = false;
+  const hide = () => { lensLast = null; lens.classList.add("hidden"); cap.classList.add("hidden"); };
+  const show = (x, y, touch) => {
+    const hit = document.elementFromPoint(x, y), fe = hit && hit.closest(".wall .fach");
+    if (!fe) return hide();
+    lensLast = { x, y, touch };
+    if (!cur || cur.fid !== fe.dataset.fid) {
+      const [mid, k] = fe.dataset.fid.split(":"), m = findModule(mid); if (!m) return hide();
+      const big = fachEl(m, k, Z, interiorOf(m)); big.classList.add("big"); big.style.width = FACH_W * Z + "px"; big.style.height = FACH_H * Z + "px";
+      fillNode(inner, big); cur = { fid: fe.dataset.fid };
+    }
+    const R = innerWidth < 600 ? 85 : 120, r = fe.getBoundingClientRect();
+    const fx = (x - r.left) / r.width, fy = (y - r.top) / r.height;
+    inner.style.transform = `translate(${R - fx * FACH_W * Z}px,${R - fy * FACH_H * Z}px)`;
+    let lx = x - R, ly = touch ? y - 2 * R - 40 : y - R;
+    if (ly < 8) ly = touch ? y + 40 : 8;
+    lx = Math.max(8, Math.min(innerWidth - 2 * R - 8, lx));
+    Object.assign(lens.style, { width: 2 * R + "px", height: 2 * R + "px", left: lx + "px", top: ly + "px" });
+    lens.classList.remove("hidden");
+    const sp = hit.closest(".spine"), b = sp && bookOf(sp.dataset.id);
+    if (b) { cap.textContent = bookLabel(b) + (b.author ? " – " + b.author : ""); Object.assign(cap.style, { left: lx + R + "px", top: ly + 2 * R + 6 + "px" }); cap.classList.remove("hidden"); }
+    else cap.classList.add("hidden");
+  };
+  wallEl.addEventListener("pointermove", e => {
+    if (e.pointerType === "mouse") return show(e.clientX, e.clientY, false);
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) moved = true;
+    show(e.clientX, e.clientY, true);
+  });
+  wallEl.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") hide(); });
+  wallEl.addEventListener("pointerdown", e => { if (e.pointerType === "mouse") return; start = { x: e.clientX, y: e.clientY }; moved = false; show(e.clientX, e.clientY, true); });
+  const up = e => { if (e.pointerType === "mouse") return; start = null; hide(); };
+  wallEl.addEventListener("pointerup", up); wallEl.addEventListener("pointercancel", up);
+  // nach dem Ziehen mit dem Finger kein versehentliches Antippen
+  wallEl.addEventListener("click", e => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+  if (lensLast) { const l = lensLast; requestAnimationFrame(() => { if (lens.isConnected) show(l.x, l.y, l.touch); }); }
+  return el("div", { class: "lenshost" }, lens, cap);
+}
 function moduleEl(w, col, ci, m, mi, s) {
   const d = modDims(m), lay = modLayout(m);
   if (m.type === "gap") return el("div", { class: "mod gap", style: `width:${d.w * s}px;height:${d.h * s}px` }, S.wallEdit ? modBar(w, col, ci, m, mi) : null);
@@ -1662,6 +1771,7 @@ function rotateModule(m) {
   ensureLayers(m);
   const map = upright(m) ? { T: "L", B: "R" } : { L: "T", R: "B" };
   for (const o of [m.fachs, m.back, m.top]) for (const [a, b] of Object.entries(map)) { o[b] = o[a] || []; delete o[a]; }
+  if (m.fit) { const nf = {}; for (const [key, v] of Object.entries(m.fit)) { const [a, l] = key.split(":"); nf[(map[a] || a) + (l ? ":" + l : "")] = v; } m.fit = nf; }
   m.orient = upright(m) ? "h" : "v";
 }
 function modBar(w, col, ci, m, mi) {
@@ -1678,29 +1788,29 @@ function modBar(w, col, ci, m, mi) {
     m.type !== "gap" ? colSel : null,
     el("button", { title: "Entfernen", onclick: async () => { const n = modBookCount(m); if (!n || await confirmBox(`In diesem Würfel stehen ${n} Bücher. Sie gelten danach als „nicht eingeräumt“.\nWürfel entfernen?`, "Entfernen")) editWall(() => col.modules.splice(mi, 1)); } }, "✕"));
 }
-function bookEl(b, s, lying, onClick) {
+function bookEl(b, s, lying, onClick, f = 1) {
   const { w, h } = spineCm(b);
-  const thick = w * s, len = h * s;
-  const sp = el("div", { class: "spine" + (lying ? " lie" : "") + (b.favorite ? " fav" : "") + (S.pick === b.id ? " picked" : ""), "data-id": b.id, draggable: S.wallEdit ? null : "true",
+  const thick = w * s * (lying ? 1 : f), len = h * s;
+  const sp = el("div", { class: "spine" + (lying ? " lie" : "") + (b.favorite ? " fav" : "") + (picking()?.includes(b.id) ? " picked" : "") + (S.selMode && S.sel.has(b.id) ? " sel" : ""), "data-id": b.id, draggable: S.wallEdit ? null : "true",
     title: `${bookLabel(b)}${b.author ? " – " + b.author : ""}${lying ? " (liegend)" : ""}`,
     style: lying ? `width:${len}px;height:${thick}px` : `width:${thick}px;height:${len}px` });
   const face = spineFace(b, thick, len);
   if (lying) face.style.cssText += ";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg)";
   sp.append(face);
-  sp.addEventListener("click", e => { e.stopPropagation(); if (!S.wallEdit) onClick(b); });
+  sp.addEventListener("click", e => { e.stopPropagation(); if (S.wallEdit) return; if (S.selMode) { S.sel.has(b.id) ? S.sel.delete(b.id) : S.sel.add(b.id); renderWall(); } else onClick(b); });
   sp.addEventListener("dragstart", e => { e.stopPropagation(); e.dataTransfer.setData("text/plain", b.id); e.dataTransfer.effectAllowed = "move"; });
   return sp;
 }
 function rowEl(m, k, layer, s) {
-  const ids = layerList(m, k, layer);
+  const ids = layerList(m, k, layer), fit = rowFit(m, k, layer);
   const row = el("div", { class: "layer " + layer, style: `padding:0 ${0.3 * s}px` });
   for (const g of rowGroups(ids)) {
-    const click = b => { if (S.pick && S.pick !== b.id) placeBook(S.pick, m, k, ids.indexOf(b.id), layer).then(() => { S.pick = null; renderAll(); }); else spineMenu(b); };
+    const click = b => { const P = picking(); if (P && !P.includes(b.id)) placeBooks(P, m, k, ids.indexOf(b.id), layer).then(() => { endPick(); renderAll(); }); else spineMenu(b); };
     if (g.lying) {
       const st = el("div", { class: "stack", "data-i": g.items[0].i });
       g.items.forEach(x => st.append(bookEl(x.b, s, true, click)));
       row.append(st);
-    } else g.items.forEach(x => { const sp = bookEl(x.b, s, false, click); sp.dataset.i = x.i; row.append(sp); });
+    } else g.items.forEach(x => { const sp = bookEl(x.b, s, false, click, fitF(fit, x.b)); sp.dataset.i = x.i; row.append(sp); });
   }
   return row;
 }
@@ -1710,33 +1820,43 @@ function fachEl(m, k, s, interior) {
   const showBack = S.showBack.has(fid) && back.length;
   const active = showBack ? "back" : "front";
   const u = fachUsage(m, k);
-  const f = el("div", { class: "fach" + (u.full ? " full" : "") + (showBack ? " showback" : ""), style: `background:${interior}`,
-    title: `Fach ${FACH_LABEL[k]} · vorne ${front.length}${back.length ? ", hinten " + back.length : ""}${top.length ? ", oben drauf " + top.length : ""} Bücher · Reihe ca. ${Math.round(Math.min(u.front.w, 99) / FACH_W * 100)} % belegt` });
+  const fitted = isFit(m, k, active);
+  const f = el("div", { class: "fach" + (u.full ? " full" : "") + (showBack ? " showback" : "") + (fitted ? " fit" : ""), style: `background:${interior}`, "data-fid": fid,
+    title: `Fach ${FACH_LABEL[k]} · vorne ${front.length}${back.length ? ", hinten " + back.length : ""}${top.length ? ", oben drauf " + top.length : ""} Bücher · ` + (fitted ? "Reihe auf ganze Fachbreite verteilt (Fach ist voll)" : `Reihe ca. ${Math.round(Math.min(u.front.w, 99) / FACH_W * 100)} % belegt`) });
   // hintere Reihe (etwas höher und abgedunkelt), vordere Reihe, oben aufgelegte Bücher
   const backEl = rowEl(m, k, "back", s); backEl.style.bottom = (showBack ? 0 : 1.6 * s) + "px";
   const frontEl = rowEl(m, k, "front", s);
   const topEl = el("div", { class: "stack top", style: `left:${0.3 * s}px;bottom:${u.front.h * s}px` });
-  top.forEach(id => { const b = bookOf(id); if (b) topEl.append(bookEl(b, s, true, bb => { if (S.pick && S.pick !== bb.id) placeBook(S.pick, m, k, top.indexOf(bb.id), "top").then(() => { S.pick = null; renderAll(); }); else spineMenu(bb); })); });
+  top.forEach(id => { const b = bookOf(id); if (b) topEl.append(bookEl(b, s, true, bb => { const P = picking(); if (P && !P.includes(bb.id)) placeBooks(P, m, k, top.indexOf(bb.id), "top").then(() => { endPick(); renderAll(); }); else spineMenu(bb); })); });
   f.append(backEl, frontEl);
   if (top.length && !showBack) f.append(topEl);
   // kleine Schalter im Fach
   const tg = el("div", { class: "fachbtns" });
   if (back.length) tg.append(el("button", { title: showBack ? "Vordere Reihe zeigen" : "Hintere Reihe zeigen", onclick: e => { e.stopPropagation(); S.showBack.has(fid) ? S.showBack.delete(fid) : S.showBack.add(fid); renderWall(); } }, showBack ? "⇅ vorne" : `⇅ hinten (${back.length})`));
-  if (S.pick && !S.wallEdit) {
-    tg.append(el("button", { title: "Liegend oben auf die Reihe legen", onclick: e => { e.stopPropagation(); placeBook(S.pick, m, k, null, "top").then(() => { setLying(S.pick, false); S.pick = null; saveShelves().then(renderAll); }); } }, "⇧ drauflegen"));
-    if (!back.length) tg.append(el("button", { title: "In eine zweite, hintere Reihe stellen", onclick: e => { e.stopPropagation(); placeBook(S.pick, m, k, null, "back").then(() => { S.showBack.add(fid); S.pick = null; renderAll(); }); } }, "⇅ hinten"));
+  if (picking() && !S.wallEdit) {
+    tg.append(el("button", { title: "Liegend oben auf die Reihe legen", onclick: e => { e.stopPropagation(); placeBooks(picking(), m, k, null, "top").then(() => { endPick(); renderAll(); }); } }, "⇧ drauflegen"));
+    if (!back.length) tg.append(el("button", { title: "In eine zweite, hintere Reihe stellen", onclick: e => { e.stopPropagation(); placeBooks(picking(), m, k, null, "back").then(() => { S.showBack.add(fid); endPick(); renderAll(); }); } }, "⇅ hinten"));
+  }
+  const rowIds = layerList(m, k, active);
+  if (S.selMode && !S.wallEdit && rowIds.length) {
+    const allOn = rowIds.every(id => S.sel.has(id));
+    tg.append(el("button", { class: "selall", title: allOn ? "Bücher dieser Reihe abwählen" : "Alle Bücher dieser Reihe auswählen", onclick: e => { e.stopPropagation(); rowIds.forEach(id => allOn ? S.sel.delete(id) : S.sel.add(id)); renderWall(); } }, allOn ? "☐ keins" : "☑ alle"));
   }
   if (tg.children.length) f.append(tg);
 
   // Einräumen per Tippen
-  f.addEventListener("click", () => { if (S.wallEdit || !S.pick) return; placeBook(S.pick, m, k, null, active).then(() => { S.pick = null; renderAll(); }); });
+  f.addEventListener("click", () => { const P = picking(); if (S.wallEdit || !P) return; placeBooks(P, m, k, null, active).then(() => { endPick(); renderAll(); }); });
   // Einräumen per Ziehen (PC)
   const rowNow = () => f.querySelector(".layer." + active);
   const idxAt = x => { const kids = [...rowNow().children]; for (const kd of kids) { const r = kd.getBoundingClientRect(); if (x < r.left + r.width / 2) return +kd.dataset.i; } return layerList(m, k, active).length; };
   const clearIns = () => { f.classList.remove("drop", "insend"); f.querySelectorAll(".ins").forEach(x => x.classList.remove("ins")); };
   f.addEventListener("dragover", e => { if (S.wallEdit) return; e.preventDefault(); clearIns(); f.classList.add("drop"); const i = idxAt(e.clientX); const kid = [...rowNow().children].find(kd => +kd.dataset.i === i); if (kid) kid.classList.add("ins"); else f.classList.add("insend"); });
   f.addEventListener("dragleave", clearIns);
-  f.addEventListener("drop", e => { e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); const i = idxAt(e.clientX); clearIns(); if (id && bookOf(id)) placeBook(id, m, k, i, active).then(() => { S.pick = null; renderAll(); }); });
+  f.addEventListener("drop", e => {
+    e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); const i = idxAt(e.clientX); clearIns(); if (!id || !bookOf(id)) return;
+    const many = S.selMode && S.sel.has(id) && S.sel.size > 1; // ausgewählte Bücher wandern gemeinsam
+    placeBooks(many ? orderedSel() : [id], m, k, i, active).then(() => { endPick(); if (many) S.sel.clear(); renderAll(); });
+  });
   return f;
 }
 // Titel mit Band-Nummer – gleichnamige Bände einer Reihe („Weihnachtsgeschichten am Kamin“) sonst nicht zu unterscheiden
@@ -1751,12 +1871,12 @@ function sidebarEl() {
     fillNode(listEl, ...list.slice(0, 200).map(b => {
       const loc = locationOf(b.id);
       const label = bookLabel(b);
-      const it = el("div", { class: "witem" + (S.pick === b.id ? " on" : ""), draggable: "true", title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
+      const it = el("div", { class: "witem" + (picking()?.includes(b.id) || (S.selMode && S.sel.has(b.id)) ? " on" : ""), draggable: "true", title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
         el("div", { class: "wthumb" }, coverSrc(b) ? el("img", { src: coverSrc(b), alt: "", loading: "lazy", onerror: e => e.target.remove() }) : null),
         el("div", { style: "min-width:0" }, el("b", { text: (b.favorite ? "♥ " : "") + label }),
           b.author ? el("span", { text: b.author }) : null, loc ? el("span", { text: "📍 " + locationShort(loc) }) : null),
         loc ? el("button", { class: "btn sm ghost", title: "Zurück zu „Noch nicht eingeräumt“", onclick: async e => { e.stopPropagation(); unshelve(b.id); setLying(b.id, false); await saveShelves(); renderAll(); toast("Zurückgelegt."); } }, "↩") : null);
-      it.addEventListener("click", () => { S.pick = S.pick === b.id ? null : b.id; renderWall(); });
+      it.addEventListener("click", () => { if (S.selMode) { S.sel.has(b.id) ? S.sel.delete(b.id) : S.sel.add(b.id); } else { S.pickMany = null; S.pick = S.pick === b.id ? null : b.id; } renderWall(); });
       it.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", b.id); e.dataTransfer.effectAllowed = "move"; });
       return it;
     }), list.length ? null : el("div", { class: "saved", style: "padding:10px", text: qq ? "Nichts gefunden." : "Alle Bücher sind eingeräumt. 🎉" }));
@@ -1768,7 +1888,12 @@ function sidebarEl() {
     el("div", { class: "saved", text: "Tipp: Ein Buch aus dem Regal hierher ziehen (oder antippen → ↩), um es wieder herauszunehmen." }));
   aside.addEventListener("dragover", e => { e.preventDefault(); aside.classList.add("hot"); });
   aside.addEventListener("dragleave", e => { if (!aside.contains(e.relatedTarget)) aside.classList.remove("hot"); });
-  aside.addEventListener("drop", async e => { e.preventDefault(); aside.classList.remove("hot"); const id = e.dataTransfer.getData("text/plain"); if (id && locationOf(id)) { unshelve(id); setLying(id, false); await saveShelves(); renderAll(); toast("Zurück in „Noch nicht eingeräumt“."); } });
+  aside.addEventListener("drop", async e => {
+    e.preventDefault(); aside.classList.remove("hot"); const id = e.dataTransfer.getData("text/plain"); if (!id || !locationOf(id)) return;
+    const ids = S.selMode && S.sel.has(id) ? orderedSel().filter(x => locationOf(x)) : [id];
+    ids.forEach(x => { unshelve(x); setLying(x, false); }); if (ids.length > 1) S.sel.clear();
+    await saveShelves(); renderAll(); toast(ids.length > 1 ? `${ids.length} Bücher zurück in „Noch nicht eingeräumt“.` : "Zurück in „Noch nicht eingeräumt“.");
+  });
   return aside;
 }
 function spineMenu(b) {
@@ -1778,6 +1903,7 @@ function spineMenu(b) {
   const mv = d => { const l = loc.list; const i = l.indexOf(b.id), j = i + d; if (j < 0 || j >= l.length) return; l.splice(i, 1); l.splice(j, 0, b.id); after().then(() => spineMenu(b)); };
   const toLayer = async (layer, msg) => { const fid = loc.m.id + ":" + loc.k; unshelve(b.id); layerList(loc.m, loc.k, layer).push(b.id); if (layer === "top") setLying(b.id, false); if (layer === "back") S.showBack.add(fid); else S.showBack.delete(fid); await after(msg); };
   const lying = isLying(b.id), top = loc.layer === "top";
+  const fitLayer = loc.layer === "back" ? "back" : "front", fitted = isFit(loc.m, loc.k, fitLayer);
   const isFirst = loc.pos === 0, isLast = loc.pos === loc.list.length - 1;
   const box = el("div", { class: "overlay confirm", style: "z-index:70;align-items:center", onclick: e => { if (e.target === box) close(); } },
     el("div", { class: "sheet", style: "max-width:400px;border-radius:16px" }, el("div", { class: "sheet-b" },
@@ -1796,7 +1922,13 @@ function spineMenu(b) {
         !top ? el("button", { class: "btn sm", onclick: () => { setLying(b.id, !lying); after(lying ? "Steht wieder." : "Liegt jetzt – liegende Nachbarn bilden einen Stapel."); } }, lying ? "▮ Aufstellen" : "▬ Hinlegen (stapeln)") : null,
         !top ? el("button", { class: "btn sm", onclick: () => toLayer("top", "Liegt jetzt oben auf der Reihe.") }, "⇧ Oben auf die Reihe legen") : el("button", { class: "btn sm", onclick: () => toLayer("front", "Steht wieder in der Reihe.") }, "▮ Wieder in die Reihe stellen"),
         loc.layer === "back" ? el("button", { class: "btn sm", onclick: () => toLayer("front", "Steht jetzt vorne.") }, "⇅ In die vordere Reihe") : el("button", { class: "btn sm", onclick: () => toLayer("back", "Steht jetzt in der hinteren Reihe.") }, "⇅ In die hintere Reihe"),
-        el("button", { class: "btn sm danger", onclick: async () => { unshelve(b.id); setLying(b.id, false); await after("Zurück in „Noch nicht eingeräumt“."); } }, "↩ Zurück zu „Noch nicht eingeräumt“"),
+        el("button", { class: "btn sm danger", onclick: async () => { unshelve(b.id); setLying(b.id, false); await after("Zurück in „Noch nicht eingeräumt“."); } }, "↩ Zurück zu „Noch nicht eingeräumt“")),
+      el("label", { class: "lbl", style: "margin-top:10px", text: "Ganzes Fach" }),
+      el("div", { class: "covertools" },
+        el("button", { class: "btn sm", title: "Wenn das echte Fach voll ist: die Bücher dieser Reihe gleichmäßig so breit zeichnen, dass sie das Fach füllen. Selbst gemessene Dicken bleiben.",
+          onclick: () => { setFit(loc.m, loc.k, fitLayer, !fitted); after(fitted ? "Wieder mit geschätzter Dicke gezeichnet." : `Die ${fitLayer === "back" ? "hintere" : "vordere"} Reihe füllt jetzt das ganze Fach.`); } },
+          fitted ? "↔ Wieder geschätzte Dicken" : "↔ Fach ist voll – auf ganze Breite verteilen"),
+        el("button", { class: "btn sm", onclick: () => { close(); S.selMode = true; endPick(); layerList(loc.m, loc.k, fitLayer).forEach(id => S.sel.add(id)); renderWall(); } }, "☑ Bücher dieser Reihe auswählen"),
         el("button", { class: "btn sm ghost danger", onclick: async () => { const ids = [...layerList(loc.m, loc.k, "front"), ...layerList(loc.m, loc.k, "back"), ...layerList(loc.m, loc.k, "top")]; if (await confirmBox(`Alle ${ids.length} Bücher aus diesem Fach zurück in „Noch nicht eingeräumt“ legen?`, "Fach leeren")) { ids.forEach(id => { unshelve(id); setLying(id, false); }); await after("Fach geleert."); } } }, "Ganzes Fach leeren")),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: close }, "Schließen"), el("button", { class: "btn primary", onclick: () => { close(); openDetail(b.id); } }, "Buch öffnen")))));
   document.body.append(box);
