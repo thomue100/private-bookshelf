@@ -199,7 +199,7 @@ async function getJSON(url, ms = 9000) {
   finally { clearTimeout(t); }
 }
 function stripHtml(s) { const d = document.createElement("div"); d.innerHTML = s || ""; return (d.textContent || "").trim(); }
-const LANG = { de: "Deutsch", en: "Englisch", fr: "Französisch", es: "Spanisch", it: "Italienisch", nl: "Niederländisch", ger: "Deutsch", eng: "Englisch", fre: "Französisch", spa: "Spanisch", ita: "Italienisch" };
+const LANG = { de: "Deutsch", en: "Englisch", fr: "Französisch", es: "Spanisch", it: "Italienisch", nl: "Niederländisch", ger: "Deutsch", eng: "Englisch", fre: "Französisch", spa: "Spanisch", ita: "Italienisch", dut: "Niederländisch", rus: "Russisch", ukr: "Ukrainisch", pol: "Polnisch", cze: "Tschechisch", tur: "Türkisch", por: "Portugiesisch", swe: "Schwedisch", dan: "Dänisch", nor: "Norwegisch", lat: "Latein", gre: "Griechisch", jpn: "Japanisch", chi: "Chinesisch", ara: "Arabisch" };
 function fromGoogle(item) {
   const v = item.volumeInfo || {};
   const ids = v.industryIdentifiers || [];
@@ -237,21 +237,29 @@ function dnbFirst(r, tag, code) { for (const d of dnbFields(r, tag)) { const v =
 const trimPunct = s => (s || "").replace(/[\s\/:;,.=]+$/, "").replace(/^[\s\/:;,.=]+/, "").trim();
 function flipName(n) { n = trimPunct(n); const m = n.match(/^([^,]+),\s*(.+)$/); return m ? `${m[2]} ${m[1]}` : n; }
 function fromDNB(r) {
-  const names = [];
+  const names = [], editors = [];
   for (const tag of ["100", "700"]) for (const d of dnbFields(r, tag)) {
     const role = [...d.getElementsByTagNameNS(MARC, "subfield")].filter(x => x.getAttribute("code") === "4").map(x => x.textContent);
+    const n = flipName(dnbSub(d, "a"));
+    if (n.length <= 3 || /^(the|der|die|das|a|an)$/i.test(n)) continue;
+    if (role.includes("edt")) editors.push(n); // Herausgeber – bei Sammelbänden besser als nichts
     if (tag === "700" && !role.includes("aut")) continue;
     if (role.length && !role.includes("aut")) continue;
-    const n = flipName(dnbSub(d, "a"));
-    if (n.length > 3 && !/^(the|der|die|das|a|an)$/i.test(n)) names.push(n);
+    names.push(n);
   }
-  let author = [...new Set(names)].join(", ");
+  // 245 n: Bandzählung, oft mit Verantwortlichen dahinter: „27. / Ges. von Barbara Mürmann“
+  const partRaw = dnbFirst(r, "245", "n"), pm = partRaw.match(/^\s*(\d{1,3})\.?\s*(?:\/\s*(.*))?$/);
+  const part = pm ? pm[1] : trimPunct(partRaw);
+  let author = [...new Set(names.length ? names : editors)].join(", ");
   if (!author) {
-    let c = dnbFirst(r, "245", "c");
+    let c = dnbFirst(r, "245", "c") || (pm && pm[2]) || "";
     c = c.split(/\s;\s|\b(Aus d(em|\.)|Übers|übers|Deutsch von|Mit Ill)/)[0];
-    author = trimPunct(c.replace(/\[|\]|\(|\)|\bu\.\s?a\.|\bvon\b|\.\.\./g, " ").replace(/\s+/g, " "));
+    author = trimPunct(c.replace(/\[|\]|\(|\)|\bu\.\s?a\.|\bvon\b|\.\.\./g, " ").replace(/\s+/g, " ")
+      .replace(/^(ges\.|gesammelt|hrsg\.?|herausgegeben|ausgew(ählt|\.)?(\s+und\s+zusammengestellt)?|zusammengestellt)\s+/i, ""));
   }
-  const title = [trimPunct(dnbFirst(r, "245", "a")), trimPunct(dnbFirst(r, "245", "b"))].filter(Boolean).join(" – ");
+  const nosort = s => trimPunct(String(s).replace(/[\u0098\u009c]/g, "")); // Nichtsortier-Zeichen um „Die“
+  const sub245 = nosort(dnbFirst(r, "245", "b"));
+  const title = [nosort(dnbFirst(r, "245", "a")), /^(gesammelt|ges\.|hrsg|herausgegeben|ausgew|zusammengest)/i.test(sub245) ? "" : sub245].filter(Boolean).join(" – ");
   const pubF = dnbFields(r, "264")[0] || dnbFields(r, "260")[0];
   const publisher = pubF ? trimPunct(dnbSub(pubF, "b")) : "";
   const year = pubF ? ((dnbSub(pubF, "c").match(/\d{4}/) || [""])[0]) : "";
@@ -260,11 +268,13 @@ function fromDNB(r) {
   const isbn = dnbFields(r, "020").map(d => toIsbn13(dnbSub(d, "a"))).find(Boolean) || "";
   const lang = dnbFirst(r, "041", "a");
   const ebook = /Online-Ressource|E-Book|eBook/i.test(ext + " " + publisher);
+  const av = /\b(CDs?|DVD|Audio|Tonträger|MP3|Hörbuch|Hörspiel|Lesung)\b/i.test(ext + " " + title);
   const edition = trimPunct(dnbFirst(r, "250", "a"));
   const serF = dnbFields(r, "490")[0];
-  const series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "";
-  const part = trimPunct(dnbFirst(r, "245", "n")); // Bandzählung eines mehrbändigen Werks, z. B. „8“
-  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, edition, series, seriesNo, part };
+  let series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "", orderNo = "";
+  // „Weihnachtsgeschichten am Kamin 27.“ – der Band zählt mehr als die Verlagsreihe („Rororo 25795“, eine Bestellnummer)
+  if (/^\d{1,3}$/.test(part) && !/^\d{1,3}$/.test(seriesNo)) { orderNo = seriesNo; series = nosort(dnbFirst(r, "245", "a")); seriesNo = String(+part); }
+  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo };
 }
 async function dnbQuery(cql, max = 15) {
   const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
@@ -302,27 +312,82 @@ async function lookupIsbn(isbn) {
   rec.coverUrl = rec.altCovers[0];
   return rec.title ? rec : null;
 }
-async function searchBooks(q) {
-  const words = q.replace(/["“”„]/g, " ").replace(/\s+/g, " ").trim();
-  const [g, ol, dnb] = await Promise.allSettled([
-    getJSON(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(words)}&maxResults=10&printType=books${gKey()}`),
-    getJSON(`https://openlibrary.org/search.json?q=${encodeURIComponent(words)}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`),
-    dnbQuery(`woe all "${words}"`, 20),
+/* ---- lobid (hbz-Verbundkatalog der deutschen Bibliotheken): frei, ohne Schlüssel, gut für deutsche Ausgaben und Reihen ---- */
+function fromLobid(m) {
+  const contrib = m.contribution || [];
+  const role = c => (c.role?.id || "").split("/").pop();
+  const pick = r => contrib.filter(c => role(c) === r && (c.agent?.type || []).includes("Person")).map(c => flipName(c.agent.label || ""));
+  const author = [...new Set(pick("aut").length ? pick("aut") : pick("edt"))].filter(Boolean).join(", ");
+  const sub = (m.otherTitleInformation || [])[0] || "";
+  const title = [trimPunct(m.title), /^(gesammelt|hrsg|herausgegeben|ausgew|übers|aus dem|mit )/i.test(sub) ? "" : trimPunct(sub)].filter(Boolean).join(" – ");
+  const pub = (m.publication || [])[0] || {};
+  const isbn = (m.isbn || []).map(toIsbn13).find(Boolean) || "";
+  const rel = (m.isPartOf || [])[0] || {}, sup = (rel.hasSuperordinate || [])[0] || {};
+  const lbl = String(sup.label || ""), lm = lbl.match(/^(.*?)\s*;\s*(\S+)\s*$/);
+  const series = trimPunct(lm ? lm[1] : lbl), seriesNo = trimPunct(rel.numbering || (lm ? lm[2] : ""));
+  const ebook = /online|elektron|e-book/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" "));
+  const av = /audio|tonträger|hörbuch|hörspiel|\bCD\b|DVD/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" ") + " " + (m.extent || "") + " " + m.title);
+  return {
+    title, author, year: String(pub.startDate || "").slice(0, 4), publisher: (pub.publishedBy || [])[0] || "",
+    pages: (String(m.extent || "").match(/(\d+)\s*(Seiten|S\.)/) || [, ""])[1], genre: "", language: ((m.language || [])[0] || {}).label || "",
+    summary: "", isbn, coverUrl: "", src: "Bibliotheksverbund (lobid)", ebook, av, edition: (m.edition || [])[0] || "", series, seriesNo, part: /^\d{1,3}$/.test(seriesNo) ? seriesNo : "",
+  };
+}
+async function lobidQuery(words, size = 15, all = true) {
+  const t = words.replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  if (!t.length) return [];
+  const j = await getJSON(`https://lobid.org/resources/search?q=${encodeURIComponent(t.join(all ? " AND " : " "))}&format=json&size=${size}`);
+  return (j.member || []).map(fromLobid).filter(b => b.title);
+}
+// Suchbegriff aufbereiten: „Band 27“, „Bd. 27“, „Nr. 27“ → nur die Zahl (die Kataloge kennen das Wort „Band“ meist nicht)
+function parseQuery(q) {
+  const words = String(q || "").replace(/["“”„]/g, " ").replace(/\s+/g, " ").trim();
+  const vol = volFromText(words);
+  const core = words.replace(/(^|\s)(?:band|bd|nr|no|teil|folge|vol|volume|tome)\.?\s*(?=\d)/gi, "$1").replace(/\s+/g, " ").trim();
+  const base = vol ? core.replace(new RegExp("(^|\\s)0*" + vol + "\\.?(?=\\s|$)"), " ").replace(/\s+/g, " ").trim() : core;
+  return { words, core, base: base || core, vol };
+}
+const qTok = s => normS(s).replace(/[^a-z0-9äöü ]/g, " ").split(" ").filter(w => w.length > 1 && !["der", "die", "das", "und", "am", "im", "the", "of", "von", "ein", "eine"].includes(w));
+// Band eines Treffers: Bandzählung, kurze Band-Nr. oder Zahl am Titelende
+function hitVol(r) { const p = String(r.part ?? "").replace(/\D/g, ""); if (p && p.length <= 3) return String(+p); const s = String(r.seriesNo ?? "").trim(); return /^\d{1,3}$/.test(s) ? String(+s) : volFromText(r.title); }
+async function searchWave(text, opts = {}) {
+  const enc = encodeURIComponent(text);
+  const res = await Promise.allSettled([
+    Promise.allSettled((opts.dnb || [`woe all "${text}"`]).map(c => dnbQuery(c, opts.dnbMax || 20))).then(rs => { if (rs.every(x => x.status === "rejected")) throw rs[0].reason; return rs.flatMap(x => x.status === "fulfilled" ? x.value : []); }),
+    getJSON(`https://www.googleapis.com/books/v1/volumes?q=${enc}&maxResults=10&printType=books${gKey()}`).then(j => (j.items || []).map(fromGoogle)),
+    lobidQuery(text, 15, opts.all !== false),
+    getJSON(`https://openlibrary.org/search.json?q=${enc}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`).then(j => (j.docs || []).map(fromOLSearch)),
   ]);
-  if (g.status === "rejected" && ol.status === "rejected" && dnb.status === "rejected") throw new Error("offline");
-  // DNB zuerst (gedruckte Ausgaben, neueste oben), dann Google Books, dann Open Library
-  // DNB: deutschsprachig vor Übersetzungen, gedruckt vor E-Book, dann neueste zuerst
-  const de = b => (b.language === "Deutsch" ? 0 : 1);
-  const d = dnb.status === "fulfilled" ? dnb.value.slice().sort((a, b) => (de(a) - de(b)) || (a.ebook - b.ebook) || (+b.year || 0) - (+a.year || 0)) : [];
-  const out = [...d];
-  if (g.status === "fulfilled") for (const it of g.value.items || []) out.push(fromGoogle(it));
-  if (ol.status === "fulfilled") for (const x of ol.value.docs || []) out.push(fromOLSearch(x));
-  const seen = new Map();
-  for (const r of out) {
-    const key = r.isbn || (r.title + "|" + r.author + "|" + r.year).toLowerCase();
-    if (seen.has(key)) seen.set(key, merge(seen.get(key), r)); else seen.set(key, r);
+  return { ok: res.some(r => r.status === "fulfilled"), lists: res.map(r => r.status === "fulfilled" ? r.value : []) };
+}
+async function searchBooks(q) {
+  const P = parseQuery(q);
+  if (!P.words) return [];
+  // 1. Runde: Suchbegriff ohne „Band“; 2. Runde ohne Bandnummer bzw. lockerer, wenn der Band fehlt oder kaum etwas kommt
+  // „woe“ (alle Wörter) findet bei kurzen Zahlen fast alles – mit Band daher genau im Titel suchen („Kamin 8.“)
+  const waves = [await searchWave(P.core, P.vol ? { dnb: [`tit all "${P.core}"`] } : {})];
+  let all = waves[0].lists.flat();
+  const volHit = () => P.vol && all.some(r => hitVol(r) === P.vol);
+  if (all.length < 3 || (P.vol && !volHit())) {
+    if (P.base !== P.core) waves.push(await searchWave(P.base, { dnb: [`tit all "${P.base}"`, `woe all "${P.core}"`], dnbMax: 50 }));
+    else if (!all.length) waves.push(await searchWave(P.core, { dnb: [`woe any "${P.core}"`], all: false }));
+    all = waves.flatMap(w => w.lists).flat();
   }
-  return [...seen.values()].filter(r => r.title).slice(0, 20).map(r => {
+  if (!waves.some(w => w.ok)) throw new Error("offline");
+  // Doppelte Ausgaben zusammenführen (gleiche ISBN oder Titel/Autor/Jahr)
+  const seen = new Map();
+  for (const r of all) {
+    if (!r.title) continue;
+    const key = r.isbn || (r.title + "|" + r.author + "|" + r.year).toLowerCase();
+    if (seen.has(key)) { const a = seen.get(key); seen.set(key, merge(a, r)); if (!a.src.includes(r.src)) seen.get(key).src = a.src + ", " + r.src; } else seen.set(key, { ...r });
+  }
+  // Reihenfolge: richtiger Band zuerst, dann wie gut Titel/Autor passen, deutsch vor Übersetzung, gedruckt vor E-Book, neuere zuerst
+  const qt = qTok(P.base);
+  const fit = r => { if (!qt.length) return 0; const t = new Set(qTok(r.title + " " + r.author + " " + (r.series || ""))); return Math.round(qt.filter(w => t.has(w)).length / qt.length * 4) / 4; };
+  const volRank = r => !P.vol ? 0 : hitVol(r) === P.vol ? 0 : hitVol(r) ? 2 : 1;
+  const list = [...seen.values()].map((r, i) => ({ r, i, v: volRank(r), f: fit(r), de: r.language === "Deutsch" || !r.language ? 0 : 1 }));
+  list.sort((a, b) => (a.v - b.v) || (b.f - a.f) || (a.de - b.de) || ((a.r.ebook || a.r.av ? 1 : 0) - (b.r.ebook || b.r.av ? 1 : 0)) || (+b.r.year || 0) - (+a.r.year || 0) || (a.i - b.i));
+  return list.slice(0, 25).map(({ r }) => {
     if (r.isbn) { r.altCovers = [r.coverUrl, ...olCovers(r.isbn)].filter((v, i, a) => v && a.indexOf(v) === i); r.coverUrl = r.altCovers[0]; }
     return r;
   });
@@ -957,10 +1022,10 @@ async function showSearch(query, coverFile, recognized) {
     try { list = await searchBooks(q); } catch { results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "Nichts gefunden. Suchbegriff kürzen oder anpassen – oder von Hand anlegen." })); return; }
     results.replaceChildren(
-      el("div", { class: "saved", text: `${list.length} Treffer – neueste deutsche Ausgaben (DNB) zuerst. Die ISBN zeigt, welche Ausgabe es ist.` }),
+      el("div", { class: "saved", text: `${list.length} Treffer – am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist.` }),
       ...list.map(r => el("button", { class: "cand", onclick: () => pickCandidate(r, coverFile) },
         el("div", { class: "cv" }, r.coverUrl ? el("img", { src: r.coverUrl, alt: "", loading: "lazy", onerror: e => { const n = (r.altCovers || []).indexOf(e.target.getAttribute("src")); const nx = (r.altCovers || [])[n + 1]; if (nx) e.target.src = nx; else e.target.remove(); } }) : null),
-        el("div", {}, el("b", { text: r.title }),
+        el("div", {}, el("b", { text: bookLabel(r) }),
           el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
           el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
         el("span", { style: "color:var(--accent);font-weight:600", text: "Wählen" }))));
@@ -1860,7 +1925,7 @@ function fachEl(m, k, s, interior) {
   return f;
 }
 // Titel mit Band-Nummer – gleichnamige Bände einer Reihe („Weihnachtsgeschichten am Kamin“) sonst nicht zu unterscheiden
-function bookLabel(b) { const v = volOf(b); return (b.title || "Ohne Titel") + (v && !new RegExp("\\b" + v + "\\s*$").test(b.title || "") ? " · Band " + v : ""); }
+function bookLabel(b) { const v = volOf(b); return (b.title || "Ohne Titel") + (v && !new RegExp("\\b" + v + "\\s*\\)?\\s*$").test(b.title || "") ? " · Band " + v : ""); }
 function sidebarEl() {
   const q = el("input", { class: "field", type: "search", placeholder: "Buch suchen (auch eingeräumte)", value: S.wq });
   const listEl = el("div", { class: "wlist" });

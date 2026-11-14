@@ -22,15 +22,28 @@ export function googleItem(title, author, isbn, img, publisher = "Verlag", year 
  * Erweiterter Test: blockiert das Internet und stellt `catalog` bereit, um Google-Books-Antworten festzulegen:
  *   catalog.google = (q) => [items]   // q z. B. "isbn:978..." oder "Titel Autor"
  */
+// catalog.dnb = (cql) => [{ title, part, author, publisher, year, isbn, series, seriesNo }]  (wird zu MARC21-XML)
+// catalog.lobid = (q) => [lobid-Datensätze]
+const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const sf = (code, v) => v ? `<subfield code="${code}">${esc(v)}</subfield>` : "";
+const df = (tag, subs) => `<datafield tag="${tag}" ind1=" " ind2=" ">${subs}</datafield>`;
+export function dnbXml(recs) {
+  const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim">${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}</record>`).join("");
+  return `<?xml version="1.0"?><searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><numberOfRecords>${recs.length}</numberOfRecords><records>${body}</records></searchRetrieveResponse>`;
+}
 export const test = base.extend({
-  catalog: async ({}, use) => { await use({ google: () => [] }); },
+  catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [] }); },
   page: async ({ page, context, catalog }, use) => {
     await context.route(url => !url.href.startsWith("http://localhost"), r => r.abort());
     await context.route("https://www.googleapis.com/books/**", r => {
       const q = new URL(r.request().url()).searchParams.get("q") || "";
       return json(r, { items: catalog.google(q) });
     });
-    await context.route("https://services.dnb.de/**", r => r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/xml" }, body: EMPTY_DNB }));
+    await context.route("https://services.dnb.de/**", r => {
+      const recs = catalog.dnb(new URL(r.request().url()).searchParams.get("query") || "");
+      return r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/xml" }, body: recs.length ? dnbXml(recs) : EMPTY_DNB });
+    });
+    await context.route("https://lobid.org/**", r => json(r, { totalItems: 0, member: catalog.lobid(new URL(r.request().url()).searchParams.get("q") || "") }));
     await context.route("https://openlibrary.org/**", r => json(r, { docs: [] }));
     await context.route("https://covers.openlibrary.org/**", r => r.fulfill({ status: 404 }));
     await context.route("https://img.test/**", r => {
