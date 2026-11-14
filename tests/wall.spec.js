@@ -59,3 +59,32 @@ test("Doppelreihe, oben aufgelegt und liegend werden gespeichert und beschrieben
   await page.waitForFunction(() => S.loaded);
   expect(await page.evaluate(() => [locationOf("b1").layer, locationOf("b2").layer, isLying("b3")])).toEqual(["back", "top", true]);
 });
+
+for (const vp of [{ width: 1300, height: 900 }, { width: 390, height: 844 }]) {
+  test(`Einräumen: ganzer Titel, Autor und Band sind lesbar (${vp.width} px)`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await openApp(page);
+    const LONG = "Die schönsten Weihnachtsgeschichten am Kamin aus vierzig Jahren gesammelt und neu herausgegeben";
+    await page.evaluate(async long => {
+      const add = (id, title, seriesNo, extra = {}) => putBook({ id, title, author: "Ursula Richter und Wolf-Dieter Stubel", seriesNo, status: "unread", addedAt: new Date().toISOString(), ...extra });
+      await add("w10", "Weihnachtsgeschichten am Kamin", "10");
+      await add("w2", "Weihnachtsgeschichten am Kamin", "2");
+      await add("w3", "Weihnachtsgeschichten am Kamin", "23326", { spine: { text: "RICHTER (HG.). Weihnachtsgeschichten am Kamin 3 12393" } }); // Band nur im Rückentext
+      await add("lang", long, "");
+    }, LONG);
+    await newWall(page, "Ein 4er-Würfel (1112)");
+
+    const items = page.locator(".wside .witem b");
+    await expect(items).toHaveText([LONG, "Weihnachtsgeschichten am Kamin · Band 2", "Weihnachtsgeschichten am Kamin · Band 3", "Weihnachtsgeschichten am Kamin · Band 10"]);
+    // nichts abgeschnitten: Text bricht um statt mit „…“ zu enden
+    for (const b of await items.all()) expect(await b.evaluate(e => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).whiteSpace !== "nowrap")).toBe(true);
+    await expect(page.locator(".wside .witem").nth(1)).toContainText("Ursula Richter und Wolf-Dieter Stubel");
+
+    // Antippen: die Einräum-Leiste nennt Titel, Band und Autor
+    await page.locator(".wside .witem", { hasText: "Band 10" }).click();
+    await expect(page.locator(".pickbar")).toContainText("„Weihnachtsgeschichten am Kamin · Band 10“ (Ursula Richter und Wolf-Dieter Stubel) einräumen");
+    await page.locator(".fach").first().click();
+    await expect.poll(() => page.evaluate(() => !!locationOf("w10"))).toBe(true);
+    expect(await page.locator(".spine[data-id=w10]").getAttribute("title")).toContain("Band 10");
+  });
+}

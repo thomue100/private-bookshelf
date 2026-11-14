@@ -1590,7 +1590,7 @@ function renderWall() {
 
   const pickBook = S.pick && bookOf(S.pick);
   const pickBar = pickBook ? el("div", { class: "note info pickbar" },
-    el("span", {}, el("b", { text: `„${pickBook.title}“ einräumen: ` }), "Tippe auf ein Fach (kommt ans Ende), auf das Buch, vor das es soll, oder auf „⇧ drauflegen“ in einem Fach."),
+    el("span", {}, el("b", { text: `„${bookLabel(pickBook)}“${pickBook.author ? " (" + pickBook.author + ")" : ""} einräumen: ` }), "Tippe auf ein Fach (kommt ans Ende), auf das Buch, vor das es soll, oder auf „⇧ drauflegen“ in einem Fach."),
     el("button", { class: "btn sm", onclick: () => { S.pick = null; renderWall(); } }, "Abbrechen")) : null;
 
   const wallEl = el("div", { class: "wall" + (S.wallEdit ? " editing" : "") + (pickBook ? " picking" : ""), style: `gap:${1.5 * s}px` });
@@ -1662,7 +1662,7 @@ function bookEl(b, s, lying, onClick) {
   const { w, h } = spineCm(b);
   const thick = w * s, len = h * s;
   const sp = el("div", { class: "spine" + (lying ? " lie" : "") + (b.favorite ? " fav" : "") + (S.pick === b.id ? " picked" : ""), "data-id": b.id, draggable: S.wallEdit ? null : "true",
-    title: `${b.title}${b.author ? " – " + b.author : ""}${lying ? " (liegend)" : ""}`,
+    title: `${bookLabel(b)}${b.author ? " – " + b.author : ""}${lying ? " (liegend)" : ""}`,
     style: lying ? `width:${len}px;height:${thick}px` : `width:${thick}px;height:${len}px` });
   const face = spineFace(b, thick, len);
   if (lying) face.style.cssText += ";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg)";
@@ -1719,18 +1719,22 @@ function fachEl(m, k, s, interior) {
   f.addEventListener("drop", e => { e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); const i = idxAt(e.clientX); clearIns(); if (id && bookOf(id)) placeBook(id, m, k, i, active).then(() => { S.pick = null; renderAll(); }); });
   return f;
 }
+// Titel mit Band-Nummer – gleichnamige Bände einer Reihe („Weihnachtsgeschichten am Kamin“) sonst nicht zu unterscheiden
+function bookLabel(b) { const v = volOf(b); return (b.title || "Ohne Titel") + (v && !new RegExp("\\b" + v + "\\s*$").test(b.title || "") ? " · Band " + v : ""); }
 function sidebarEl() {
   const q = el("input", { class: "field", type: "search", placeholder: "Buch suchen (auch eingeräumte)", value: S.wq });
   const listEl = el("div", { class: "wlist" });
   const draw = () => {
     const qq = S.wq.trim();
     const list = (qq ? S.books.filter(b => inStock(b) && matchQ(b, qq)) : S.books.filter(b => inStock(b) && !locationOf(b.id)))
-      .sort((a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || (a.title || "").localeCompare(b.title || "", "de"));
+      .sort((a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || coll.compare(a.title || "", b.title || "") || (+volOf(a) || 0) - (+volOf(b) || 0));
     fillNode(listEl, ...list.slice(0, 200).map(b => {
       const loc = locationOf(b.id);
-      const it = el("div", { class: "witem" + (S.pick === b.id ? " on" : ""), draggable: "true", title: "Antippen, dann auf ein Fach tippen – oder ins Regal ziehen" },
+      const label = bookLabel(b);
+      const it = el("div", { class: "witem" + (S.pick === b.id ? " on" : ""), draggable: "true", title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
         el("div", { class: "wthumb" }, coverSrc(b) ? el("img", { src: coverSrc(b), alt: "", loading: "lazy", onerror: e => e.target.remove() }) : null),
-        el("div", { style: "min-width:0" }, el("b", { text: (b.favorite ? "♥ " : "") + (b.title || "Ohne Titel") }), el("span", { text: loc ? "📍 " + locationShort(loc) : (b.author || "") })),
+        el("div", { style: "min-width:0" }, el("b", { text: (b.favorite ? "♥ " : "") + label }),
+          b.author ? el("span", { text: b.author }) : null, loc ? el("span", { text: "📍 " + locationShort(loc) }) : null),
         loc ? el("button", { class: "btn sm ghost", title: "Zurück zu „Noch nicht eingeräumt“", onclick: async e => { e.stopPropagation(); unshelve(b.id); setLying(b.id, false); await saveShelves(); renderAll(); toast("Zurückgelegt."); } }, "↩") : null);
       it.addEventListener("click", () => { S.pick = S.pick === b.id ? null : b.id; renderWall(); });
       it.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", b.id); e.dataTransfer.effectAllowed = "move"; });
