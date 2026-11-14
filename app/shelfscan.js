@@ -251,22 +251,63 @@ function modeChooser(cur, onPick) {
 function defaultMode() { try { const m = localStorage.getItem("scanMode"); if (m === "api" && !aiKey()) return "chat"; if (m) return m; } catch {} return aiKey() ? "api" : "chat"; }
 function setDefaultMode(m) { try { localStorage.setItem("scanMode", m); } catch {} }
 
-/* Claude-Chat-Brücke: Foto + Auftrag an Claude geben, JSON-Antwort zurück einfügen */
-function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack }) {
+/* Claude-Chat-Brücke: Foto + Auftrag an Claude geben, JSON-Antwort zurück einfügen.
+   Kommt man aus Claude zurück, liest die App die Zwischenablage selbst (sofern der Browser das erlaubt);
+   ein Knopf „Antwort einfügen“ macht dasselbe per Fingertipp. `accept` prüft, ob der Inhalt wirklich eine passende Antwort ist. */
+// Schon übernommene Antworten (als kurze Prüfsumme, auch über Neustarts) – eine alte Antwort in der Zwischenablage nie ein zweites Mal verwenden
+const bridgeUsed = {
+  hash(t) { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return t.length + ":" + h; },
+  list() { try { return JSON.parse(localStorage.getItem("bridgeUsed") || "[]"); } catch { return []; } },
+  has(t) { return this.list().includes(this.hash(t)); },
+  add(t) { try { localStorage.setItem("bridgeUsed", JSON.stringify([...this.list().slice(-29), this.hash(t)])); } catch {} },
+};
+function bridgeAnswer(text, fullPrompt, accept) {
+  const t = String(text || "").trim();
+  if (!t || t === fullPrompt.trim() || t.includes(fullPrompt.slice(0, 60)) || bridgeUsed.has(t)) return null;
+  try { const d = parseJSONLoose(t); return accept(d) ? d : null; } catch { return null; }
+}
+function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack, accept = () => true }) {
   sh.h2.textContent = title;
   const fullPrompt = prompt + "\n\nAntworte ausschließlich mit dem JSON in einem Codeblock, ohne weiteren Text.";
   const file = new File([jpeg], fileName || "foto.jpg", { type: "image/jpeg" });
   const ta = el("textarea", { class: "field", rows: 7, placeholder: "Hier Claudes Antwort einfügen (beginnt mit { … )" });
   const err = el("div", { class: "saved", style: "color:#b3261e" });
-  const copy = async () => { try { await navigator.clipboard.writeText(fullPrompt); toast("Auftrag kopiert – jetzt in Claude einfügen."); } catch { promptBox.style.display = ""; promptBox.select(); toast("Bitte den Auftrag unten markieren und kopieren."); } };
+  const copy = async (quiet) => { try { await navigator.clipboard.writeText(fullPrompt); if (!quiet) toast("Auftrag kopiert – jetzt in Claude einfügen."); return true; } catch { promptBox.style.display = ""; promptBox.select(); toast("Bitte den Auftrag unten markieren und kopieren."); return false; } };
   const promptBox = el("textarea", { class: "field", rows: 5, readonly: true, style: "display:none;font-size:12px" }); promptBox.value = fullPrompt;
   const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+  let done = false;
+  const finish = (data, text) => { done = true; bridgeUsed.add(text.trim()); stopWatch(); onResult(data); };
   const go = () => {
     err.textContent = "";
-    try { const data = parseJSONLoose(ta.value); onResult(data); }
-    catch (e) { err.textContent = "Das sieht nicht nach Claudes JSON-Antwort aus. Bitte die komplette Antwort kopieren (Kopieren-Knopf am Codeblock)."; }
+    let data;
+    try { data = parseJSONLoose(ta.value); } catch { err.textContent = "Das sieht nicht nach Claudes JSON-Antwort aus. Bitte die komplette Antwort kopieren (Kopieren-Knopf am Codeblock)."; return; }
+    finish(data, ta.value);
   };
   ta.addEventListener("paste", () => setTimeout(() => { if (/\}\s*(```)?\s*$/.test(ta.value.trim())) go(); }, 50));
+  // Zwischenablage lesen: still beim Zurückkommen (nur wenn passend), laut beim Knopfdruck
+  const readClip = async (loud) => {
+    if (done || !ta.isConnected) return;
+    let text;
+    try { text = await navigator.clipboard.readText(); }
+    catch { if (loud) { ta.focus(); toast("Bitte ins Feld tippen und „Einfügen“ wählen."); } return; }
+    const data = bridgeAnswer(text, fullPrompt, accept);
+    if (data && !done && ta.isConnected) { ta.value = text; toast("Claudes Antwort übernommen."); finish(data, text); }
+    else if (loud) { ta.focus(); err.textContent = "In der Zwischenablage ist noch keine passende Antwort. In Claude den Kopieren-Knopf am Codeblock antippen, dann zurückkommen."; }
+  };
+  let away = false;
+  const onHide = () => { if (document.visibilityState === "hidden") away = true; };
+  const onBlur = () => { away = true; };
+  const onReturn = () => { if (!away || document.visibilityState !== "visible") return; away = false; setTimeout(() => readClip(false), 300); };
+  const stopWatch = () => { document.removeEventListener("visibilitychange", onHide); document.removeEventListener("visibilitychange", onReturn); window.removeEventListener("blur", onBlur); window.removeEventListener("focus", onReturn); };
+  if (navigator.clipboard?.readText) {
+    document.addEventListener("visibilitychange", onHide); document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("blur", onBlur); window.addEventListener("focus", onReturn);
+    // Aufräumen, sobald die Brücke verlassen wird (Zurück, Schließen)
+    const mo = new MutationObserver(() => { if (!ta.isConnected) { stopWatch(); mo.disconnect(); } });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+  // Kopieren startet noch vor dem Tab-Wechsel (Zwischenablage braucht ein aktives Fenster), der Link öffnet Claude ganz normal
+  const openClaude = () => { copy(true).then(ok => ok && toast("Auftrag kopiert – in Claude einfügen und das Foto anhängen.")); };
   fillNode(sh.body,
     el("div", { class: "bridge" },
       el("div", { class: "bstep" }, el("b", { text: "1" }), el("div", {},
@@ -274,13 +315,14 @@ function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack 
         el("p", { class: "saved", text: canShare ? "Am einfachsten: „An Claude teilen“ und im Teilen-Menü die Claude-App wählen – oder Auftrag kopieren und das Foto in einem neuen Claude-Chat anhängen." : "Neuen Chat auf claude.ai öffnen, das Foto anhängen (Datei unten speichern oder das Original nehmen) und den kopierten Auftrag einfügen." }),
         el("div", { class: "covertools" },
           canShare ? el("button", { class: "btn primary", onclick: async () => { try { await navigator.clipboard.writeText(fullPrompt).catch(() => {}); await navigator.share({ files: [file], text: fullPrompt }); } catch (e) { if (e.name !== "AbortError") toast("Teilen nicht möglich – bitte kopieren."); } } }, "📤 An Claude teilen") : null,
-          el("button", { class: "btn" + (canShare ? "" : " primary"), onclick: copy }, "📋 Auftrag kopieren"),
+          el("button", { class: "btn", onclick: () => copy() }, "📋 Auftrag kopieren"),
           el("button", { class: "btn", onclick: () => saveFile(fileName || "foto.jpg", jpeg) }, "⬇ Foto speichern"),
-          el("a", { class: "btn", href: "https://claude.ai/new", target: "_blank", rel: "noopener" }, "Claude öffnen ↗")),
+          el("a", { class: "btn" + (canShare ? "" : " primary"), href: "https://claude.ai/new", target: "_blank", rel: "noopener", onclick: openClaude }, "📋 Auftrag kopieren & Claude öffnen ↗")),
         promptBox)),
       el("div", { class: "bstep" }, el("b", { text: "2" }), el("div", {},
-        el("div", { class: "btitle", text: "Claudes Antwort hier einfügen" }),
-        el("p", { class: "saved", text: "Claude antwortet mit einem Codeblock. Kopiere ihn (Kopieren-Knopf) und füge ihn hier ein." }),
+        el("div", { class: "btitle", text: "Claudes Antwort zurückholen" }),
+        el("p", { class: "saved", text: "In Claude den Kopieren-Knopf am Codeblock antippen und hierher zurückkommen – die App übernimmt die Antwort dann meist von selbst. Sonst: „Antwort einfügen“ antippen oder ins Feld einfügen." }),
+        navigator.clipboard?.readText ? el("div", { class: "covertools" }, el("button", { class: "btn primary", onclick: () => readClip(true) }, "📥 Antwort einfügen")) : null,
         ta, err))),
     el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: onBack }, "← Zurück"), el("button", { class: "btn primary", onclick: go }, "Weiter")));
 }
@@ -316,6 +358,7 @@ async function runShelfScan(file, fachKey, mode = defaultMode()) {
   if (mode === "chat") {
     claudeChatBridge(sh, { title: "💬 Fach-Foto mit Claude erkennen", prompt: SCAN_PROMPT, jpeg, fileName: "regalfach.jpg",
       onBack: () => openShelfScan(fachKey),
+      accept: d => Array.isArray(d?.items) && d.items.some(it => it && (it.title || it.label || it.spine_text_vertical || it.spine_text_horizontal)),
       onResult: data => { if (!Array.isArray(data.items)) { toast("In der Antwort fehlt die Bücherliste."); return; } continueShelfScan(sh, { file, canvas, data, fachKey, mode }); } });
     return;
   }
@@ -369,6 +412,7 @@ async function coverViaChat(file) {
   const img = await loadImage(file); const jpeg = await canvasBlob(toCanvas(img, 1400), .86);
   claudeChatBridge(sh, { title: "💬 Cover mit Claude erkennen", prompt: COVER_PROMPT, jpeg, fileName: "cover.jpg",
     onBack: () => showSearch("", file),
+    accept: d => !!(d && (d.title || d.isbn)) && !Array.isArray(d.items),
     onResult: d => coverResult(d, file) });
 }
 function coverResult(d, file) {
