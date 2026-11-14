@@ -6,7 +6,7 @@
 /* Prüft, ob eine Cover-Adresse ein echtes Bild liefert, und gibt Blob + Maße zurück (null, wenn nicht). */
 async function probeCover(url) {
   const blob = await fetchCoverBlob(url); if (!blob) return null;
-  try { const img = await loadImage(blob); if (img.naturalWidth < 60 || img.naturalHeight < 60) return null; return { url, blob, w: img.naturalWidth, h: img.naturalHeight }; }
+  try { const img = await loadImage(blob); if (placeholderImg(img, url)) return null; return { url, blob, w: img.naturalWidth, h: img.naturalHeight }; }
   catch { return null; }
 }
 const covKey = u => String(u).replace(/^https?:\/\//, "").replace(/[?&](zoom|edge|source)=[^&]*/g, "").replace(/-[SML]\.jpg/, ".jpg");

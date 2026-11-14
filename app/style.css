@@ -544,3 +544,14 @@ tr.tmore .btn{margin-left:10px}
 .wall.lensing{touch-action:none;cursor:zoom-in}
 .wall.lensing .spine{cursor:zoom-in}
 .wall.lensing .spine:hover{transform:none}
+/* Suche: bester Treffer groß, weitere eingeklappt */
+.cand .pick{color:var(--accent);font-weight:600}
+.cand.best{grid-template-columns:96px 1fr;border:2px solid var(--accent);background:var(--accent-soft);padding:12px;row-gap:8px}
+.cand.best .cv{width:96px;height:142px;border-radius:4px;box-shadow:var(--shadow)}
+.cand.best b{font-size:16px}
+.cand.best .pick{grid-column:1 / -1;justify-self:stretch;text-align:center;background:var(--accent);color:#fff;border-radius:10px;padding:9px}
+.besttag{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:3px}
+.morecands{margin-top:4px}
+.morecands summary{cursor:pointer;padding:10px 4px;font-weight:600;color:var(--accent)}
+.morecands[open] summary{margin-bottom:4px}
+.morecands .cand + .cand{margin-top:8px}

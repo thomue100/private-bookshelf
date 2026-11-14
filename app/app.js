@@ -173,12 +173,14 @@ function loadImage(blob) { return new Promise((res, rej) => { const u = URL.crea
 function toCanvas(img, max) { const w = img.naturalWidth || img.videoWidth, h = img.naturalHeight || img.videoHeight; const s = Math.min(1, max / Math.max(w, h)); const c = document.createElement("canvas"); c.width = Math.round(w * s); c.height = Math.round(h * s); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); return c; }
 const canvasBlob = (c, q = .85) => new Promise(r => c.toBlob(r, "image/jpeg", q));
 async function coverBlobFromFile(file) { const img = await loadImage(file); return canvasBlob(toCanvas(img, 900), .82); }
+// Kein brauchbares Cover: winzig (Amazon/Open Library liefern 1×1) oder Googles „Kein Bild verfügbar“ (128×170)
+const placeholderImg = (img, url) => img.naturalWidth < 60 || img.naturalHeight < 60 || (/books\.google\./.test(url || img.src) && img.naturalWidth === 128 && img.naturalHeight === 170);
 /* Lädt ein Bild nur zur Anzeige (ohne CORS) und prüft, ob es wirklich ein brauchbares Bild ist. */
 function imgOk(url, ms = 8000) {
   return new Promise(res => {
     if (!url) return res(false);
     const i = new Image(); const t = setTimeout(() => { i.src = ""; res(false); }, ms);
-    i.onload = () => { clearTimeout(t); res(i.naturalWidth >= 60 && i.naturalHeight >= 60); };
+    i.onload = () => { clearTimeout(t); res(!placeholderImg(i, url)); };
     i.onerror = () => { clearTimeout(t); res(false); };
     i.referrerPolicy = "no-referrer"; i.src = url;
   });
@@ -285,7 +287,9 @@ async function dnbQuery(cql, max = 15) {
     return [...x.getElementsByTagNameNS(MARC, "record")].map(fromDNB).filter(b => b.title);
   } finally { clearTimeout(t); }
 }
-const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null].filter(Boolean); };
+// Weitere Bildquellen zur ISBN: Open Library, dann das Google-Books-Cover zur ISBN (ohne Schlüssel, hat viele deutsche Ausgaben)
+const gIsbnCover = isbn => `https://books.google.com/books/content?vid=ISBN${isbn}&printsec=frontcover&img=1&zoom=1`;
+const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null, gIsbnCover(isbn)].filter(Boolean); };
 
 async function lookupIsbn(isbn) {
   const [g, ol, dnb] = await Promise.allSettled([
@@ -383,10 +387,17 @@ async function searchBooks(q) {
   }
   // Reihenfolge: richtiger Band zuerst, dann wie gut Titel/Autor passen, deutsch vor Übersetzung, gedruckt vor E-Book, neuere zuerst
   const qt = qTok(P.base);
+  // Titel ist genau das Gesuchte (Rest der Suche = Autor/Band) – „Der Vorleser“ vor „Bernhard Schlink: Der Vorleser – Interpretation“
+  const exact = r => { const tt = qTok(String(r.title || "").split(" – ")[0]); if (!tt.length || !qt.length) return 0; const rest = new Set(qTok(r.author + " " + (r.series || ""))); return tt.every(w => qt.includes(w)) && qt.every(w => tt.includes(w) || rest.has(w)) ? 1 : 0; };
+  // Lernhilfen/Interpretationen nach hinten – außer man sucht danach
+  const AID = /lehrerheft|schülerheft|interpretation|lektürehilfe|lektüreschlüssel|erläuterungen|unterrichtsmaterial|arbeitsheft|lernmittel|abiturwissen|textanalyse|literaturkartei|study guide|lösungen/i;
+  const aid = r => !AID.test(P.words) && AID.test(r.title + " " + r.publisher) ? 1 : 0;
   const fit = r => { if (!qt.length) return 0; const t = new Set(qTok(r.title + " " + r.author + " " + (r.series || ""))); return Math.round(qt.filter(w => t.has(w)).length / qt.length * 4) / 4; };
   const volRank = r => !P.vol ? 0 : hitVol(r) === P.vol ? 0 : hitVol(r) ? 2 : 1;
-  const list = [...seen.values()].map((r, i) => ({ r, i, v: volRank(r), f: fit(r), de: r.language === "Deutsch" || !r.language ? 0 : 1 }));
-  list.sort((a, b) => (a.v - b.v) || (b.f - a.f) || (a.de - b.de) || ((a.r.ebook || a.r.av ? 1 : 0) - (b.r.ebook || b.r.av ? 1 : 0)) || (+b.r.year || 0) - (+a.r.year || 0) || (a.i - b.i));
+  // deutsch: Sprache „Deutsch“ oder ohne Sprachangabe mit deutscher ISBN (978-3 …); ohne Angabe vor fremdsprachig
+  const deRank = r => r.language === "Deutsch" || (!r.language && /^9783/.test(r.isbn || "")) ? 0 : !r.language ? 1 : 2;
+  const list = [...seen.values()].map((r, i) => ({ r, i, v: volRank(r), aid: aid(r), x: exact(r), f: fit(r), de: deRank(r) }));
+  list.sort((a, b) => (a.v - b.v) || (a.aid - b.aid) || (b.x - a.x) || (b.f - a.f) || (a.de - b.de) || ((a.r.isbn ? 0 : 1) - (b.r.isbn ? 0 : 1)) || ((a.r.ebook || a.r.av ? 1 : 0) - (b.r.ebook || b.r.av ? 1 : 0)) || (+b.r.year || 0) - (+a.r.year || 0) || (a.i - b.i));
   return list.slice(0, 25).map(({ r }) => {
     if (r.isbn) { r.altCovers = [r.coverUrl, ...olCovers(r.isbn)].filter((v, i, a) => v && a.indexOf(v) === i); r.coverUrl = r.altCovers[0]; }
     return r;
@@ -1021,14 +1032,17 @@ async function showSearch(query, coverFile, recognized) {
     let list = [];
     try { list = await searchBooks(q); } catch { results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "Nichts gefunden. Suchbegriff kürzen oder anpassen – oder von Hand anlegen." })); return; }
-    results.replaceChildren(
-      el("div", { class: "saved", text: `${list.length} Treffer – am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist.` }),
-      ...list.map(r => el("button", { class: "cand", onclick: () => pickCandidate(r, coverFile) },
-        el("div", { class: "cv" }, r.coverUrl ? el("img", { src: r.coverUrl, alt: "", loading: "lazy", onerror: e => { const n = (r.altCovers || []).indexOf(e.target.getAttribute("src")); const nx = (r.altCovers || [])[n + 1]; if (nx) e.target.src = nx; else e.target.remove(); } }) : null),
-        el("div", {}, el("b", { text: bookLabel(r) }),
-          el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
-          el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
-        el("span", { style: "color:var(--accent);font-weight:600", text: "Wählen" }))));
+    const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
+    const card = (r, best) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
+      el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: best ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null),
+      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, el("b", { text: bookLabel(r) }),
+        el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
+        el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.av ? el("span", { class: "mtag", text: "Hörbuch/CD" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
+      el("span", { class: "pick", text: best ? "Das ist es" : "Wählen" }));
+    const [top, ...rest] = list;
+    results.replaceChildren(card(top, true),
+      rest.length ? el("details", { class: "morecands" }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
+        el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r))) : null);
     links.replaceChildren(webSearchLinks(q) || "");
   };
   const links = el("div", {});
@@ -1141,7 +1155,7 @@ function openReview(rec, coverFile, noteText) {
     const src = coverMode === "photo" ? photoUrl : coverMode === "web" ? webCovers[webIdx] : null;
     const c = coverEl(draft, { src });
     const img = c.querySelector("img");
-    if (img && coverMode === "web") img.onerror = () => { if (webIdx < webCovers.length - 1) { webIdx++; drawCover(); } else { coverMode = photo ? "photo" : "none"; drawCover(); } };
+    if (img && coverMode === "web") { img.onerror = () => { if (webIdx < webCovers.length - 1) { webIdx++; drawCover(); } else { coverMode = photo ? "photo" : "none"; drawCover(); } }; img.addEventListener("load", () => { if (placeholderImg(img)) img.onerror(); }); }
     if (src) c.addEventListener("click", () => lightbox(src));
     coverBox.replaceChildren(c);
     coverChoice.replaceChildren(...[
