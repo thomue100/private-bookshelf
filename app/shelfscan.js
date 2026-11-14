@@ -152,7 +152,7 @@ function scoreCandidate(it, c) {
   // Reihen: der richtige Band zählt viel, ein anderer Band ist ein falscher Treffer
   const iv = itemVol(it), cv = candVol(c);
   if (iv && cv) s += iv === cv ? 3 : -6; else if (iv) s -= 0.5;
-  const on = digits(it.order_no); if (on.length >= 4 && digits(c.seriesNo) === on) s += 4; // Verlagsnummer (rororo 13427) passt genau
+  const on = digits(it.order_no); if (on.length >= 4 && (digits(c.seriesNo) === on || digits(c.orderNo) === on)) s += 4; // Verlagsnummer (rororo 13427) passt genau
   return s;
 }
 async function matchItem(it) {
