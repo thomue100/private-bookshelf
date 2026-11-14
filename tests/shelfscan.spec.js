@@ -164,3 +164,42 @@ test("Fach-Foto über die Claude-Chat-Brücke (Antwort einfügen)", async ({ pag
   await page.click(".actions >> text=Weiter");
   await importReview(page);
 });
+
+test("Claude-Chat-Brücke holt die Antwort selbst aus der Zwischenablage, alte Antworten nie doppelt", async ({ page, catalog }) => {
+  catalogFor(catalog);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:8765" });
+  await openApp(page);
+  await wallWith4er(page);
+  const openBridge = async () => {
+    await page.click("text=📷 Fach-Foto einlesen");
+    await page.click("text=💬 Über deinen Claude-Chat");
+    const chooser = page.waitForEvent("filechooser");
+    await page.click(".sheet >> text=🖼 Foto wählen");
+    await (await chooser).setFiles(fixture("shelf.jpg"));
+    await expect(page.locator(".bridge textarea:not([readonly])")).toBeVisible();
+  };
+  const leaveAndReturn = () => page.evaluate(() => { window.dispatchEvent(new Event("blur")); window.dispatchEvent(new Event("focus")); });
+  await openBridge();
+
+  // Nur der Auftrag in der Zwischenablage → nichts passiert
+  await page.click(".bridge >> text=📋 Auftrag kopieren");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("JSON");
+  await leaveAndReturn();
+  await page.waitForTimeout(800);
+  await expect(page.locator(".bridge")).toBeVisible();
+
+  // Claudes Antwort kopiert und zurückgekommen → automatisch übernommen
+  await page.evaluate(t => navigator.clipboard.writeText(t), "```json\n" + JSON.stringify(SCAN) + "\n```");
+  await leaveAndReturn();
+  await importReview(page);
+
+  // Zweites Fach-Foto nach Neustart der App: dieselbe (alte) Antwort steht noch in der Zwischenablage → wird nicht noch einmal verwendet
+  await page.reload();
+  await page.goto("/#wand");
+  await page.waitForFunction(() => S.loaded);
+  await openBridge();
+  await leaveAndReturn();
+  await page.click(".bridge >> text=📥 Antwort einfügen");
+  await expect(page.locator(".bridge")).toContainText("noch keine passende Antwort");
+  expect(await page.evaluate(() => S.books.length)).toBe(7);
+});
