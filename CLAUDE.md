@@ -38,6 +38,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |
 | `app/shelfphotos.js` | Gespeicherte Fach-Fotos: `savePhoto`, Übersicht `openPhotoInbox`, Weitermachen nach Neustart (`scanPending`), Empfang über „Teilen“ (Service Worker → Cache `share-inbox` → `?share=`) |
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |
+| `app/webtake.js` | Bücher aus dem Web übernehmen: `isbnsIn`, `bookFromWeb` (ISBN/Link/Text → ISBN, Datensatz oder Suchbegriff), `takeFromWeb`, Feld `webTakeField`, Zwischenablage-Angebot nach „Im Internet suchen“; „Teilen“ von Buchseiten landet hier |
 | `app/sw.js` | Service Worker (offline) |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |

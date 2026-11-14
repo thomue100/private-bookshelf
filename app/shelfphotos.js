@@ -105,7 +105,12 @@ async function takeShared() {
     else { openPhotoInbox(); toast(`${saved.length} Fotos empfangen – bitte jeweils das Fach zuordnen.`, 4500); }
     return true;
   }
-  if (text.trim()) { receiveAnswer(text); return true; }
+  if (text.trim()) {
+    // Claudes Antwort (JSON) → Fach-Foto; sonst eine geteilte Buchseite aus Browser/Shop-App → Buch übernehmen
+    let isAnswer = false; try { parseJSONLoose(text); isAnswer = true; } catch {}
+    if (isAnswer) receiveAnswer(text); else takeFromWeb(text);
+    return true;
+  }
   toast("Es wurde nichts Verwendbares geteilt.");
   return true;
 }
