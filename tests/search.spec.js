@@ -1,5 +1,6 @@
 // Titelsuche beim Hinzufügen: „Band 27“ wird verstanden, der richtige Band steht oben, ein Katalog allein reicht für Treffer.
-import { test, expect, openApp } from "./helpers.js";
+import { deflateSync } from "node:zlib";
+import { test, expect, openApp, fixtureBytes } from "./helpers.js";
 
 const KAMIN = "Weihnachtsgeschichten am Kamin";
 const band = (n, isbn, year = "2012") => ({ title: KAMIN, part: n + ".", author: "Mürmann, Barbara", publisher: "Rowohlt Taschenbuch Verlag", year, isbn, series: "Rororo", seriesNo: String(25700 + n) });
@@ -79,4 +80,39 @@ test("Suchbegriff aufbereiten", async ({ page }) => {
     ["Momo Michael Ende", "Momo Michael Ende", ""],
     ["Die Chroniken von Narnia 2 Lewis", "Die Chroniken von Narnia Lewis", "2"],
   ]);
+});
+
+// einfarbiges PNG in beliebiger Größe (für Googles „Kein Bild verfügbar“-Platzhalter, 128×170)
+function png(w, h) {
+  const crcT = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = b => { let c = 0xffffffff; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const raw = Buffer.alloc((w + 1) * h, 200); for (let y = 0; y < h; y++) raw[y * (w + 1)] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+test("Bester Treffer groß mit Bild oben, weitere Treffer eingeklappt; Google-Cover zur ISBN, Platzhalter übersprungen", async ({ page, catalog }) => {
+  catalog.dnb = cql => cql.startsWith("tit all") ? [band(27, "9783499257957"), band(28, "9783499258282")] : [];
+  catalog.lobid = () => [lobidBand(36, "9783499007347")];
+  // Google-Cover zur ISBN nachbilden: Band 27 hat ein Bild, sonst kommt der Platzhalter
+  await page.route("https://books.google.com/books/content**", r => new URL(r.request().url()).searchParams.get("vid") === "ISBN9783499257957"
+    ? r.fulfill({ status: 200, contentType: "image/jpeg", body: fixtureBytes("cover-a.jpg") }) : r.fulfill({ status: 200, contentType: "image/png", body: png(128, 170) }));
+  await openApp(page);
+  await search(page, `${KAMIN} 27`);
+  const best = page.locator(".cand.best");
+  await expect(best).toHaveCount(1);
+  await expect(best).toContainText("★ Bester Treffer");
+  await expect(best.locator("b")).toHaveText(`${KAMIN} · Band 27`);
+  await expect(best.locator(".cv img")).toHaveAttribute("src", "https://books.google.com/books/content?vid=ISBN9783499257957&printsec=frontcover&img=1&zoom=1");
+  await expect.poll(() => best.locator(".cv img").evaluate(i => i.naturalWidth)).toBeGreaterThan(0);
+  // Band 28 hat nur den Platzhalter → zählt als „kein Bild“
+  expect(await page.evaluate(() => imgOk("https://books.google.com/books/content?vid=ISBN9783499258282&printsec=frontcover&img=1&zoom=1"))).toBe(false);
+  // weitere Treffer erst nach Aufklappen sichtbar
+  const more = page.locator("details.morecands");
+  await expect(more.locator("summary")).toHaveText("Andere Ausgabe? 2 weitere Treffer anzeigen");
+  await expect(more.locator(".cand").first()).toBeHidden();
+  await more.locator("summary").click();
+  await expect(more.locator(".cand").first()).toBeVisible();
+  await expect(more.locator(".cand", { hasText: "Band 28" }).locator("img")).toHaveCount(0);
 });
