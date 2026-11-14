@@ -555,3 +555,7 @@ tr.tmore .btn{margin-left:10px}
 .morecands summary{cursor:pointer;padding:10px 4px;font-weight:600;color:var(--accent)}
 .morecands[open] summary{margin-bottom:4px}
 .morecands .cand + .cand{margin-top:8px}
+/* Übernahme aus dem Web: Angebot aus der Zwischenablage */
+.clipoffer{position:fixed;left:16px;right:16px;margin:0 auto;width:fit-content;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:90;display:flex;gap:10px;align-items:center;background:var(--paper);color:var(--ink);border:2px solid var(--accent);border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:560px;font-size:14px;box-sizing:border-box}
+.clipoffer span{flex:1;min-width:0;overflow-wrap:anywhere}
+.webtake{margin-top:14px}

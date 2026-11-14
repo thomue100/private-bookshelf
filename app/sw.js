@@ -1,8 +1,8 @@
 /* Service Worker: App offline verfügbar machen. Version erhöhen, wenn sich Dateien ändern. */
-const VERSION = "v30";
+const VERSION = "v31";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
-const FILES = ["./", "index.html", "app.js", "attachments.js", "shelfscan.js", "shelfphotos.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
+const FILES = ["./", "index.html", "app.js", "attachments.js", "shelfscan.js", "shelfphotos.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "webtake.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
   "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"];
 
 self.addEventListener("install", e => {

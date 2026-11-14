@@ -942,9 +942,7 @@ function openAdd(asWish) {
   const sh = sheet(S.addAsWish ? "⭐ Wunsch hinzufügen" : "Buch hinzufügen");
   const m = isMobile();
   const scanBtn = el("button", { class: "btn primary", onclick: startLiveScan }, "▦ Barcode scannen");
-  const isbnIn = el("input", { class: "field", placeholder: "ISBN eintippen", inputmode: "numeric" });
-  const isbnGo = () => { const i = toIsbn13(isbnIn.value); if (!i) { toast("Das ist keine gültige ISBN – bitte Ziffern prüfen."); return; } handleIsbn(i); };
-  isbnIn.addEventListener("keydown", e => { if (e.key === "Enter") isbnGo(); });
+  const isbnRow = webTakeField("ISBN eintippen oder Link einfügen");
   const qIn = el("input", { class: "field", type: "search", placeholder: "Titel und/oder Autor" });
   const qGo = () => { if (qIn.value.trim()) showSearch(qIn.value.trim(), null); };
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") qGo(); });
@@ -963,7 +961,8 @@ function openAdd(asWish) {
       el("p", { text: "Ein ganzes Regalfach fotografieren: Die App erkennt alle Buchrücken, sucht die Buchdaten und stellt die Bücher in der richtigen Reihenfolge ins echte Regal." }),
       el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"))),
     el("div", { class: "sec" }, el("label", { class: "lbl", text: "Suchen nach Titel / Autor" }), el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn", onclick: qGo }, "Suchen"))),
-    el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN eingeben" }), el("div", { class: "manual", style: "margin-top:0" }, isbnIn, el("button", { class: "btn", onclick: isbnGo }, "Laden"))),
+    el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN – oder Link aus dem Web" }), isbnRow,
+      el("div", { class: "saved", style: "margin-top:6px", text: "Buch in einem Shop oder Katalog gefunden (ZVAB, booklooker, Amazon, DNB …)? Einfach den Link der Seite einfügen – die App holt sich die ISBN selbst." })),
     el("div", { style: "margin-top:16px" }, el("button", { class: "btn ghost", onclick: () => openReview({}, null) }, "✏️ Ganz von Hand eintragen"))
   );
   S.pasteHandler = f => coverFlow(f);
@@ -1029,9 +1028,10 @@ async function showSearch(query, coverFile, recognized) {
     const q = qIn.value.trim();
     if (!q) { results.replaceChildren(el("div", { class: "note", text: "Auf dem Cover war kein Text lesbar. Tipp: Titel und Autor oben eintippen." })); return; }
     results.replaceChildren(el("div", { class: "busy", style: "padding:14px" }, el("div", { class: "spin" })));
+    links.replaceChildren(webSearchLinks(q) || ""); // auch (gerade) bei „Nichts gefunden“
     let list = [];
     try { list = await searchBooks(q); } catch { results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
-    if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "Nichts gefunden. Suchbegriff kürzen oder anpassen – oder von Hand anlegen." })); return; }
+    if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "In den Katalogen nichts gefunden. Suchbegriff kürzen oder anpassen – oder unten über „Im Internet suchen“ die Buchseite finden und ihren Link einfügen." })); return; }
     const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
     const card = (r, best) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
       el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: best ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null),
@@ -1043,7 +1043,6 @@ async function showSearch(query, coverFile, recognized) {
     results.replaceChildren(card(top, true),
       rest.length ? el("details", { class: "morecands" }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
         el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r))) : null);
-    links.replaceChildren(webSearchLinks(q) || "");
   };
   const links = el("div", {});
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
@@ -1054,7 +1053,8 @@ async function showSearch(query, coverFile, recognized) {
     el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn primary", onclick: run }, "Suchen")),
     results,
     links,
-    el("div", { class: "saved", style: "margin-top:6px", text: "Nicht dabei? Über die Links findest du die Ausgabe im Web – dann die ISBN unter „Buch hinzufügen → ISBN eingeben“ eintippen." }),
+    el("div", { class: "sec webtake" }, el("label", { class: "lbl", text: "Im Web gefunden? Link oder ISBN hier einfügen" }), webTakeField("Link der Buchseite oder ISBN"),
+      el("div", { class: "saved", style: "margin-top:6px", text: "Tipp: Über die Links oben suchen, auf der Buchseite die Adresse kopieren und zurückkommen – die App bietet sie dann von selbst zur Übernahme an." })),
     el("div", { class: "actions" },
       el("button", { class: "btn ghost", onclick: openAdd }, "← Zurück"),
       el("div", { class: "covertools" },
