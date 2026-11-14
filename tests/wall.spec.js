@@ -88,3 +88,83 @@ for (const vp of [{ width: 1300, height: 900 }, { width: 390, height: 844 }]) {
     expect(await page.locator(".spine[data-id=w10]").getAttribute("title")).toContain("Band 10");
   });
 }
+
+test("Mehrere Bücher auswählen: nach hinten, nach vorne, in ein anderes Fach", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => { const m = S.shelves.walls[0].columns[0].modules[0]; for (const id of ["b0", "b1", "b2", "b3"]) await placeBook(id, m, "TL"); await placeBook("b4", m, "TR"); renderAll(); });
+
+  await page.click("text=☑ Auswählen");
+  await page.locator(".spine[data-id=b1]").click();
+  await page.locator(".spine[data-id=b3]").click();
+  await expect(page.locator(".selbar")).toContainText("2 Bücher ausgewählt");
+  await page.click(".selbar >> text=⇅ Nach hinten");
+  const lists = () => page.evaluate(() => { const m = S.shelves.walls[0].columns[0].modules[0]; return { front: m.fachs.TL, back: m.back.TL, tr: m.fachs.TR }; });
+  expect(await lists()).toEqual({ front: ["b0", "b2"], back: ["b1", "b3"], tr: ["b4"] });
+
+  // hintere Reihe ist jetzt sichtbar: „☑ alle“ wählt sie, dann wieder nach vorne
+  await page.locator(".fach").first().locator(".selall").click();
+  await expect(page.locator(".spine.sel")).toHaveCount(2);
+  await page.click(".selbar >> text=⇅ Nach vorne");
+  expect((await lists()).front).toEqual(["b0", "b2", "b1", "b3"]);
+
+  // zwei Bücher (in Regal-Reihenfolge) vor b4 ins Fach oben rechts, dazu ein nicht eingeräumtes aus der Liste
+  await page.locator(".spine[data-id=b2]").click();
+  await page.locator(".spine[data-id=b0]").click();
+  await page.locator(".wside .witem", { hasText: "Faust" }).click();
+  await page.click(".selbar >> text=↔ In anderes Fach");
+  await expect(page.locator(".pickbar")).toContainText("3 Bücher umstellen");
+  await page.locator(".spine[data-id=b4]").click();
+  expect(await lists()).toEqual({ front: ["b1", "b3"], back: [], tr: ["b0", "b2", "b11", "b4"] });
+  await expect(page.locator(".pickbar")).toHaveCount(0);
+});
+
+test("Fach ist voll: Bücher füllen die ganze Breite, gemessene Dicken bleiben, alte Aufstellung ohne „fit“", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  const width = () => page.evaluate(() => { const m = S.shelves.walls[0].columns[0].modules[0]; return rowMetrics(layerList(m, "TL", "front"), rowFit(m, "TL", "front")).w; });
+  await page.evaluate(async () => {
+    const m = S.shelves.walls[0].columns[0].modules[0];
+    await patchBook("b2", { spine: { thickCm: 3 } });
+    for (const id of ["b0", "b1", "b2", "b4"]) await placeBook(id, m, "TL"); renderAll();
+  });
+  const before = await width();
+  expect(before).toBeLessThan(20); // alte Aufstellung: geschätzte Dicken
+  await page.locator(".spine[data-id=b0]").click();
+  await page.click("text=↔ Fach ist voll – auf ganze Breite verteilen");
+  expect(await width()).toBeCloseTo(32.4, 1);
+  expect(await page.evaluate(() => S.shelves.walls[0].columns[0].modules[0].fit)).toEqual({ TL: true });
+  // gemessenes Buch behält 3 cm, die Rücken sind breiter gezeichnet
+  const px = await page.evaluate(() => ["b0", "b2"].map(id => document.querySelector(`.spine[data-id=${id}]`).getBoundingClientRect().width));
+  const s = await page.evaluate(() => document.querySelector(".fach").getBoundingClientRect().width / FACH_W);
+  expect(px[1] / s).toBeCloseTo(3, 0);
+  expect(px[0] / s).toBeGreaterThan(5);
+  await expect(page.locator(".fach").first()).not.toHaveClass(/full/);
+
+  // bleibt voll, wenn ein Buch dazukommt; nach Neuladen noch da; abschaltbar
+  await page.evaluate(async () => { await placeBook("b3", S.shelves.walls[0].columns[0].modules[0], "TL"); });
+  expect(await width()).toBeCloseTo(32.4, 1);
+  await page.reload(); await page.waitForFunction(() => S.loaded);
+  expect(await width()).toBeCloseTo(32.4, 1);
+  await page.locator(".spine[data-id=b0]").click();
+  await page.click("text=↔ Wieder geschätzte Dicken");
+  expect(await width()).toBeLessThan(25);
+  expect(await page.evaluate(() => "fit" in S.shelves.walls[0].columns[0].modules[0])).toBe(false);
+});
+
+test("Lupe zeigt das Fach vergrößert mit Titel", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => { const m = S.shelves.walls[0].columns[0].modules[0]; for (const id of ["b0", "b1", "b2"]) await placeBook(id, m, "TL"); renderAll(); });
+  await page.click("text=🔍 Lupe");
+  const box = await page.locator(".wall .spine[data-id=b1]").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 2);
+  await expect(page.locator(".lens")).toBeVisible();
+  await expect(page.locator(".lenscap")).toContainText("Die unendliche Geschichte – Michael Ende");
+  const big = await page.locator(".lens .spine[data-id=b1]").boundingBox();
+  expect(big.width).toBeGreaterThan(box.width * 2);
+});

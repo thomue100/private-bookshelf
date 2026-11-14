@@ -375,6 +375,19 @@ tr.gonerow td:hover{opacity:1}
 .dedi{white-space:pre-wrap;font-style:italic}
 /* Claude-Chat-Brücke */
 .bridge{display:flex;flex-direction:column;gap:14px}
+.btn.big{font-size:17px;padding:14px 22px;min-height:52px}
+/* Gespeicherte Fach-Fotos */
+.phlist{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.phcard{display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px;align-items:start;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--bg);text-align:left;font:inherit;color:inherit}
+.phcard.pick{cursor:pointer;width:100%}
+.phcard.done{opacity:.8}
+.phcard img,.phmissing{width:110px;height:82px;object-fit:cover;border-radius:8px;cursor:zoom-in;background:var(--line)}
+.phmissing{display:flex;align-items:center;justify-content:center;font-size:28px;cursor:default}
+.phinfo{min-width:0}
+.phinfo .saved{margin:2px 0 8px}
+.phbig img{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:#000;cursor:zoom-in}
+.phbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.savedok{font-size:14.5px}
 .bstep{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg)}
 .bstep > b{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px}
 .btitle{font-weight:600;margin:3px 0 2px}
@@ -514,3 +527,20 @@ tr.tmore .btn{margin-left:10px}
 .syncdot.err{color:#b3261e}
 @keyframes syspin{to{transform:rotate(360deg)}}
 @media (max-width:600px){ .syncdot{padding:4px 2px;font-size:16px} .bar:has(.syncdot){gap:4px} .bar:has(.syncdot) nav a{padding:6px 8px} }
+/* Mehrfachauswahl, volle Fächer, Lupe */
+.spine.sel{outline:3px solid #2e86de;outline-offset:1px;transform:translateY(-6px);z-index:2}
+.spine.lie.sel{transform:translateX(4px)}
+.selecting .spine{cursor:cell}
+.selbar{flex-wrap:wrap}
+.selbar .covertools{margin:0}
+.fachbtns .selall{background:#2e86de;color:#fff;border-color:#2e86de}
+.lens{position:fixed;z-index:60;border-radius:50%;overflow:hidden;pointer-events:none;border:3px solid #fff;box-shadow:0 8px 28px rgba(0,0,0,.4),0 0 0 1px rgba(0,0,0,.25);background:#2a2420}
+.lensin{position:absolute;left:0;top:0}
+.lensin .fach{position:relative;flex:none}
+.lens .fachbtns{display:none}
+.lens,.lens *,.lenscap{pointer-events:none!important}
+.lens .spine:hover,.lens .spine.sel,.lens .spine.picked{transform:none}
+.lenscap{position:fixed;z-index:61;pointer-events:none;transform:translateX(-50%);background:rgba(30,26,22,.92);color:#fff;font-size:13px;line-height:1.3;padding:5px 10px;border-radius:8px;max-width:min(300px,90vw);text-align:center}
+.wall.lensing{touch-action:none;cursor:zoom-in}
+.wall.lensing .spine{cursor:zoom-in}
+.wall.lensing .spine:hover{transform:none}

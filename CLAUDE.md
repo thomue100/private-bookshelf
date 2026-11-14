@@ -8,12 +8,14 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 ## Grundsätze (nicht verhandelbar)
 
 1. **Vorhandene Daten müssen weiter funktionieren.** Die Nutzerin/der Nutzer hat bereits eine Buchdatenbank.
-   - IndexedDB `buecherregal` Version 2 mit Stores `books` (keyPath `id`), `meta` (keyPath `key`), `blobs` (keyPath `id`, Index `bookId`).
+   - IndexedDB `buecherregal` Version 3 mit Stores `books` (keyPath `id`), `meta` (keyPath `key`), `blobs` (keyPath `id`, Index `bookId`),
+     `photos` (keyPath `id`, gespeicherte Fach-Fotos, seit Version 3).
      Schema nur **additiv** erweitern (neuer Store/Index → Version erhöhen, `onupgradeneeded` darf nichts löschen oder umbauen).
    - Neue Buchfelder sind **optional**. Alter Datensatz ohne das Feld muss überall funktionieren (Anzeige, Tabelle, CSV, Filter, Sicherung).
      Felder nie umbenennen oder umdeuten; alte Felder beim Lesen übersetzen (Beispiel: `startedAt`/`finishedAt` → `readsOf(b)`).
    - **Sicherungen Version 1 und 2 müssen importierbar bleiben** (`importData`). Format: `{app:"buecherregal", version:2, books, deleted, shelves}`;
      Cover als `coverData` (data-URL), Buchrücken-Bild als `spine.imageData`, Anhänge optional mit `data`.
+     Optional `photos` (Fach-Fotos ohne `blob`; offene mit `imageData`) – fehlt, wenn es keine gibt.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
    Abfragen an Kataloge/Suchen (Google Books, DNB, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
@@ -34,6 +36,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
 | `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche |
 | `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |
+| `app/shelfphotos.js` | Gespeicherte Fach-Fotos: `savePhoto`, Übersicht `openPhotoInbox`, Weitermachen nach Neustart (`scanPending`), Empfang über „Teilen“ (Service Worker → Cache `share-inbox` → `?share=`) |
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |
 | `app/sw.js` | Service Worker (offline) |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
@@ -46,7 +49,9 @@ Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGo
 `locationOf`/`placeBook`/`unshelve`/`saveShelves`, `renderAll`, `openDetail(id, edit)`, `findCoverFor`, `coverRun`, `runAutoBackup`.
 
 Abgleich (`sync.js`): Server-Dokumente `book:<id>` = `{type:"book", updatedAt, book:{…Felder ohne Blobs}, _attachments}` mit Anhängen
-`cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`. Neuere `updatedAt` gewinnt.
+`cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`;
+Fach-Fotos = `photo:<id>` `{type:"photo", updatedAt, photo:{…ohne blob}, _attachments:{image}}` (gelöscht: `deletedAt`, ohne Bild – lokal als Grabstein).
+Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, doneAt?, deletedAt?}`; ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
 Lokaler Stand in Meta `syncConf` (Zugang) und `syncState` (`since`, je Dokument `rev`/`upd`/Anhang-Digests). Änderungen an Büchern
 immer über `putBook`/`patchBook`/`removeBook`/`saveShelves` – die rufen `dataChanged()` und lösen Sicherung und Abgleich aus.
 Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-Versionen auf anderen Geräten müssen mitlesen können).

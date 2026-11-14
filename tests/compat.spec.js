@@ -15,8 +15,31 @@ test("Datenbank im alten Format (Version 1) wird beim Öffnen übernommen", asyn
   }));
   await openApp(page);
   expect(await page.evaluate(() => S.books.map(b => b.title))).toEqual(["Krabat"]);
-  expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === "buecherregal").version)).toBe(2);
+  expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === "buecherregal").version)).toBe(3);
   await expect(page.locator("#shelf .card")).toHaveCount(1);
+});
+
+test("Datenbank Version 2 (Bücher, Bilder, Regal) wird um Fach-Fotos erweitert, alles bleibt erhalten", async ({ page }) => {
+  await page.goto("/manifest.webmanifest");
+  await page.evaluate(() => new Promise(res => {
+    const r = indexedDB.open("buecherregal", 2);
+    r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("books", { keyPath: "id" }); d.createObjectStore("meta", { keyPath: "key" }); d.createObjectStore("blobs", { keyPath: "id" }).createIndex("bookId", "bookId"); };
+    r.onsuccess = () => {
+      const t = r.result.transaction(["books", "meta", "blobs"], "readwrite");
+      t.objectStore("books").put({ id: "v2book", title: "Momo", author: "Michael Ende", status: "read", rating: 4, addedAt: "2025-01-01T00:00:00Z", updatedAt: "2025-01-01T00:00:00Z", images: [{ id: "img1", caption: "Widmung", size: 3 }] });
+      t.objectStore("blobs").put({ id: "img1", bookId: "v2book", blob: new Blob(["abc"], { type: "image/png" }) });
+      t.objectStore("meta").put({ key: "shelves", value: { walls: [{ id: "w1", name: "Flur", columns: [] }], updatedAt: "2025-01-01T00:00:00Z" } });
+      t.oncomplete = () => { r.result.close(); res(); };
+    };
+  }));
+  await openApp(page);
+  const r = await page.evaluate(async () => ({
+    titles: S.books.map(b => b.title), wall: S.shelves.walls[0]?.name, photos: S.photos.length,
+    blob: (await DB.getBlob("img1"))?.blob.size, version: (await indexedDB.databases()).find(d => d.name === "buecherregal").version,
+  }));
+  expect(r).toEqual({ titles: ["Momo"], wall: "Flur", photos: 0, blob: 3, version: 3 });
+  // Sicherung ohne Fach-Fotos sieht aus wie bisher (kein neues Feld)
+  expect(Object.keys(await page.evaluate(() => buildBackup()))).toEqual(["app", "version", "exportedAt", "books", "deleted", "shelves"]);
 });
 
 test("Sicherung Version 1 lässt sich importieren; alte Lesedaten werden zu Lesezeiträumen", async ({ page }) => {

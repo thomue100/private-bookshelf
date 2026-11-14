@@ -1,13 +1,16 @@
 /* Mein Bücherregal – Abgleich mit dem eigenen CouchDB-Server (optional).
    Die App speichert weiterhin alles im Browser und funktioniert ohne Netz. Ist ein Server eingetragen und erreichbar,
    gleicht sie sich automatisch mit ihm ab: neuere Änderung gewinnt, Löschungen werden übernommen.
-   Auf dem Server: ein Dokument je Buch („book:<id>“, Cover/Buchrücken/Bilder/Dateien als Anhänge) und „meta:shelves“ für das Regal. */
+   Auf dem Server: ein Dokument je Buch („book:<id>“, Cover/Buchrücken/Bilder/Dateien als Anhänge), „meta:shelves“ für das Regal
+   und je gespeichertem Fach-Foto „photo:<id>“ ({type:"photo", updatedAt, photo:{…ohne Bild}, Anhang „image“}; gelöscht: zusätzlich deletedAt).
+   Ältere App-Versionen überspringen Dokumente, die nicht vom Typ „book“ sind. */
 "use strict";
 
 const SY = { conf: null, state: null, running: false, again: false, timer: null, changed: false, lastError: "", status: "" };
 const SY_SHELVES = "meta:shelves";
 const SY_INLINE_MAX = 2e6; // größere Anhänge werden einzeln hochgeladen
 const syDocId = id => "book:" + id;
+const syPhotoId = id => "photo:" + id;
 const syEnc = encodeURIComponent;
 const syNow = () => new Date().toISOString();
 
@@ -107,6 +110,41 @@ async function syPushSimple(id, body, upd, onNewer) {
     st = { rev: remote?._rev };
   }
 }
+// Fach-Foto hochladen. Das Bild ändert sich nie – ist es schon auf dem Server, geht nur ein Verweis mit.
+async function syPushPhoto(p) {
+  const id = syPhotoId(p.id);
+  let st = SY.state.docs[id], noStubs = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { blob, ...meta } = p;
+    const doc = { _id: id, type: "photo", updatedAt: p.updatedAt || "", photo: meta };
+    if (p.deletedAt) doc.deletedAt = p.deletedAt;
+    else if (blob) doc._attachments = { image: !noStubs && st?.att?.image ? { stub: true } : { content_type: blob.type || "image/jpeg", data: await syB64(blob) } };
+    if (st?.rev) doc._rev = st.rev;
+    const r = await syFetch("/" + syEnc(id), { method: "PUT", body: JSON.stringify(doc) });
+    if (r.ok) { const rev = (await r.json()).rev; SY.state.docs[id] = { rev, upd: p.updatedAt || "", att: doc._attachments ? { image: "1" } : {}, sha: {} }; return; }
+    if (r.status === 409) {
+      const remote = await syRemote(id);
+      if (remote && (remote.updatedAt || "") > (p.updatedAt || "")) { await syApplyPhoto(remote); return; }
+      st = remote ? { rev: remote._rev, att: syDigests(remote) } : {};
+      continue;
+    }
+    if (r.status === 400 || r.status === 412) { noStubs = true; continue; }
+    let j = null; try { j = await r.json(); } catch {}
+    const e = new Error(syErrText(r.status, j)); e.status = r.status; throw e;
+  }
+  throw new Error("Ein Fach-Foto konnte nicht abgeglichen werden.");
+}
+async function syApplyPhoto(d) {
+  const id = d._id.slice(6);
+  const local = S.photos.find(p => p.id === id);
+  const p = { ...(d.photo || {}), id, updatedAt: d.updatedAt || "" };
+  delete p.blob;
+  if (d.deletedAt) p.deletedAt = d.deletedAt;
+  else if (d._attachments?.image) p.blob = local?.blob || await syAttachment(d._id, "image");
+  await storePhotoLocal(p);
+  SY.state.docs[d._id] = { rev: d._rev, upd: p.updatedAt, att: syDigests(d), sha: {} };
+  SY.changed = true;
+}
 async function syPush() {
   const dirty = S.books.filter(b => (SY.state.docs[syDocId(b.id)]?.upd ?? null) !== (b.updatedAt || ""));
   let n = 0;
@@ -118,6 +156,11 @@ async function syPush() {
   for (const [id, when] of Object.entries(S.deleted || {})) {
     if (S.books.some(b => b.id === id) || SY.state.docs[syDocId(id)]?.upd === when) continue;
     await syPushSimple(syDocId(id), { type: "book", updatedAt: when, deletedAt: when }, when, syApply);
+  }
+  for (const p of S.photos || []) {
+    if ((SY.state.docs[syPhotoId(p.id)]?.upd ?? null) === (p.updatedAt || "")) continue;
+    SY.status = "Lade Fach-Fotos hoch …"; syRefresh();
+    await syPushPhoto(p);
   }
   const su = S.shelves?.updatedAt || "";
   if (su && SY.state.docs[SY_SHELVES]?.upd !== su)
@@ -182,6 +225,12 @@ async function syPull() {
       if (!d || d._deleted || d._id.startsWith("_")) continue;
       if (SY.state.docs[d._id]?.rev === d._rev) continue; // eigener Stand
       if (d._id === SY_SHELVES) { await syApplyShelves(d); continue; }
+      if (d.type === "photo" && d._id.startsWith("photo:")) {
+        const local = S.photos.find(p => p.id === d._id.slice(6));
+        if ((d.updatedAt || "") > (local?.updatedAt || "")) { SY.status = "Lade Fach-Fotos …"; syRefresh(); await syApplyPhoto(d); }
+        else SY.state.docs[d._id] = { rev: d._rev, upd: d.updatedAt || "", att: syDigests(d), sha: {} }; // hier neuer → wird hochgeladen
+        continue;
+      }
       if (d.type !== "book" || !d._id.startsWith("book:")) continue;
       const id = d._id.slice(5);
       const local = S.books.find(b => b.id === id);
