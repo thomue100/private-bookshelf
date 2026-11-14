@@ -1,8 +1,8 @@
 /* Service Worker: App offline verfügbar machen. Version erhöhen, wenn sich Dateien ändern. */
-const VERSION = "v26";
+const VERSION = "v27";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
-const FILES = ["./", "index.html", "app.js", "attachments.js", "shelfscan.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
+const FILES = ["./", "index.html", "app.js", "attachments.js", "shelfscan.js", "shelfphotos.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
   "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"];
 
 self.addEventListener("install", e => {
@@ -11,8 +11,23 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith("shell-") && k !== SHELL).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
+// „Teilen → Bücherregal“ (Android): Fotos/Text im Cache „share-inbox“ ablegen und die App öffnen; dort übernimmt shelfphotos.js.
+async function receiveShare(req) {
+  const id = Date.now();
+  try {
+    const form = await req.formData();
+    const cache = await caches.open("share-inbox");
+    const text = ["title", "text", "url"].map(k => form.get(k)).filter(v => typeof v === "string" && v.trim()).join("\n");
+    if (text) await cache.put(`share/${id}/text`, new Response(text, { headers: { "content-type": "text/plain;charset=utf-8" } }));
+    let n = 0;
+    for (const f of form.getAll("photos")) if (f && typeof f !== "string") await cache.put(`share/${id}/file-${n++}`, new Response(f, { headers: { "content-type": f.type || "application/octet-stream" } }));
+  } catch {}
+  return Response.redirect(new URL(`./?share=${id}`, self.registration.scope).href, 303);
+}
 self.addEventListener("fetch", e => {
-  const req = e.request; if (req.method !== "GET") return;
+  const req = e.request;
+  if (req.method === "POST" && new URL(req.url).pathname.endsWith("/share-target")) { e.respondWith(receiveShare(req)); return; }
+  if (req.method !== "GET") return;
   const url = new URL(req.url);
   // Buch-APIs immer live
   if (url.hostname === "www.googleapis.com" || url.pathname.endsWith(".json") && url.hostname === "openlibrary.org") return;

@@ -232,16 +232,17 @@ function fachOptions() {
 }
 /* ================= Erkennungs-Wege ================= */
 // "api" = eigener API-Schlüssel, "chat" = Claude-Chat (claude.ai / Claude-App, dein Abo), "ocr" = Texterkennung im Browser
-function scanModes() {
+function scanModes(later) {
   return [
+    later ? ["later", "💾 Nur speichern – später erkennen", "Foto wird in der App gespeichert. Erkennen und einsortieren kannst du später – auch am PC (über den Abgleich oder eine Sicherung). Ideal, um viele Fächer schnell hintereinander zu fotografieren.", true] : null,
     ["api", "🤖 KI direkt (API-Schlüssel)", aiKey() ? "Automatisch, am bequemsten. Kosten pro Foto über dein API-Konto." : "Kein Schlüssel eingetragen.", !!aiKey()],
     ["chat", "💬 Über deinen Claude-Chat", "Mit deinem Claude-Abo: Foto + Auftrag an Claude geben, Antwort hier einfügen. Keine Zusatzkosten.", true],
     ["ocr", "🔤 Einfache Texterkennung", "Ohne KI, im Browser. Findet nur gut lesbare Rücken.", true],
-  ];
+  ].filter(Boolean);
 }
-function modeChooser(cur, onPick) {
+function modeChooser(cur, onPick, later) {
   const box = el("div", { class: "plist" });
-  for (const [v, l, d, ok] of scanModes()) {
+  for (const [v, l, d, ok] of scanModes(later)) {
     const r = el("input", { type: "radio", name: "scanmode", value: v, checked: v === cur || null, disabled: !ok || null });
     r.addEventListener("change", () => onPick(v));
     box.append(el("label", { class: "prow" + (ok ? "" : " off") }, r, el("span", {}, el("b", { text: l }), el("div", { class: "saved" }, d, !ok ? el("a", { href: "#", style: "margin-left:4px", onclick: e => { e.preventDefault(); aboutBox(); } }, "Einrichten") : null))));
@@ -266,9 +267,10 @@ function bridgeAnswer(text, fullPrompt, accept) {
   if (!t || t === fullPrompt.trim() || t.includes(fullPrompt.slice(0, 60)) || bridgeUsed.has(t)) return null;
   try { const d = parseJSONLoose(t); return accept(d) ? d : null; } catch { return null; }
 }
-function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack, accept = () => true }) {
+const chatPrompt = prompt => prompt + "\n\nAntworte ausschließlich mit dem JSON in einem Codeblock, ohne weiteren Text.";
+function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack, accept = () => true, autoRead = false }) {
   sh.h2.textContent = title;
-  const fullPrompt = prompt + "\n\nAntworte ausschließlich mit dem JSON in einem Codeblock, ohne weiteren Text.";
+  const fullPrompt = chatPrompt(prompt);
   const file = new File([jpeg], fileName || "foto.jpg", { type: "image/jpeg" });
   const ta = el("textarea", { class: "field", rows: 7, placeholder: "Hier Claudes Antwort einfügen (beginnt mit { … )" });
   const err = el("div", { class: "saved", style: "color:#b3261e" });
@@ -312,67 +314,115 @@ function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack,
     el("div", { class: "bridge" },
       el("div", { class: "bstep" }, el("b", { text: "1" }), el("div", {},
         el("div", { class: "btitle", text: "Foto und Auftrag an Claude geben" }),
-        el("p", { class: "saved", text: canShare ? "Am einfachsten: „An Claude teilen“ und im Teilen-Menü die Claude-App wählen – oder Auftrag kopieren und das Foto in einem neuen Claude-Chat anhängen." : "Neuen Chat auf claude.ai öffnen, das Foto anhängen (Datei unten speichern oder das Original nehmen) und den kopierten Auftrag einfügen." }),
+        el("p", { class: "saved", text: canShare ? "„An Claude teilen“ antippen und im Teilen-Menü die Claude-App wählen. Steht der Auftrag dort nicht schon im Eingabefeld: lange ins Feld tippen → „Einfügen“ (er liegt in der Zwischenablage). Dann senden." : "Neuen Chat auf claude.ai öffnen, das Foto anhängen (Datei unten speichern oder das Original nehmen) und den kopierten Auftrag einfügen." }),
         el("div", { class: "covertools" },
-          canShare ? el("button", { class: "btn primary", onclick: async () => { try { await navigator.clipboard.writeText(fullPrompt).catch(() => {}); await navigator.share({ files: [file], text: fullPrompt }); } catch (e) { if (e.name !== "AbortError") toast("Teilen nicht möglich – bitte kopieren."); } } }, "📤 An Claude teilen") : null,
+          canShare ? el("button", { class: "btn primary big", onclick: async () => { try { await navigator.clipboard.writeText(fullPrompt).catch(() => {}); await navigator.share({ files: [file], text: fullPrompt }); } catch (e) { if (e.name !== "AbortError") toast("Teilen nicht möglich – bitte kopieren."); } } }, "📤 An Claude teilen") : null,
           el("button", { class: "btn", onclick: () => copy() }, "📋 Auftrag kopieren"),
-          el("button", { class: "btn", onclick: () => saveFile(fileName || "foto.jpg", jpeg) }, "⬇ Foto speichern"),
-          el("a", { class: "btn" + (canShare ? "" : " primary"), href: "https://claude.ai/new", target: "_blank", rel: "noopener", onclick: openClaude }, "📋 Auftrag kopieren & Claude öffnen ↗")),
+          canShare ? null : el("button", { class: "btn", onclick: () => saveFile(fileName || "foto.jpg", jpeg) }, "⬇ Foto speichern"),
+          canShare ? null : el("a", { class: "btn primary", href: "https://claude.ai/new", target: "_blank", rel: "noopener", onclick: openClaude }, "📋 Auftrag kopieren & Claude öffnen ↗")),
         promptBox)),
       el("div", { class: "bstep" }, el("b", { text: "2" }), el("div", {},
         el("div", { class: "btitle", text: "Claudes Antwort zurückholen" }),
-        el("p", { class: "saved", text: "In Claude den Kopieren-Knopf am Codeblock antippen und hierher zurückkommen – die App übernimmt die Antwort dann meist von selbst. Sonst: „Antwort einfügen“ antippen oder ins Feld einfügen." }),
+        el("p", { class: "saved", text: canShare
+          ? "Wenn Claude fertig ist: am Codeblock auf „Kopieren“ tippen und zurück zur App wechseln – die Antwort wird dann meist von selbst übernommen. Oder die Antwort in Claude über „Teilen“ direkt an „Bücherregal“ schicken. Hat Android die App inzwischen geschlossen, macht sie beim Öffnen genau hier weiter."
+          : "In Claude den Kopieren-Knopf am Codeblock antippen und hierher zurückkommen – die App übernimmt die Antwort dann meist von selbst. Sonst: „Antwort einfügen“ antippen oder ins Feld einfügen." }),
         navigator.clipboard?.readText ? el("div", { class: "covertools" }, el("button", { class: "btn primary", onclick: () => readClip(true) }, "📥 Antwort einfügen")) : null,
         ta, err))),
     el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: onBack }, "← Zurück"), el("button", { class: "btn primary", onclick: go }, "Weiter")));
+  // Über „Teilen → Bücherregal“ empfangene Antwort, sonst nach einem Neustart einmal selbst in die Zwischenablage sehen
+  if (S.sharedAnswer) {
+    const t = S.sharedAnswer; S.sharedAnswer = null;
+    const data = bridgeAnswer(t, fullPrompt, accept);
+    if (data) { ta.value = t; toast("Claudes Antwort übernommen."); finish(data, t); }
+    else { ta.value = t; err.textContent = "Der geteilte Text ist keine passende Antwort von Claude. Bitte die komplette Antwort teilen oder kopieren."; }
+  } else if (autoRead) setTimeout(() => readClip(false), 400);
 }
 
 /* ================= Fach-Foto: Ablauf ================= */
-function openShelfScan(preFachKey) {
-  const sh = sheet("📷 Fach-Foto einlesen");
+// Jedes Fach-Foto wird zuerst in der App gespeichert (siehe shelfphotos.js). So geht nichts verloren, wenn Android die App
+// im Hintergrund beendet, und Erkennen/Einsortieren kann auch später – z. B. am PC – erledigt werden.
+function nextFachKey(key) { const f = fachOptions(); const i = f.findIndex(x => x.key === key); return i >= 0 && i + 1 < f.length ? f[i + 1].key : key || ""; }
+function fachName(key) { return key ? (fachOptions().find(f => f.key === key)?.label || "Fach gibt es nicht mehr") : "Ohne Fach"; }
+function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
+  const sh = sheet(photo ? "📷 Gespeichertes Fach-Foto" : "📷 Fach-Foto einlesen");
   const fachs = fachOptions();
-  const sel = el("select", { class: "field", style: "width:100%" },
+  const cur = photo ? photo.fachKey || "" : saved ? nextFachKey(saved.fachKey) : (preFachKey || S.lastScanFach);
+  const sel = el("select", { class: "field", style: "width:100%", "aria-label": "Fach" },
     el("option", { value: "" }, "Nicht einsortieren – nur Bücher erfassen"),
-    ...fachs.map(f => el("option", { value: f.key, selected: (preFachKey || S.lastScanFach) === f.key || null }, f.label + (f.n ? ` (${f.n} Bücher)` : " (leer)"))));
+    ...fachs.map(f => el("option", { value: f.key, selected: cur === f.key || null }, f.label + (f.n ? ` (${f.n} Bücher)` : " (leer)"))));
   let mode = defaultMode();
-  const go = f => { S.lastScanFach = sel.value; setDefaultMode(mode); runShelfScan(f, sel.value, mode); };
+  if (photo && mode === "later") mode = aiKey() ? "api" : "chat";
   const m = isMobile();
+  if (photo) {
+    const useFach = async () => { if (sel.value !== (photo.fachKey || "")) photo = await patchPhoto(photo.id, { fachKey: sel.value }) || photo; S.lastScanFach = sel.value; };
+    fillNode(sh.body,
+      el("div", { class: "phbig" }, photo.blob ? el("img", { src: photoUrl(photo), alt: "Fach-Foto", onclick: () => lightbox(photoUrl(photo)) }) : el("div", { class: "note", text: "Das Bild ist auf diesem Gerät (noch) nicht vorhanden." })),
+      el("div", { class: "saved", text: "Aufgenommen am " + new Date(photo.createdAt).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }) + (photo.doneAt ? " · bereits einsortiert" : "") }),
+      el("label", { class: "lbl", style: "margin-top:12px", text: "Welches Fach zeigt das Foto?" }), sel,
+      photo.scan ? el("div", { class: "note info", style: "margin-top:12px", text: `Schon erkannt (${(photo.scan.items || []).length} Objekte) – du musst nur noch prüfen und einsortieren.` }) : null,
+      photo.scan ? null : el("label", { class: "lbl", style: "margin-top:14px", text: "Wie soll erkannt werden?" }), photo.scan ? null : modeChooser(mode, v => mode = v),
+      el("div", { class: "actions" },
+        el("button", { class: "btn ghost", onclick: openPhotoInbox }, "← Alle Fotos"),
+        el("div", { class: "covertools" },
+          photo.scan ? el("button", { class: "btn", onclick: async () => { await useFach(); runShelfScan(photo, mode === "later" ? "chat" : mode); } }, "Neu erkennen") : null,
+          el("button", { class: "btn primary", disabled: photo.blob ? null : true, onclick: async () => { await useFach(); if (!photo.scan) setDefaultMode(mode); runShelfScan(photo, photo.scan ? "stored" : mode); } }, photo.scan ? "✓ Prüfen & einsortieren" : "Erkennen starten"))));
+    return;
+  }
+  const go = async f => {
+    S.lastScanFach = sel.value; setDefaultMode(mode);
+    let p;
+    try { p = await savePhoto(f, sel.value); } catch { toast("Das Foto konnte nicht gelesen werden."); return; }
+    if (mode === "later") openShelfScan(null, { saved: p }); else runShelfScan(p, mode);
+  };
+  const waiting = openPhotos().length;
   fillNode(sh.body,
-    el("p", { style: "margin-top:0", text: "Fotografiere ein ganzes Fach von vorne. Die App erkennt alle Buchrücken von links nach rechts, sucht die Buchdaten, und du prüfst alles, bevor es übernommen wird." }),
+    saved ? el("div", { class: "note info savedok" }, el("b", { text: "✓ Foto gespeichert" }), ` (${fachName(saved.fachKey)}). ${waiting} ${waiting === 1 ? "Foto wartet" : "Fotos warten"} auf Erkennung – `, el("a", { href: "#", onclick: e => { e.preventDefault(); openPhotoInbox(); } }, "ansehen"), ". Weiter mit dem nächsten Fach:")
+      : el("p", { style: "margin-top:0", text: "Fotografiere ein ganzes Fach von vorne. Die App erkennt alle Buchrücken von links nach rechts, sucht die Buchdaten, und du prüfst alles, bevor es übernommen wird." }),
     el("label", { class: "lbl", text: "Wohin sollen die Bücher?" }), sel,
     fachs.length ? null : el("div", { class: "saved", style: "margin-top:4px", text: "Tipp: Lege unter „Echtes Regal“ deine Regalwand an, dann kann die App die Bücher direkt ins richtige Fach stellen." }),
-    el("label", { class: "lbl", style: "margin-top:14px", text: "Wie soll erkannt werden?" }), modeChooser(mode, v => mode = v),
     el("div", { class: "covertools", style: "margin-top:16px" },
-      m ? el("button", { class: "btn primary", onclick: async () => { const f = await pickImage(true); if (f) go(f); } }, "📷 Fach fotografieren") : null,
-      el("button", { class: "btn" + (m ? "" : " primary"), onclick: async () => { const f = await pickImage(false); if (f) go(f); } }, m ? "Aus Galerie" : "🖼 Foto wählen")),
-    m ? null : dropZone("…oder Foto hierher ziehen bzw. mit Strg+V einfügen", go));
+      m ? el("button", { class: "btn primary big", onclick: async () => { const f = await pickImage(true); if (f) go(f); } }, saved ? "📷 Nächstes Fach fotografieren" : "📷 Fach fotografieren") : null,
+      el("button", { class: "btn" + (m ? "" : " primary"), onclick: async () => { const f = await pickImage(false); if (f) go(f); } }, m ? "Aus Galerie" : "🖼 Foto wählen"),
+      saved ? el("button", { class: "btn ghost", onclick: closeSheet }, "Fertig") : null),
+    m ? null : dropZone("…oder Foto hierher ziehen bzw. mit Strg+V einfügen", go),
+    el("label", { class: "lbl", style: "margin-top:16px", text: "Wie soll erkannt werden?" }), modeChooser(mode, v => mode = v, true),
+    !saved && waiting ? el("div", { class: "note info", style: "margin-top:14px" }, `📥 ${waiting} gespeicherte${waiting === 1 ? "s Foto wartet" : " Fotos warten"} auf Erkennung. `, el("a", { href: "#", onclick: e => { e.preventDefault(); openPhotoInbox(); } }, "Ansehen")) : null);
   S.pasteHandler = go;
 }
-async function runShelfScan(file, fachKey, mode = defaultMode()) {
+/* Erkennt ein gespeichertes Fach-Foto. mode: "api" | "chat" | "ocr" | "stored" (gespeicherte Erkennung nur prüfen). */
+async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = {}) {
   const sh = openSheet || sheet("📷 Fach-Foto einlesen");
   S.pasteHandler = null;
-  const status = busyView("Fach wird erkannt", file, "Bereite das Foto vor …");
-  let img, canvas, jpeg;
-  try { img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
-  catch { toast("Das Foto konnte nicht gelesen werden."); openShelfScan(fachKey); return; }
+  const file = photo.blob;
+  setPending(photo.id, mode);
+  sh.onClose = () => clearPending(photo.id);
+  const status = busyView(mode === "stored" ? "Foto wird geladen" : "Fach wird erkannt", file, "Bereite das Foto vor …");
+  let canvas, jpeg;
+  try { const img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
+  catch { toast("Das Foto konnte nicht gelesen werden."); openShelfScan(null, { photo }); return; }
+  const onData = async data => {
+    if (!data.ocr && mode !== "stored") photo = await patchPhoto(photo.id, { scan: data, scanAt: new Date().toISOString() }) || photo; // Erkennung aufheben – prüfen geht dann auch später/am PC
+    continueShelfScan(sh, { file, canvas, data, fachKey: photo.fachKey || "", photo });
+  };
+  if (mode === "stored" && photo.scan) return onData(photo.scan);
   if (mode === "chat") {
-    claudeChatBridge(sh, { title: "💬 Fach-Foto mit Claude erkennen", prompt: SCAN_PROMPT, jpeg, fileName: "regalfach.jpg",
-      onBack: () => openShelfScan(fachKey),
+    claudeChatBridge(sh, { title: "💬 Fach-Foto mit Claude erkennen", prompt: SCAN_PROMPT, jpeg, fileName: "regalfach.jpg", autoRead,
+      onBack: () => { clearPending(photo.id); openShelfScan(null, { photo }); },
       accept: d => Array.isArray(d?.items) && d.items.some(it => it && (it.title || it.label || it.spine_text_vertical || it.spine_text_horizontal)),
-      onResult: data => { if (!Array.isArray(data.items)) { toast("In der Antwort fehlt die Bücherliste."); return; } continueShelfScan(sh, { file, canvas, data, fachKey, mode }); } });
+      onResult: data => { if (!Array.isArray(data.items)) { toast("In der Antwort fehlt die Bücherliste."); return; } onData(data); } });
     return;
   }
   let data;
   try { data = mode === "api" && aiKey() ? await aiScanShelf(jpeg, t => status.textContent = t) : await ocrScanShelf(canvas, t => status.textContent = t); }
   catch (e) {
-    fillNode(sh.body, el("div", { class: "note", text: "Erkennung fehlgeschlagen: " + (e.message || e) }),
-      el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(fachKey) }, "← Zurück"),
-        el("div", { class: "covertools" }, el("button", { class: "btn", onclick: () => runShelfScan(file, fachKey, "chat") }, "💬 Über Claude-Chat"), el("button", { class: "btn primary", onclick: () => runShelfScan(file, fachKey, mode) }, "Nochmal versuchen"))));
+    fillNode(sh.body, el("div", { class: "note", text: "Erkennung fehlgeschlagen: " + (e.message || e) + " – das Foto bleibt gespeichert." }),
+      el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(null, { photo }) }, "← Zurück"),
+        el("div", { class: "covertools" }, el("button", { class: "btn", onclick: () => runShelfScan(photo, "chat") }, "💬 Über Claude-Chat"), el("button", { class: "btn primary", onclick: () => runShelfScan(photo, mode) }, "Nochmal versuchen"))));
     return;
   }
-  continueShelfScan(sh, { file, canvas, data, fachKey, mode });
+  onData(data);
 }
-async function continueShelfScan(sh, { file, canvas, data, fachKey }) {
+async function continueShelfScan(sh, { file, canvas, data, fachKey, photo }) {
   const status = busyView("Buchdaten werden gesucht", file, "…");
   const items = data.items.map((it, i) => ({ ...it, _i: i, include: it.kind !== "other", cands: [], choice: -1, title: it.title || it.spine_text_vertical || it.label || "" }));
   // Buchdaten suchen (3 gleichzeitig)
@@ -390,7 +440,7 @@ async function continueShelfScan(sh, { file, canvas, data, fachKey }) {
   resolveCollisions(items);
   assessScan(items);
   for (const it of items) it.dup = scanDup(it);
-  scanReview(sh, { file, canvas, data, items, fachKey });
+  scanReview(sh, { file, canvas, data, items, fachKey, photo });
 }
 
 /* ================= Einzelnes Cover per KI / Claude-Chat ================= */
@@ -553,7 +603,7 @@ function scanReview(sh, st) {
         target ? el("div", { class: "c3" }, el("label", { class: "lbl", text: "Ziel: " + target.label }), optReplace) : el("div", { class: "c3 saved", style: "align-self:end", text: "Ohne Fach: Bücher landen unter „Noch nicht eingeräumt“." }),
         el("div", { class: "c6" }, el("label", { class: "lbl", text: "Schlagworte für alle übernommenen Bücher (optional)" }), tagEditor(scanTags, () => {})))),
     list,
-    el("div", { class: "actions sticky" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(st.fachKey) }, "← Anderes Foto"), countBtn));
+    el("div", { class: "actions sticky" }, el("button", { class: "btn ghost", onclick: () => st.photo ? openPhotoInbox() : openShelfScan(st.fachKey) }, st.photo ? "← Später weiter" : "← Anderes Foto"), countBtn));
   refresh();
   sh.guard = async () => await confirmBox("Die erkannten Bücher wurden noch nicht übernommen.\nWirklich schließen?", "Schließen");
   sh.body.parentElement.scrollTop = 0;
@@ -618,6 +668,7 @@ async function importScan(st, opt) {
     if (placed.back.length) S.showBack.delete(m.id + ":" + k);
     await saveShelves();
   }
+  if (st.photo) { clearPending(); await patchPhoto(st.photo.id, { doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
   sh.guard = null;
   closeSheet();
   renderAll();

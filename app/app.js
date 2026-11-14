@@ -7,6 +7,7 @@ const S = {
   filter: "all", sort: "added-desc", q: "",
   tFilter: "all", tq: "", tSort: { key: "addedAt", dir: -1 },
   urls: new Map(), // id -> objectURL des Covers
+  photos: [], // gespeicherte Fach-Fotos (siehe shelfphotos.js)
 };
 const STATUS = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" };
 const STATUS_COLOR = { unread: "var(--s-unread)", reading: "var(--s-reading)", read: "var(--s-read)" };
@@ -39,14 +40,16 @@ function setBanner(t, btn) { $("#banner").replaceChildren(el("div", { class: "ba
 const DB = (() => {
   let dbp;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open("buecherregal", 2);
-    r.onupgradeneeded = () => { // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; vorhandene Daten bleiben unverändert
+    const r = indexedDB.open("buecherregal", 3);
+    // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; 2 → 3: Speicher für Fach-Fotos. Vorhandene Daten bleiben unverändert.
+    r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains("books")) d.createObjectStore("books", { keyPath: "id" });
       if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "key" });
       if (!d.objectStoreNames.contains("blobs")) d.createObjectStore("blobs", { keyPath: "id" }).createIndex("bookId", "bookId");
+      if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
     };
-    r.onsuccess = () => res(r.result);
+    r.onsuccess = () => { const db = r.result; db.onversionchange = () => db.close(); res(db); }; // neuere App-Version in anderem Fenster nicht blockieren
     r.onerror = () => rej(r.error);
   }));
   const tx = async (store, mode, fn) => {
@@ -66,6 +69,8 @@ const DB = (() => {
     getBlob: id => tx("blobs", "readonly", s => s.get(id)),
     putBlob: rec => tx("blobs", "readwrite", s => s.put(rec)),
     delBlob: id => tx("blobs", "readwrite", s => s.delete(id)),
+    allPhotos: () => tx("photos", "readonly", s => s.getAll()),
+    putPhoto: p => tx("photos", "readwrite", s => s.put(p)),
   };
 })();
 
@@ -74,6 +79,7 @@ async function loadAll() {
     S.books = await DB.all();
     S.deleted = (await DB.getMeta("deleted")) || {};
     S.shelves = (await DB.getMeta("shelves")) || { walls: [], updatedAt: "" };
+    S.photos = await DB.allPhotos().catch(() => []);
   } catch (e) {
     setBanner("Der Browser erlaubt hier keinen Speicher (z. B. im privaten Modus). Bitte im normalen Modus öffnen.");
   }
@@ -106,6 +112,19 @@ async function removeBook(id) {
   await DB.setMeta("deleted", S.deleted);
   scheduleRender();
 }
+/* Fach-Fotos: { id, createdAt, updatedAt, fachKey, blob, w, h, scan?, doneAt?, deletedAt? }.
+   Gelöschte Fotos bleiben als Grabstein ohne Bild stehen (deletedAt), damit Abgleich und Sicherung die Löschung weitergeben. */
+const photoUrls = new Map();
+function photoUrl(p) { if (!p?.blob) return null; if (!photoUrls.has(p.id)) photoUrls.set(p.id, URL.createObjectURL(p.blob)); return photoUrls.get(p.id); }
+function forgetPhotoUrl(id) { if (photoUrls.has(id)) { URL.revokeObjectURL(photoUrls.get(id)); photoUrls.delete(id); } }
+async function storePhotoLocal(p) { // ohne neuen Zeitstempel – für Abgleich und Import
+  await DB.putPhoto(p);
+  const i = S.photos.findIndex(x => x.id === p.id); if (i >= 0) S.photos[i] = p; else S.photos.push(p);
+  forgetPhotoUrl(p.id);
+}
+async function putPhoto(p) { p.updatedAt = new Date().toISOString(); await storePhotoLocal(p); dataChanged(); scheduleRender(); return p; }
+async function patchPhoto(id, patch) { const p = S.photos.find(x => x.id === id); if (p) return putPhoto({ ...p, ...patch }); }
+const openPhotos = () => S.photos.filter(p => !p.deletedAt && !p.doneAt).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 // Nach jeder Änderung: lokale Ordner-Sicherung und (falls eingerichtet) Server-Abgleich einplanen
 function dataChanged() { if (typeof scheduleAutoBackup === "function") scheduleAutoBackup(); if (typeof scheduleSync === "function") scheduleSync(); }
 let rT; function scheduleRender() { clearTimeout(rT); rT = setTimeout(renderAll, 30); }
@@ -584,6 +603,7 @@ async function wishBought(id) {
 // Nur die sichtbare Ansicht zeichnen – beim Wechsel (hashchange → renderAll) wird die neue frisch gezeichnet.
 // Spart bei großen Sammlungen viel Zeit, weil sonst jede Änderung auch die ganze Tabelle neu aufbaut.
 function renderAll() {
+  if (openSheet?.redraw) openSheet.redraw(); // offene Übersicht (z. B. Fach-Fotos) nach Abgleich/Import aktualisieren
   renderNav();
   const v = view();
   if (v === "verwaltung") renderTable(); else if (v === "wand") renderWall(); else if (v === "wunsch") renderWish(); else renderShelf();
@@ -1617,7 +1637,7 @@ function renderWall() {
     "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
     "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs. Rot umrandet = rechnerisch voll.");
 
-  fillNode(host, tools, pickBar, editInfo,
+  fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, editInfo,
     el("div", { class: "wandlayout" }, el("div", { class: "wallscroll" }, wallEl, legend), sidebarEl()));
   if (S.highlight) {
     const sp = host.querySelector(`.spine[data-id="${S.highlight}"]`);
@@ -2540,7 +2560,12 @@ async function buildBackup(opt = { images: true, files: true }) {
     if (rest.spine?.imageBlob) { const { imageBlob, ...sp } = rest.spine; sp.imageData = await blobToDataURL(imageBlob); rest.spine = sp; }
     books.push(rest);
   }
-  return { app: "buecherregal", version: 2, exportedAt: new Date().toISOString(), books, deleted: S.deleted, shelves: S.shelves };
+  // Fach-Fotos: offene mit Bild, erledigte/gelöschte nur als Angaben (damit das andere Gerät sie als erledigt sieht)
+  const photos = [];
+  for (const p of S.photos || []) { const { blob, ...rest } = p; if (blob && !p.doneAt && !p.deletedAt && opt.photos !== false) rest.imageData = await blobToDataURL(blob); photos.push(rest); }
+  const out = { app: "buecherregal", version: 2, exportedAt: new Date().toISOString(), books, deleted: S.deleted, shelves: S.shelves };
+  if (photos.length) out.photos = photos;
+  return out;
 }
 async function exportFlow() {
   const stats = await attachmentStats();
@@ -2589,11 +2614,20 @@ async function importData(data) {
     if (S.urls.has(b.id)) { URL.revokeObjectURL(S.urls.get(b.id)); S.urls.delete(b.id); }
   }
   S.deleted = del; await DB.setMeta("deleted", del);
+  let photoNote = 0;
+  for (const inc of Array.isArray(data.photos) ? data.photos : []) {
+    if (!inc?.id) continue;
+    const local = S.photos.find(p => p.id === inc.id);
+    if (local && (local.updatedAt || "") >= (inc.updatedAt || "")) continue;
+    const { imageData, ...p } = inc;
+    if (!p.deletedAt) { if (imageData) { try { p.blob = await dataURLToBlob(imageData); } catch {} } if (!p.blob && local?.blob) p.blob = local.blob; }
+    await storePhotoLocal(p); photoNote++;
+  }
   let wallNote = "";
   if (data.shelves?.walls && (data.shelves.updatedAt || "") > (S.shelves.updatedAt || "")) { S.shelves = data.shelves; await DB.setMeta("shelves", S.shelves); wallNote = " Regal-Aufstellung übernommen."; }
   renderAll();
   dataChanged();
-  return `Abgleich fertig: ${added} neu, ${updated} aktualisiert, ${removed} gelöscht, ${skipped} unverändert.${wallNote}`;
+  return `Abgleich fertig: ${added} neu, ${updated} aktualisiert, ${removed} gelöscht, ${skipped} unverändert.${wallNote}${photoNote ? " " + photoNote + " Fach-Foto(s) übernommen." : ""}`;
 }
 function exportCsv(only) {
   const books = Array.isArray(only) ? only : S.books;
@@ -2629,6 +2663,7 @@ $("#menuBtn").addEventListener("click", e => {
     item("📊 Als CSV für Excel exportieren", exportCsv),
     item("🔗 Suchseiten wählen (ZVAB, SLUB …)", providerSettings),
     item("📷 Fach-Foto einlesen", () => openShelfScan()),
+    item("📥 Gespeicherte Fach-Fotos" + (openPhotos().length ? ` (${openPhotos().length} offen)` : ""), () => openPhotoInbox()),
     item("🖼 Fehlende Cover online nachtragen", () => coverRun()),
     item("⚙️ Über die App & Einstellungen", aboutBox),
     el("small", { text: "Abgleich: Auf dem einen Gerät exportieren, auf dem anderen importieren. Neuere Änderungen gewinnen." }));

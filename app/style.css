@@ -375,6 +375,19 @@ tr.gonerow td:hover{opacity:1}
 .dedi{white-space:pre-wrap;font-style:italic}
 /* Claude-Chat-Brücke */
 .bridge{display:flex;flex-direction:column;gap:14px}
+.btn.big{font-size:17px;padding:14px 22px;min-height:52px}
+/* Gespeicherte Fach-Fotos */
+.phlist{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.phcard{display:grid;grid-template-columns:110px minmax(0,1fr);gap:12px;align-items:start;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--bg);text-align:left;font:inherit;color:inherit}
+.phcard.pick{cursor:pointer;width:100%}
+.phcard.done{opacity:.8}
+.phcard img,.phmissing{width:110px;height:82px;object-fit:cover;border-radius:8px;cursor:zoom-in;background:var(--line)}
+.phmissing{display:flex;align-items:center;justify-content:center;font-size:28px;cursor:default}
+.phinfo{min-width:0}
+.phinfo .saved{margin:2px 0 8px}
+.phbig img{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:#000;cursor:zoom-in}
+.phbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.savedok{font-size:14.5px}
 .bstep{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg)}
 .bstep > b{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px}
 .btitle{font-weight:600;margin:3px 0 2px}
