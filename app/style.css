@@ -222,7 +222,7 @@ td .thumb img{width:100%;height:100%;object-fit:cover}
 .editing .mod{outline:2px dashed var(--accent);outline-offset:-2px}
 .colbar{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:13px}
 .colbar b{margin-right:auto}
-.modbar{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;gap:3px;align-items:center;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:4px 6px;box-shadow:var(--shadow);z-index:4;font-size:12px;white-space:nowrap}
+.modbar{display:flex;flex-wrap:wrap;gap:3px;align-items:center;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:3px 4px;margin:6px 0 3px;font-size:12px;box-sizing:border-box;width:100%}
 .modbar button{border:1px solid var(--line);background:var(--bg);border-radius:6px;width:26px;height:26px;cursor:pointer;padding:0}
 .modbar button:disabled{opacity:.35;cursor:default}
 .modbar select{font-size:12px;border:1px solid var(--line);border-radius:6px;padding:3px;background:var(--bg)}
@@ -276,7 +276,6 @@ td a{color:var(--ink);text-decoration:none}td a:hover{color:var(--accent);text-d
 .fachbtns button:hover{background:#fff}
 .fach.insend .layer.front::after,.fach.showback.insend .layer.back::after{content:"";width:3px;align-self:stretch;background:var(--accent)}
 .stack.ins{box-shadow:-3px 0 0 var(--accent)}
-.modbar.vert{flex-direction:column;padding:6px 4px}
 /* Lesedurchgänge */
 .reads{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .readrow{display:grid;grid-template-columns:22px 1fr 1fr auto;gap:6px 8px;align-items:end;width:100%;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
@@ -572,3 +571,16 @@ tr.tmore .btn{margin-left:10px}
 @media (max-width:600px){ .zoombox{flex:1 1 100%} .zoomrange{flex:1;width:auto} }
 .spedit input[type=range]{height:28px}
 .spedit .sizeoff{opacity:.45}
+
+/* Aufbau ändern: Leisten über den Würfeln statt darauf, keine Bücherliste */
+.modwrap{display:flex;flex-direction:column}
+.modbar select{width:30px;height:26px;padding:0;color:transparent;-webkit-appearance:none;appearance:none;cursor:pointer;border:2px solid var(--line)}
+.modbar select option{color:var(--ink);background:var(--paper)}
+.modbar span{white-space:nowrap}
+.wandlayout.solo{grid-template-columns:minmax(0,1fr)}
+.wall.editing .layer,.wall.editing .stack.top{opacity:.3}
+.wall.editing .fachbtns{display:none}
+.wall.editing .spine{pointer-events:none}
+.colbar{box-sizing:border-box;padding-right:2px}
+.editinfo{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}
+.editinfo .covertools{margin:0}
