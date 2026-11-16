@@ -1558,6 +1558,9 @@ const LAYER_LABEL = { front: "", back: "hintere Reihe", top: "liegt oben auf der
 const BOARD = 1.2, FACH_W = 33.0, FACH_H = 33.0;
 const MOD_COLORS = [["Weiß", "#f3f2ee"], ["Hellgrau", "#d6d4cf"], ["Anthrazit", "#3a3a3a"], ["Ruby", "#7d2630"], ["Salbei", "#a7b4a0"], ["Blau", "#3f5d7d"], ["Senf", "#d9a640"]];
 S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = ""; S.showBack = new Set(); S.pickMany = null; S.selMode = false; S.sel = new Set(); S.lens = false;
+S.ovZoom = 1; S.anchor = null; S.zoomFocus = null; S.wallReset = false; // Gesamtansicht, Zoom, Ansicht beim Neuzeichnen halten
+try { S.overview = localStorage.getItem("wallOverview") === "1"; } catch { S.overview = false; }
+function setOverview(on) { S.overview = on; S.wallReset = true; if (on) S.wallEdit = false; try { localStorage.setItem("wallOverview", on ? "1" : ""); } catch {} renderWall(); }
 
 const upright = m => m.type !== "1112" && m.orient === "v";
 function modDims(m) { const d = MOD[m.type]; return upright(m) ? { w: d.h, h: d.w } : { w: d.w, h: d.h }; }
@@ -1700,25 +1703,38 @@ function renderWall() {
       el("button", { class: "btn primary", onclick: newWallDialog }, "＋ Regalwand anlegen")));
     return;
   }
-  // Maßstab: ganze Wand passt in die Breite (Zoom ändert das)
-  const colW = c => Math.max(35.4, ...c.modules.map(m => modDims(m).w));
-  const totalW = w.columns.reduce((a, c) => a + colW(c), 0) + (w.columns.length - 1) * 1.5 + 2;
-  const wide = innerWidth >= 900;
-  const avail = (wide ? Math.min(1280, innerWidth) - 36 - 310 : innerWidth - 36) - 32;
-  const s = Math.max(2.6, Math.min(9, avail / Math.max(totalW, 69.6))) * S.zoom;
+  const ov = S.overview, walls = ov ? S.shelves.walls : [w];
+  const st = S.wallReset ? null : wallViewSave(host); S.wallReset = false;
+  // Maßstab: ganze Wand (Gesamtansicht: alle Wände nebeneinander) passt in die Breite – Zoom ändert das
+  // verfügbare Breite: Seite − Rand − Seitenleiste (wie im CSS: clamp(290px, 28vw, 380px)) − Abstand; dann Innenabstände und Platz für einen Rollbalken
+  const wide = innerWidth >= 900, sideW = Math.min(380, Math.max(290, innerWidth * 0.28));
+  const avail = (wide ? Math.min(1280, innerWidth) - 36 - 310 : innerWidth - 36) - 32; // Einzelwand: wie bisher
+  const ovAvail = (wide ? Math.min(1280, innerWidth) - 36 - sideW - 18 : innerWidth - 36) - 40 - 16 * (walls.length - 1);
+  const s = ov ? Math.max(0.6, Math.min(9, ovAvail / Math.max(walls.reduce((a, x) => a + wallWidthCm(x), 0) + (walls.length - 1) * OV_GAP, 69.6))) * S.ovZoom
+    : Math.max(2.6, Math.min(9, avail / Math.max(wallWidthCm(w), 69.6))) * S.zoom;
+  const zKey = ov ? "ovZoom" : "zoom";
 
   const sel = el("select", { class: "field" }, ...S.shelves.walls.map(x => el("option", { value: x.id, selected: x.id === w.id || null }, x.name)));
-  sel.addEventListener("change", () => { S.wallId = sel.value; renderWall(); });
+  sel.addEventListener("change", () => { S.wallId = sel.value; S.wallReset = true; renderWall(); });
+  const zoomIn = el("input", { type: "range", class: "zoomrange", min: 25, max: 600, step: 1, value: Math.round(S[zKey] * 100), title: "Vergrößerung (stufenlos) – am Handy auch mit zwei Fingern, am PC mit Strg + Mausrad", "aria-label": "Vergrößerung" });
+  const zoomTxt = el("span", { class: "zoomtxt", text: Math.round(S[zKey] * 100) + " %" });
+  zoomIn.addEventListener("input", () => { const z = +zoomIn.value / 100; zoomTxt.textContent = zoomIn.value + " %"; wallPreviewZoom(z / S[zKey]); });
+  zoomIn.addEventListener("change", () => setWallZoom(+zoomIn.value / 100));
   const tools = el("div", { class: "tools" },
-    S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
-    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
+    ov ? el("h2", { style: "font-size:20px", text: "Alle Regalwände" }) : S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
+    el("button", { class: "btn sm ovbtn" + (ov ? " primary" : ""), title: "Gesamtansicht: alle Regalwände auf einen Blick, mit Vergrößerung", onclick: () => setOverview(!ov) }, ov ? "✓ Gesamtansicht" : "🗺 Gesamtansicht"),
+    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
     el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand"),
     el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
     el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
     el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe"),
     el("span", { style: "flex:1" }),
-    el("button", { class: "btn sm", title: "Verkleinern", onclick: () => { S.zoom = Math.max(0.5, S.zoom / 1.2); renderWall(); } }, "−"),
-    el("button", { class: "btn sm", title: "Vergrößern", onclick: () => { S.zoom = Math.min(4, S.zoom * 1.2); renderWall(); } }, "＋"));
+    el("div", { class: "zoombox" },
+      el("button", { class: "btn sm", title: "Verkleinern", onclick: () => setWallZoom(S[zKey] / 1.25) }, "−"),
+      zoomIn,
+      el("button", { class: "btn sm", title: "Vergrößern", onclick: () => setWallZoom(S[zKey] * 1.25) }, "＋"),
+      zoomTxt,
+      el("button", { class: "btn sm ghost", title: "Wieder ganz zeigen", onclick: () => { S[zKey] = 1; S.wallReset = true; renderWall(); } }, "⤢")));
 
   const P = picking(), pickBook = P && P.length === 1 && bookOf(P[0]);
   const pickBar = !P ? null : el("div", { class: "note info pickbar" },
@@ -1743,7 +1759,41 @@ function renderWall() {
         el("button", { class: "btn sm primary", onclick: () => { S.selMode = false; S.sel.clear(); renderWall(); } }, "Fertig")));
   }
 
-  const wallEl = el("div", { class: "wall" + (S.wallEdit ? " editing" : "") + (P ? " picking" : "") + (S.selMode ? " selecting" : "") + (S.lens && !S.wallEdit ? " lensing" : ""), style: `gap:${1.5 * s}px` });
+  const stage = el("div", { class: "wallstage" + (ov ? " overview" : ""), style: ov ? `gap:${OV_GAP * s}px` : "" },
+    ...walls.map(x => !ov ? wallEl(x, s) : el("div", { class: "ovwall" },
+      el("button", { class: "ovname", title: "Nur diese Wand zeigen", onclick: () => { S.wallId = x.id; setOverview(false); } }, x.name), wallEl(x, s))));
+  // merken, wo zuletzt getippt wurde – dieses Fach bzw. Buch bleibt beim Neuzeichnen an seiner Stelle
+  const remember = e => { const f = e.target.closest?.(".wall .fach"), it = e.target.closest?.(".witem"); if (f) S.anchor = `.wall .fach[data-fid="${f.dataset.fid}"]`; else if (it) S.anchor = `.witem[data-id="${it.dataset.id}"]`; };
+  host.onpointerdown = remember;
+
+  const editInfo = S.wallEdit ? el("div", { class: "note info" }, "Aufbau ändern: Würfel oben an eine Spalte anfügen, mit ▲ ▼ ◀ ▶ verschieben, 2er-Würfel mit ⟳ hochkant drehen, Farbe wählen oder entfernen. ",
+    el("a", { href: "#", onclick: e => { e.preventDefault(); renameWall(w); } }, "Wand umbenennen"), " · ",
+    el("a", { href: "#", onclick: async e => { e.preventDefault(); if (await confirmBox(`Regalwand „${w.name}“ löschen? Die Bücher bleiben in deiner Sammlung, gelten aber als nicht eingeräumt.`, "Löschen")) { S.shelves.walls = S.shelves.walls.filter(x => x !== w); S.wallId = null; S.wallEdit = false; await saveShelves(); renderAll(); } } }, "Wand löschen")) : null;
+
+  const legend = el("div", { class: "saved", style: "margin-top:10px" },
+    ov ? "Gesamtansicht: alle Wände nebeneinander. Vergrößern mit dem Regler, mit zwei Fingern oder Strg + Mausrad; Wandname antippen zeigt nur diese Wand. " : "",
+    "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
+    "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs (oben herausschauende hintere Bücher lassen sich auch direkt antippen). Rot umrandet = rechnerisch voll. ",
+    "Ist ein echtes Fach voll: Buch antippen → „Fach ist voll – auf ganze Breite verteilen“. „☑ Auswählen“ stellt mehrere Bücher auf einmal um, „🔍 Lupe“ vergrößert die Rücken.");
+
+  const lens = S.lens && !S.wallEdit ? lensAttach(stage, s) : null;
+  const scroller = el("div", { class: "wallscroll" }, stage, legend);
+  zoomAttach(scroller, stage);
+  fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, selBar, editInfo,
+    el("div", { class: "wandlayout" }, scroller, sidebarEl()), lens);
+  wallViewRestore(host, st);
+  if (S.highlight) {
+    const sp = host.querySelector(`.spine[data-id="${S.highlight}"]`);
+    if (sp) { sp.classList.add("hl"); sp.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); }
+    const id = S.highlight; setTimeout(() => { if (S.highlight === id) { S.highlight = null; host.querySelectorAll(".spine.hl").forEach(x => x.classList.remove("hl")); } }, 4000);
+  }
+}
+const OV_GAP = 8; // Abstand der Wände in der Gesamtansicht (cm)
+const colWidthCm = c => Math.max(35.4, ...c.modules.map(m => modDims(m).w));
+const wallWidthCm = w => w.columns.reduce((a, c) => a + colWidthCm(c), 0) + (w.columns.length - 1) * 1.5 + 2;
+function wallEl(w, s) {
+  const colW = colWidthCm, P = picking();
+  const wallEl = el("div", { class: "wall" + (S.wallEdit ? " editing" : "") + (P ? " picking" : "") + (S.selMode ? " selecting" : "") + (S.lens && !S.wallEdit ? " lensing" : ""), style: `gap:${1.5 * s}px`, "data-wall": w.id });
   w.columns.forEach((col, ci) => {
     const colEl = el("div", { class: "wcol", style: `min-width:${colW(col) * s}px` });
     if (S.wallEdit) colEl.append(el("div", { class: "colbar", style: `width:${Math.max(colW(col) * s, 220)}px` },
@@ -1758,24 +1808,82 @@ function renderWall() {
   });
   if (S.wallEdit) wallEl.append(el("div", { class: "wcol addcol", style: `width:${Math.max(120, 30 * s)}px` },
     el("button", { class: "btn", onclick: () => editWall(() => w.columns.push({ id: uid().slice(0, 8), modules: [newModule("6112")] })) }, "＋ Spalte")));
-
-  const editInfo = S.wallEdit ? el("div", { class: "note info" }, "Aufbau ändern: Würfel oben an eine Spalte anfügen, mit ▲ ▼ ◀ ▶ verschieben, 2er-Würfel mit ⟳ hochkant drehen, Farbe wählen oder entfernen. ",
-    el("a", { href: "#", onclick: e => { e.preventDefault(); renameWall(w); } }, "Wand umbenennen"), " · ",
-    el("a", { href: "#", onclick: async e => { e.preventDefault(); if (await confirmBox(`Regalwand „${w.name}“ löschen? Die Bücher bleiben in deiner Sammlung, gelten aber als nicht eingeräumt.`, "Löschen")) { S.shelves.walls = S.shelves.walls.filter(x => x !== w); S.wallId = null; S.wallEdit = false; await saveShelves(); renderAll(); } } }, "Wand löschen")) : null;
-
-  const legend = el("div", { class: "saved", style: "margin-top:10px" },
-    "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
-    "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs. Rot umrandet = rechnerisch voll. ",
-    "Ist ein echtes Fach voll: Buch antippen → „Fach ist voll – auf ganze Breite verteilen“. „☑ Auswählen“ stellt mehrere Bücher auf einmal um, „🔍 Lupe“ vergrößert die Rücken.");
-
-  const lens = S.lens && !S.wallEdit ? lensAttach(wallEl, s) : null;
-  fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, selBar, editInfo,
-    el("div", { class: "wandlayout" }, el("div", { class: "wallscroll" }, wallEl, legend), sidebarEl()), lens);
-  if (S.highlight) {
-    const sp = host.querySelector(`.spine[data-id="${S.highlight}"]`);
-    if (sp) { sp.classList.add("hl"); sp.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); }
-    const id = S.highlight; setTimeout(() => { if (S.highlight === id) { S.highlight = null; host.querySelectorAll(".spine.hl").forEach(x => x.classList.remove("hl")); } }, 4000);
+  return wallEl;
+}
+/* Ansicht beim Neuzeichnen halten: Rollposition der Wand, der Liste und der Seite – und das zuletzt angetippte Fach
+   (bzw. Buch in der Liste) bleibt genau an seiner Stelle, auch wenn oben eine Hinweiszeile dazukommt oder verschwindet. */
+function wallViewSave(host) {
+  const sc = host.querySelector(".wallscroll"); if (!sc) return null;
+  const st = { left: sc.scrollLeft, top: sc.scrollTop, win: scrollY, list: host.querySelector(".wlist")?.scrollTop || 0 };
+  const vis = e => { const r = e.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth && r.width > 0; };
+  let a = S.anchor && host.querySelector(S.anchor);
+  if (!a || !vis(a)) { const sr = sc.getBoundingClientRect(); a = [...host.querySelectorAll(".wall .fach")].find(f => { const r = f.getBoundingClientRect(); return vis(f) && r.bottom > sr.top && r.top < sr.bottom; }); }
+  if (a) { const r = a.getBoundingClientRect(); st.sel = S.anchor && a.matches(S.anchor) ? S.anchor : `.wall .fach[data-fid="${a.dataset.fid}"]`; st.x = r.left; st.y = r.top; }
+  return st;
+}
+function wallViewRestore(host, st) {
+  const sc = host.querySelector(".wallscroll"); if (!sc) return;
+  const z = S.zoomFocus; S.zoomFocus = null;
+  if (!st) { sc.scrollLeft = 0; sc.scrollTop = 0; return; }
+  const wl = host.querySelector(".wlist"); if (wl) wl.scrollTop = st.list;
+  if (z) { // Zoom: der Punkt unter Finger/Maus bzw. die Mitte bleibt stehen
+    const r = sc.getBoundingClientRect();
+    sc.scrollLeft = z.cx * z.ratio - (z.fx - r.left); sc.scrollTop = z.cy * z.ratio - (z.fy - r.top);
+    return;
   }
+  sc.scrollLeft = st.left; sc.scrollTop = st.top;
+  if (Math.abs(scrollY - st.win) > 1) window.scrollTo(scrollX, st.win);
+  const a = st.sel && host.querySelector(st.sel); if (!a) return;
+  const r = a.getBoundingClientRect(), dx = r.left - st.x, dy = r.top - st.y;
+  if (sc.contains(a)) {
+    if (Math.abs(dx) > 0.5) sc.scrollLeft += dx;
+    if (Math.abs(dy) > 0.5) { const t0 = sc.scrollTop; sc.scrollTop += dy; const rest = dy - (sc.scrollTop - t0); if (Math.abs(rest) > 0.5) window.scrollBy(0, rest); }
+  } else if (Math.abs(dy) > 0.5) window.scrollBy(0, dy);
+}
+/* Vergrößern: stufenlos per Regler, ＋/−, zwei Finger (Handy) oder Strg + Mausrad/Touchpad (PC).
+   Während der Bewegung wird nur skaliert angezeigt, danach scharf neu gezeichnet. */
+function wallZoomFocus(sc, fx, fy, ratio) {
+  const r = sc.getBoundingClientRect();
+  if (fx == null) { fx = r.left + r.width / 2; fy = r.top + Math.min(r.height, innerHeight - Math.max(0, r.top)) / 2; }
+  return { fx, fy, cx: sc.scrollLeft + fx - r.left, cy: sc.scrollTop + fy - r.top, ratio };
+}
+function setWallZoom(z, fx, fy, focus) {
+  const key = S.overview ? "ovZoom" : "zoom";
+  z = Math.max(0.25, Math.min(6, z));
+  const sc = document.querySelector("#v-wand .wallscroll");
+  if (Math.abs(z - S[key]) < 1e-3) { wallPreviewZoom(1); return; }
+  if (sc) S.zoomFocus = focus ? { ...focus, ratio: z / S[key] } : wallZoomFocus(sc, fx, fy, z / S[key]);
+  S[key] = z; renderWall();
+}
+function wallPreviewZoom(r) { const stg = document.querySelector("#v-wand .wallstage"); if (stg) stg.style.zoom = Math.abs(r - 1) < 1e-3 ? "" : r; }
+function zoomAttach(sc, stage) {
+  const cur = () => S.overview ? S.ovZoom : S.zoom;
+  // zwei Finger
+  let pin = null;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  sc.addEventListener("touchstart", e => {
+    if (e.touches.length !== 2 || S.lens) return;
+    const fx = (e.touches[0].clientX + e.touches[1].clientX) / 2, fy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    pin = { d: dist(e.touches), r: 1, focus: wallZoomFocus(sc, fx, fy, 1) };
+  }, { passive: true });
+  sc.addEventListener("touchmove", e => {
+    if (!pin || e.touches.length !== 2) return;
+    e.preventDefault();
+    pin.r = Math.max(0.25 / cur(), Math.min(6 / cur(), dist(e.touches) / pin.d));
+    wallPreviewZoom(pin.r);
+  }, { passive: false });
+  const end = e => { if (!pin || e.touches.length >= 2) return; const p = pin; pin = null; if (Math.abs(p.r - 1) > 0.03) setWallZoom(cur() * p.r, null, null, p.focus); else wallPreviewZoom(1); };
+  sc.addEventListener("touchend", end); sc.addEventListener("touchcancel", end);
+  // Strg + Mausrad, Touchpad-Spreizen
+  let wz = null;
+  sc.addEventListener("wheel", e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (!wz) wz = { r: 1, focus: wallZoomFocus(sc, e.clientX, e.clientY, 1) };
+    wz.r = Math.max(0.25 / cur(), Math.min(6 / cur(), wz.r * Math.exp(-e.deltaY / 300)));
+    wallPreviewZoom(wz.r);
+    clearTimeout(wz.t); wz.t = setTimeout(() => { const w = wz; wz = null; setWallZoom(cur() * w.r, null, null, w.focus); }, 220);
+  }, { passive: false });
 }
 async function editWall(fn) { fn(); await saveShelves(); renderAll(); }
 // Bücher im selben Fach in eine andere Reihe stellen (hinten anfügen, Reihenfolge bleibt)
@@ -1950,7 +2058,7 @@ function sidebarEl() {
     fillNode(listEl, ...list.slice(0, 200).map(b => {
       const loc = locationOf(b.id);
       const label = bookLabel(b);
-      const it = el("div", { class: "witem" + (picking()?.includes(b.id) || (S.selMode && S.sel.has(b.id)) ? " on" : ""), draggable: "true", title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
+      const it = el("div", { class: "witem" + (picking()?.includes(b.id) || (S.selMode && S.sel.has(b.id)) ? " on" : ""), "data-id": b.id, draggable: "true",title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
         el("div", { class: "wthumb" }, coverSrc(b) ? el("img", { src: coverSrc(b), alt: "", loading: "lazy", onerror: e => e.target.remove() }) : null),
         el("div", { style: "min-width:0" }, el("b", { text: (b.favorite ? "♥ " : "") + label }),
           b.author ? el("span", { text: b.author }) : null, loc ? el("span", { text: "📍 " + locationShort(loc) }) : null),
@@ -2063,10 +2171,18 @@ function spineFace(b, thick, len, spOverride, keyForImg) {
   const img = sp.imageBlob ? spineImgUrl(keyForImg || b.id, sp.imageBlob) : null;
   if (img) { face.style.backgroundImage = `url("${img}")`; face.classList.add("img"); }
   const mode = sp.mode || "hoch", scale = (sp.size || 100) / 100;
-  const showText = (!img || sp.textOnImage) && mode !== "kein" && thick >= 6;
-  if (showText && (mode === "hoch" || mode === "beides")) face.append(el("span", { class: "vt" + (sp.dir === "down" ? " down" : ""), style: `font-size:${Math.max(6, Math.min(18, thick * 0.6 * scale))}px`, text: sp.text || b.title || "" }));
-  if (showText && (mode === "quer" || mode === "beides")) face.append(el("span", { class: "qt pos-" + (sp.querPos || "unten"), style: `font-size:${Math.max(5, Math.min(14, thick * 0.3 * scale))}px`, text: sp.quer || (mode === "quer" ? (b.title || "") : firstAuthorLast(b.author)) }));
+  const pxCm = len / (+sp.heightCm || spineCm(b).h || 20); // Maßstab der Zeichnung (Pixel je cm)
+  const showText = (!img || sp.textOnImage) && mode !== "kein" && thick >= 5;
+  if (showText && (mode === "hoch" || mode === "beides")) face.append(el("span", { class: "vt" + (sp.dir === "down" ? " down" : ""), style: `font-size:${spineFontPx(thick, 0.6, 2 * pxCm, scale)}px`, text: sp.text || b.title || "" }));
+  if (showText && (mode === "quer" || mode === "beides")) face.append(el("span", { class: "qt pos-" + (sp.querPos || "unten"), style: `font-size:${spineFontPx(thick, 0.3, 1.55 * pxCm, scale, 0.6)}px`, text: sp.quer || (mode === "quer" ? (b.title || "") : firstAuthorLast(b.author)) }));
   return face;
+}
+// Schriftgröße: Grundgröße wie bisher (Anteil der Rückenbreite, höchstens „cap“, mindestens 6 px), der Regler vergrößert bzw.
+// verkleinert sie stufenlos – begrenzt nur durch die Breite des Rückens. Früher wurde erst danach auf 6–18 px gekappt,
+// dadurch bewegte der Regler bei dicken und dünnen Büchern oft gar nichts.
+function spineFontPx(thick, base, cap, scale, maxF = 0.95) {
+  const normal = Math.max(Math.min(6, thick * 0.9), Math.min(thick * base, cap));
+  return +Math.max(3, Math.min(thick * maxF, normal * scale)).toFixed(2);
 }
 async function rotateBlob(blob, deg = 90) {
   const img = await loadImage(blob); const c = document.createElement("canvas");
@@ -2090,6 +2206,7 @@ function spineEditor(b, onSave) {
     const lieFace = spineFace(b, w, h, d, prevKey); lieFace.style.cssText += ";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg)";
     const lie = el("div", { class: "spine lie", style: `width:${h}px;height:${w}px` }, lieFace);
     fillNode(prev, el("div", { class: "spcol" }, el("small", { text: "stehend" }), stand), el("div", { class: "spcol" }, el("small", { text: "liegend" }), lie));
+    syncSize();
   };
   const field = (label, input, cls = "c3") => el("div", { class: cls }, el("label", { class: "lbl", text: label }), input);
   const on = (inp, fn, ev = "input") => { inp.addEventListener(ev, () => { fn(inp); drawPrev(); }); return inp; };
@@ -2105,7 +2222,15 @@ function spineEditor(b, onSave) {
   const dir = on(el("select", { class: "field" }, el("option", { value: "up", selected: d.dir !== "down" || null }, "von unten nach oben (deutsch)"), el("option", { value: "down", selected: d.dir === "down" || null }, "von oben nach unten (englisch)")), i => { d.dir = i.value; }, "change");
   const qpos = on(el("select", { class: "field" }, el("option", { value: "unten", selected: d.querPos !== "oben" || null }, "unten"), el("option", { value: "oben", selected: d.querPos === "oben" || null }, "oben")), i => { d.querPos = i.value; }, "change");
   const font = on(el("select", { class: "field" }, ...[["serif", "Serif"], ["sans", "Serifenlos"], ["bold", "Fett"], ["mono", "Schreibmaschine"]].map(([v, l]) => el("option", { value: v, selected: d.font === v || null }, l))), i => { d.font = i.value; }, "change");
-  const size = on(el("input", { type: "range", min: 60, max: 160, step: 5, value: d.size || 100 }), i => { d.size = +i.value; });
+  // Schriftgröße stufenlos (40–200 %); ohne sichtbaren Text ausgegraut, mit Hinweis warum
+  const size = on(el("input", { type: "range", min: 40, max: 200, step: 1, value: d.size || 100, "aria-label": "Schriftgröße" }), i => { d.size = +i.value; });
+  const sizeTxt = el("span", { class: "saved", style: "min-width:44px;text-align:right" }), sizeHint = el("div", { class: "saved" });
+  const sizeBox = el("div", {}, el("div", { style: "display:flex;gap:8px;align-items:center" }, size, sizeTxt,
+    el("button", { class: "btn sm ghost", type: "button", title: "Normale Größe", onclick: () => { d.size = 100; size.value = 100; drawPrev(); } }, "100 %")), sizeHint);
+  const syncSize = () => {
+    const off = d.mode === "kein" ? "Bei „Kein Text“ gibt es keine Schrift." : d.imageBlob && !d.textOnImage ? "Das Foto ersetzt den Text – „Text trotzdem zeigen“ anhaken, dann wirkt die Schriftgröße." : "";
+    size.disabled = !!off; sizeBox.classList.toggle("sizeoff", !!off); sizeTxt.textContent = (d.size || 100) + " %"; sizeHint.textContent = off;
+  };
   const thick = on(el("input", { class: "field", type: "number", step: "0.1", min: "0.3", max: "15", value: d.thickCm || "", placeholder: est.w.toFixed(1) }), i => { d.thickCm = i.value ? +i.value : ""; });
   const height = on(el("input", { class: "field", type: "number", step: "0.5", min: "8", max: "33", value: d.heightCm || "", placeholder: est.h.toFixed(1) }), i => { d.heightCm = i.value ? +i.value : ""; });
   const textOnImg = el("input", { type: "checkbox", checked: d.textOnImage || null });
@@ -2143,7 +2268,7 @@ function spineEditor(b, onSave) {
           field("Text hochkant", txt, "c6"),
           field("Leserichtung", dir, "c3"), field("Schrift", font, "c3"),
           field("Text quer (z. B. Autor, Verlag, Band-Nr.)", quer, "c4"), field("Position", qpos, "c2"),
-          field("Schriftgröße", size, "c6"),
+          field("Schriftgröße", sizeBox, "c6"),
           field("Dicke (cm)", thick), field("Höhe (cm)", height)),
         el("div", { class: "sec" }, el("h3", { text: "Eigenes Bild vom Buchrücken" }),
           el("p", { class: "saved", style: "margin:0 0 8px", text: "Ein Foto des Rückens ersetzt Farbe und Text. Querformat-Fotos werden automatisch gedreht; die Dicke wird aus dem Seitenverhältnis berechnet." }),

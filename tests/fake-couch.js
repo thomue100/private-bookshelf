@@ -6,8 +6,10 @@ import { createHash } from "node:crypto";
 export const COUCH_URL = "https://couch.test";
 
 export class FakeCouch {
-  constructor({ db = "buecherregal", user = "buecher", pass = "geheim", create = true } = {}) {
-    this.dbName = db; this.user = user; this.pass = pass;
+  // prefix: CouchDB liegt unter einem Pfad (z. B. "/couchdb", wie mit „tailscale serve --set-path“); alles andere beantwortet
+  // dann eine „andere Anwendung“ mit einer HTML-Seite.
+  constructor({ db = "buecherregal", user = "buecher", pass = "geheim", create = true, prefix = "" } = {}) {
+    this.dbName = db; this.user = user; this.pass = pass; this.prefix = prefix;
     this.exists = create; this.docs = new Map(); this.seq = 0; this.down = false; this.log = [];
   }
   /** In einem Browser-Kontext aktivieren. */
@@ -40,10 +42,16 @@ export class FakeCouch {
     if (this.down) return route.abort("connectionrefused");
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
     const reply = (status, body, extra = {}) => route.fulfill({ status, headers: { ...cors, "content-type": "application/json", ...extra }, body: JSON.stringify(body) });
+    let path = url.pathname;
+    if (this.prefix) {
+      if (path !== this.prefix && !path.startsWith(this.prefix + "/")) return route.fulfill({ status: 404, headers: { ...cors, "content-type": "text/html" }, body: "<!doctype html><title>Andere Anwendung</title><h1>Nicht gefunden</h1>" });
+      path = path.slice(this.prefix.length);
+    }
+    if (method === "GET" && path.replace(/\/+$/, "") === "") return reply(200, { couchdb: "Welcome", version: "3.5.3" }); // ohne Anmeldung, wie CouchDB
     const auth = req.headers()["authorization"] || "";
     if (auth !== "Basic " + Buffer.from(`${this.user}:${this.pass}`).toString("base64")) return reply(401, { error: "unauthorized", reason: "Name or password is incorrect." });
 
-    const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
     const [db, id, attName] = parts;
     this.log.push(`${method} ${parts.join("/")}`);
     if (db !== this.dbName) return reply(404, { error: "not_found", reason: "Database does not exist." });
