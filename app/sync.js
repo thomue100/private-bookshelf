@@ -15,7 +15,17 @@ const syEnc = encodeURIComponent;
 const syNow = () => new Date().toISOString();
 
 /* ---------- Verbindung ---------- */
-function syBase(c = SY.conf) { return String(c.url || "").trim().replace(/\/+$/, "") + "/" + syEnc((c.db || "buecherregal").trim()); }
+// Serveradresse vereinheitlichen. Sie darf einen Port oder Pfad enthalten – so können mehrere Anwendungen über Tailscale
+// auf demselben PC laufen (z. B. https://mein-pc.….ts.net:8443 oder https://mein-pc.….ts.net/couchdb). Aus Fauxton kopierte
+// Adressen („…/_utils/#…“) werden auf die Server-Adresse gekürzt.
+function syNormUrl(u) { return String(u || "").trim().replace(/[?#].*$/, "").replace(/\/_utils(\/.*)?$/i, "").replace(/\/+$/, ""); }
+function syBase(c = SY.conf) { return syNormUrl(c.url) + "/" + syEnc((c.db || "buecherregal").trim()); }
+const SY_NOT_COUCH = "Unter dieser Adresse antwortet kein CouchDB-Server, sondern offenbar eine andere Anwendung. Laufen auf dem PC mehrere Anwendungen über Tailscale, hat CouchDB einen eigenen Port oder Pfad – z. B. https://mein-pc.….ts.net:8443 (siehe Anleitung „Abgleich einrichten“, Abschnitt „Mehrere Anwendungen“).";
+// Antwortet unter der Adresse wirklich CouchDB? (Die Begrüßung {"couchdb":"Welcome"} gibt es ohne Anmeldung.)
+async function syIsCouch(c) {
+  try { const r = await fetch(syNormUrl(c.url) + "/", { headers: { Accept: "application/json" }, cache: "no-store" }); const j = await r.json(); return !!(j && j.couchdb); }
+  catch { return false; }
+}
 function syErrText(status, j) {
   if (status === 401) return "Benutzername oder Passwort stimmt nicht.";
   if (status === 403) return "Kein Zugriff auf die Datenbank – ist der Benutzer dort als Mitglied eingetragen?";
@@ -32,7 +42,7 @@ async function syFetch(path, opt = {}, conf = SY.conf) {
 async function syJson(path, opt, conf) {
   const r = await syFetch(path, opt, conf);
   let j = null; try { j = await r.json(); } catch {}
-  if (!r.ok) { const e = new Error(syErrText(r.status, j)); e.status = r.status; throw e; }
+  if (!r.ok || !j) { const e = new Error(j ? syErrText(r.status, j) : SY_NOT_COUCH); e.status = r.status; e.notCouch = !j; throw e; } // keine JSON-Antwort: dort läuft etwas anderes
   return j;
 }
 
@@ -280,16 +290,18 @@ function scheduleSync(ms = 4000) { if (!SY.conf?.on) return; clearTimeout(SY.tim
 
 async function saveSyncConf(c) {
   const prev = SY.conf;
-  SY.conf = { url: (c.url || "").trim(), db: (c.db || "buecherregal").trim(), user: (c.user || "").trim(), pass: c.pass || "", on: !!c.on };
+  SY.conf = { url: syNormUrl(c.url), db: (c.db || "buecherregal").trim(), user: (c.user || "").trim(), pass: c.pass || "", on: !!c.on };
   if (!prev || syStateKey(prev) !== syStateKey(SY.conf)) SY.state = null; // anderer Server → von vorne abgleichen
   await DB.setMeta("syncConf", SY.conf);
   syRefresh();
 }
 async function testSyncConf(c) {
-  if (!/^https?:\/\/[^/]+/i.test(c.url || "")) throw new Error("Bitte die Serveradresse mit https:// angeben.");
+  c = { ...c, url: syNormUrl(c.url) };
+  if (!/^https?:\/\/[^/]+/i.test(c.url)) throw new Error("Bitte die Serveradresse mit https:// angeben.");
   try { return await syJson("", {}, c); }
   catch (e) {
-    if (e.status !== 404) throw e;
+    if (e.notCouch || e.status !== 404) throw e;
+    if (!(await syIsCouch(c))) throw new Error(SY_NOT_COUCH); // 404 von einer anderen Anwendung, nicht „Datenbank fehlt“
     try { await syJson("", { method: "PUT" }, c); return await syJson("", {}, c); } // Datenbank anlegen, falls erlaubt
     catch { throw new Error(`Die Datenbank „${c.db || "buecherregal"}“ gibt es noch nicht. Bitte in CouchDB anlegen (siehe Anleitung).`); }
   }
@@ -330,6 +342,7 @@ function syncBox(noTitle) {
     const on = !!SY.conf?.on;
     fillNode(status, on ? el("div", { class: "note" + (SY.lastError ? "" : " info") },
       el("b", { text: SY.running ? (SY.status || "Gleiche ab …") : SY.lastError ? "Abgleich gestört" : "Abgleich aktiv" }),
+      el("div", { class: "saved", style: "margin-top:2px;overflow-wrap:anywhere", text: "Server: " + syNormUrl(SY.conf.url).replace(/^https?:\/\//, "") + " · Datenbank: " + (SY.conf.db || "buecherregal") }),
       el("div", { class: "saved", style: "margin-top:2px", text: at ? "Zuletzt abgeglichen: " + new Date(at).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }) : "Noch nicht abgeglichen." }),
       SY.lastError ? el("div", { class: "saved", style: "color:#b3261e", text: SY.lastError }) : null) : null);
     fillNode(btns,
@@ -341,6 +354,7 @@ function syncBox(noTitle) {
     el("p", { class: "saved", style: "margin-top:0", text: "Optional: Trage deinen eigenen CouchDB-Server ein (z. B. auf deinem PC). Dann gleichen sich Handy und PC automatisch ab, sobald beide den Server erreichen. Ohne Verbindung arbeitet die App ganz normal weiter. Die Zugangsdaten bleiben nur in diesem Browser." }),
     status,
     el("label", { class: "lbl", text: "Serveradresse" }), f.url,
+    el("div", { class: "saved", style: "margin-top:4px", text: "Laufen auf deinem PC mehrere Anwendungen über Tailscale, gehört hier die Adresse mit dem Port bzw. Pfad von CouchDB hin, z. B. https://mein-pc.tailxxxx.ts.net:8443." }),
     el("label", { class: "lbl", text: "Datenbank" }), f.db,
     el("div", { class: "fgrid" }, el("div", { class: "c3" }, el("label", { class: "lbl", text: "Benutzer" }), f.user), el("div", { class: "c3" }, el("label", { class: "lbl", text: "Passwort" }), f.pass)),
     btns);

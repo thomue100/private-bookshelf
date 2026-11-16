@@ -95,10 +95,47 @@ Oben neben dem Menü zeigt ein kleines **⟳** den Abgleich an: dreht sich = gle
 **iPhone:** Die App bitte über Safari → Teilen → **Zum Home-Bildschirm** installieren und von dort öffnen. Safari räumt Daten von
 Webseiten, die länger nicht besucht wurden, sonst unter Umständen auf. Mit dem Abgleich liegt aber ohnehin eine Kopie auf dem PC.
 
+## Mehrere Anwendungen über Tailscale auf demselben PC
+
+Unter einer Tailscale-Adresse (z. B. `https://mein-pc.tail1234.ts.net`) kann auf dem normalen https-Port nur **eine** Anwendung liegen.
+Sollen zwei Anwendungen auf dem PC übers Handy erreichbar sein, bekommt jede ihren eigenen **Port**. Tailscale erlaubt für https die Ports
+**443** (Standard, ohne Angabe), **8443** und **10000**.
+
+**Empfehlung:** CouchDB (und damit das Bücherregal) bleibt, wie es ist, auf dem Standard-Port. Die zweite Anwendung bekommt Port 8443.
+Dann muss im Bücherregal nichts geändert werden.
+
+1. Am PC in PowerShell nachsehen, was schon freigegeben ist:
+   ```
+   tailscale serve status
+   ```
+2. Die zweite Anwendung (Beispiel: sie läuft am PC auf Port 3000) auf Port 8443 freigeben:
+   ```
+   tailscale serve --bg --https=8443 3000
+   ```
+   Sie ist danach unter `https://mein-pc.tail1234.ts.net:8443` erreichbar, das Bücherregal weiter unter `https://mein-pc.tail1234.ts.net`.
+
+**Andersherum** (die andere Anwendung braucht den Standard-Port): CouchDB auf 8443 umziehen –
+```
+tailscale serve --https=443 off
+tailscale serve --bg --https=8443 5984
+```
+– und danach **auf jedem Gerät** im Bücherregal unter Menü ⋯ → 🔄 Abgleich die Serveradresse auf `https://mein-pc.tail1234.ts.net:8443` ändern
+und „Speichern & abgleichen“ drücken. (Der erste Abgleich mit der neuen Adresse dauert etwas länger, es geht aber nichts verloren.)
+Die CORS-Einträge in CouchDB bleiben gleich – dort stehen die Adressen der App, nicht die des Servers.
+
+Die App akzeptiert auch eine Adresse mit Pfad (z. B. `https://mein-pc.tail1234.ts.net/couchdb`), falls du CouchDB so freigibst.
+Beim Einschalten prüft sie, ob unter der Adresse wirklich CouchDB antwortet, und meldet sonst
+„Unter dieser Adresse antwortet kein CouchDB-Server, sondern offenbar eine andere Anwendung“.
+
+**Nutzt die zweite Anwendung ebenfalls CouchDB**, braucht sie keine eigene Freigabe: Sie verwendet denselben Server mit einer
+**eigenen Datenbank** (Teil 1, Schritt 5, anderer Name) und am besten einem eigenen Benutzer (Schritt 6–7). Ihre Adresse kommt zusätzlich
+in die CORS-Liste (Schritt 9). Die Datenbank `buecherregal` bleibt allein dem Bücherregal vorbehalten.
+
 ## Wenn etwas nicht klappt
 
 | Meldung | Ursache und Lösung |
 |---|---|
+| Unter dieser Adresse antwortet … eine andere Anwendung | Auf dem Standard-Port läuft etwas anderes. CouchDB-Adresse mit Port eintragen, siehe „Mehrere Anwendungen über Tailscale“ |
 | Server nicht erreichbar | PC aus? Tailscale auf beiden Geräten an? `tailscale serve` eingerichtet? Steht die App-Adresse genau so bei CORS (Teil 1, Schritt 9)? |
 | Benutzername oder Passwort stimmt nicht | Benutzer/Passwort aus Teil 1, Schritt 6 prüfen |
 | Kein Zugriff auf die Datenbank | Teil 1, Schritt 7: `buecher` als Member eintragen |

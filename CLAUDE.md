@@ -53,9 +53,13 @@ Abgleich (`sync.js`): Server-Dokumente `book:<id>` = `{type:"book", updatedAt, b
 `cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`;
 Fach-Fotos = `photo:<id>` `{type:"photo", updatedAt, photo:{…ohne blob}, _attachments:{image}}` (gelöscht: `deletedAt`, ohne Bild – lokal als Grabstein).
 Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, doneAt?, deletedAt?}`; ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
+Serveradresse immer über `syNormUrl` (Port/Pfad erlaubt – mehrere Anwendungen über Tailscale auf einem PC; `syStateKey` darf sich für alte Adressen nicht ändern).
 Lokaler Stand in Meta `syncConf` (Zugang) und `syncState` (`since`, je Dokument `rev`/`upd`/Anhang-Digests). Änderungen an Büchern
 immer über `putBook`/`patchBook`/`removeBook`/`saveShelves` – die rufen `dataChanged()` und lösen Sicherung und Abgleich aus.
 Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-Versionen auf anderen Geräten müssen mitlesen können).
+
+Echtes Regal neu zeichnen nur über `renderWall` – `wallViewSave`/`wallViewRestore` halten Rollposition und das zuletzt angetippte Fach fest.
+Gesamtansicht (`S.overview`, localStorage `wallOverview`) zeigt alle Wände; Zoom stufenlos über `setWallZoom` (`S.zoom` bzw. `S.ovZoom`).
 
 Regal-Modell (`S.shelves`): `walls[] → columns[] → modules[]` mit `type` `"6112"` (2 Fächer, 69,6×35,4 cm), `"1112"` (4 Fächer, 69,6×69,6 cm)
 oder `"gap"`, `orient` `"h"|"v"`; Fächer `L/R`, `T/B` (hochkant), `TL/TR/BL/BR`; je Fach Ebenen `fachs` (vorne), `back`, `top`; liegende Bücher in `lying`.

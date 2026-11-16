@@ -159,6 +159,7 @@ test("Lupe zeigt das Fach vergrößert mit Titel", async ({ page }) => {
   await seedBooks(page);
   await newWall(page, "Ein 4er-Würfel (1112)");
   await page.evaluate(async () => { const m = S.shelves.walls[0].columns[0].modules[0]; for (const id of ["b0", "b1", "b2"]) await placeBook(id, m, "TL"); renderAll(); });
+  await page.waitForTimeout(200); // Farben aus den Covern sind nachgezeichnet
   await page.click("text=🔍 Lupe");
   const box = await page.locator(".wall .spine[data-id=b1]").boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

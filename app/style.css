@@ -259,7 +259,7 @@ td a{color:var(--ink);text-decoration:none}td a:hover{color:var(--accent);text-d
 .layer{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;height:100%;pointer-events:none}
 .layer > *{pointer-events:auto}
 .layer.back{opacity:.5;filter:saturate(.6) brightness(.8);z-index:0}
-.layer.back > *{pointer-events:none}
+/* hintere Bücher, die oben herausschauen, lassen sich direkt antippen – die vordere Reihe liegt darüber */
 .layer.front{z-index:1}
 .fach.showback .layer.back{opacity:1;filter:none;z-index:2}
 .fach.showback .layer.back > *{pointer-events:auto}
@@ -559,3 +559,16 @@ tr.tmore .btn{margin-left:10px}
 .clipoffer{position:fixed;left:16px;right:16px;margin:0 auto;width:fit-content;bottom:calc(24px + env(safe-area-inset-bottom,0px));z-index:90;display:flex;gap:10px;align-items:center;background:var(--paper);color:var(--ink);border:2px solid var(--accent);border-radius:14px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:560px;font-size:14px;box-sizing:border-box}
 .clipoffer span{flex:1;min-width:0;overflow-wrap:anywhere}
 .webtake{margin-top:14px}
+/* Gesamtansicht und Vergrößerung */
+.wallscroll{touch-action:pan-x pan-y;overscroll-behavior:contain}
+.wallstage{display:flex;align-items:flex-end;width:max-content}
+.wallstage.overview{padding-top:4px}
+.ovwall{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.ovname{border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:999px;font:600 13px/1.2 Inter,system-ui,sans-serif;padding:4px 10px;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ovname:hover{border-color:var(--accent);color:var(--accent)}
+.zoombox{display:flex;align-items:center;gap:6px}
+.zoomrange{width:130px;accent-color:var(--accent)}
+.zoomtxt{font-size:12px;color:var(--muted);min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
+@media (max-width:600px){ .zoombox{flex:1 1 100%} .zoomrange{flex:1;width:auto} }
+.spedit input[type=range]{height:28px}
+.spedit .sizeoff{opacity:.45}
