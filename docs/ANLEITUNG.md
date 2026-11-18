@@ -165,7 +165,7 @@ Bücher, von denen du dich nie trennen würdest, markierst du mit **♥ Liebling
 Im Reiter **Echtes Regal** baust du deine Regalwand nach und räumst die Bücher so ein, wie sie bei dir stehen.
 
 - **Regalwand anlegen:** Name vergeben und einen Start-Aufbau wählen, z. B. „Zwei 2er-Würfel nebeneinander“ oder „4er-Würfel + 2er-Würfel“. Mehrere Wände (z. B. Wohnzimmer, Arbeitszimmer) sind möglich.
-- **Aufbau ändern:** Die Wand besteht aus Spalten; in jeder Spalte stapelst du Würfel. „＋2er“ = Montana 6112 (B 69,6 × H 35,4 × T 30 cm, 2 Fächer), „＋4er“ = Montana 1112 (B 69,6 × H 69,6 × T 38 cm, 4 Fächer), „＋Lücke“ für freie Stellen. Mit ▲ ▼ ◀ ▶ verschieben, Farbe wählen, ✕ entfernen.
+- **Aufbau ändern:** Die Wand besteht aus Spalten; in jeder Spalte stapelst du Würfel. „＋2er“ = Montana 6112 (B 69,6 × H 35,4 × T 30 cm, 2 Fächer), „＋4er“ = Montana 1112 (B 69,6 × H 69,6 × T 38 cm, 4 Fächer), „＋Lücke“ für freie Stellen. Mit ▲ ▼ ◀ ▶ verschieben, Farbe wählen, ✕ entfernen. Die Knöpfe stehen in einer Leiste **über** jedem Würfel, die Fächer bleiben frei sichtbar. Solange du baust, ist die Liste der einzuräumenden Bücher ausgeblendet und die Wand nutzt die ganze Breite; „✓ Fertig“ bzw. „✓ Aufbau fertig“ bringt alles zurück.
 - **Einräumen:** Rechts (am Handy unten) stehen die noch nicht eingeräumten Bücher. Buch antippen, dann auf ein Fach tippen (kommt ans Ende) oder auf das Buch, vor das es soll. Am PC geht auch Ziehen mit der Maus.
 - **Buchrücken gestalten:** Buchrücken antippen → **🎨 Rücken gestalten** (auch auf der Buchseite unter „Standort“ und im Bearbeiten-Modus). Mit Live-Vorschau stehend und liegend:
   - **Farbe** (oder „aus Cover“) und **Schriftfarbe** (automatisch, hell, dunkel, gold)

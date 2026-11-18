@@ -95,6 +95,27 @@ test("Hintere Bücher: oben herausschauende lassen sich antippen und auswählen"
   await expect(page.locator(".spine.sel")).toHaveCount(0);
 });
 
+test("Hintere Reihe: nicht ausgegraut und erhöht – vorne wie hinten eingeblendet", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    const m = S.shelves.walls[0].columns[0].modules[0];
+    await placeBook("b0", m, "TL"); await placeBook("b1", m, "TL", null, "back");
+    renderAll();
+  });
+  const look = () => page.evaluate(() => {
+    const back = document.querySelector(".wall .layer.back"), cs = getComputedStyle(back);
+    const fach = back.closest(".fach").getBoundingClientRect(), r = back.getBoundingClientRect();
+    return { opacity: +cs.opacity, gray: /saturate|brightness|grayscale/.test(cs.filter), lift: fach.bottom - r.bottom };
+  });
+  const v = await look();
+  expect(v.opacity).toBe(1); expect(v.gray).toBe(false); expect(v.lift).toBeGreaterThan(2);
+  await page.click("text=⇅ hinten (1)");
+  const h = await look();
+  expect(h.opacity).toBe(1); expect(h.gray).toBe(false); expect(Math.abs(h.lift - v.lift)).toBeLessThan(1);
+});
+
 test("Schriftgröße der Buchrücken: stufenlos, wirkt bei dicken und dünnen Büchern, ausgegraut ohne Text", async ({ page }) => {
   await openApp(page);
   await seedBooks(page);
@@ -186,4 +207,31 @@ test("Gesamtansicht am Handy: zwei Finger vergrößern, Seite bleibt schmal", as
   });
   await expect.poll(() => page.evaluate(() => S.ovZoom)).toBeCloseTo(3, 1);
   await ctx.close();
+});
+
+for (const vp of [{ width: 1300, height: 950 }, { width: 390, height: 800 }]) test(`Aufbau ändern: Leisten liegen nicht auf den Fächern, keine Bücherliste (${vp.width} px)`, async ({ page }) => {
+  await page.setViewportSize(vp);
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "4er-Würfel + 2er-Würfel nebeneinander");
+  await page.evaluate(async () => { const w = S.shelves.walls[0]; const m = newModule("6112"); rotateModule(m); w.columns[0].modules.unshift(m); w.columns[1].modules.unshift(newModule("6112")); await saveShelves(); renderAll(); });
+  await expect(page.locator(".wside")).toHaveCount(1);
+  await page.click("text=🧱 Aufbau ändern");
+  await expect(page.locator(".modbar")).toHaveCount(4);
+  await expect(page.locator(".wside")).toHaveCount(0);
+  await expect(page.locator(".selbtn, .lensbtn")).toHaveCount(0);
+  const overlap = await page.evaluate(() => {
+    const hit = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+    const bars = [...document.querySelectorAll(".modbar, .colbar")].map(e => e.getBoundingClientRect());
+    return [...document.querySelectorAll(".wall .fach")].map(e => e.getBoundingClientRect()).some(f => bars.some(b => hit(b, f)));
+  });
+  expect(overlap).toBe(false);
+  // Leiste wirkt noch: Würfel nach unten schieben
+  const ids = () => page.evaluate(() => S.shelves.walls[0].columns[1].modules.map(m => m.id));
+  const before = await ids();
+  await page.locator(".wcol").nth(1).locator(".modbar").first().locator("button[title='Nach unten']").click();
+  await expect.poll(ids).toEqual([before[1], before[0]]);
+  await page.click(".editinfo >> text=✓ Fertig");
+  await expect(page.locator(".wside")).toHaveCount(1);
+  await expect(page.locator(".modbar")).toHaveCount(0);
 });
