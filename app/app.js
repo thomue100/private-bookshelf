@@ -1739,6 +1739,7 @@ function renderWall() {
         el("button", { class: "btn sm", disabled: !locs.some(l => l.layer !== "back") || null, onclick: () => toLayer("back", "in die hintere Reihe gestellt.") }, "⇅ Nach hinten"),
         el("button", { class: "btn sm", disabled: !locs.some(l => l.layer !== "front") || null, onclick: () => toLayer("front", "in die vordere Reihe gestellt.") }, "⇅ Nach vorne"),
         el("button", { class: "btn sm", disabled: !ids.length || null, onclick: () => { S.pickMany = ids; S.pick = null; S.selMode = false; S.sel.clear(); renderWall(); } }, "↔ In anderes Fach"),
+        el("button", { class: "btn sm", disabled: ids.length < 2 || null, title: "Alle ausgewählten Bücher gleich hoch machen", onclick: () => sameHeightDialog(ids) }, "↕ Gleiche Höhe"),
         el("button", { class: "btn sm danger", disabled: !locs.length || null, onclick: async () => { locs.forEach(l => { const id = l.list[l.pos]; unshelve(id); setLying(id, false); }); S.sel.clear(); await saveShelves(); renderAll(); toast(nm(locs.length) + " zurück in „Noch nicht eingeräumt“.", 2000); } }, "↩ Herausnehmen"),
         ids.length ? el("button", { class: "btn sm ghost", onclick: () => { S.sel.clear(); renderWall(); } }, "Auswahl aufheben") : null,
         el("button", { class: "btn sm primary", onclick: () => { S.selMode = false; S.sel.clear(); renderWall(); } }, "Fertig")));
@@ -2037,15 +2038,43 @@ function fachEl(m, k, s, interior) {
   return f;
 }
 // Titel mit Band-Nummer – gleichnamige Bände einer Reihe („Weihnachtsgeschichten am Kamin“) sonst nicht zu unterscheiden
+// Ausgewählte Bücher auf dieselbe Höhe bringen (Buchrücken-Höhe spine.heightCm, 8–33 cm wie beim Fach-Foto)
+function sameHeightDialog(ids) {
+  const books = ids.map(id => S.books.find(b => b.id === id)).filter(Boolean); if (books.length < 2) return;
+  const hs = books.map(b => Math.round(spineCm(b).h * 10) / 10);
+  const cnt = new Map(); hs.forEach(h => cnt.set(h, (cnt.get(h) || 0) + 1));
+  const common = [...cnt].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]; // häufigste Höhe (bei Gleichstand die größere)
+  const fmt = h => String(h).replace(".", ",") + " cm";
+  const inp = el("input", { class: "field", type: "number", min: 8, max: 33, step: 0.1, value: common, inputmode: "decimal", style: "width:110px", "aria-label": "Höhe in cm" });
+  const close = () => box.remove();
+  const apply = async () => {
+    const v = Math.round(Math.min(33, Math.max(8, parseFloat(String(inp.value).replace(",", ".")))) * 10) / 10;
+    if (!isFinite(v)) { inp.focus(); return; }
+    close();
+    for (const b of books) if (spineCm(b).h !== v || +b.spine?.heightCm !== v) await patchBook(b.id, { spine: { ...(b.spine || {}), heightCm: v } });
+    renderAll(); toast(`${books.length} Bücher sind jetzt ${fmt(v)} hoch.`, 2500);
+  };
+  const quick = (label, h) => el("button", { class: "btn sm", type: "button", onclick: () => { inp.value = h; } }, `${label} (${fmt(h)})`);
+  const box = el("div", { class: "overlay confirm", style: "z-index:70;align-items:center", onclick: e => { if (e.target === box) close(); } },
+    el("div", { class: "sheet", style: "max-width:420px;border-radius:16px" }, el("div", { class: "sheet-b" },
+      el("p", { style: "margin:0 0 10px;font-size:15px", text: `${books.length} ausgewählte Bücher auf dieselbe Höhe bringen:` }),
+      el("div", { class: "covertools", style: "margin-bottom:10px" }, quick("Häufigste", common), quick("Höchstes", Math.max(...hs)), quick("Niedrigstes", Math.min(...hs))),
+      el("label", { class: "lbl", text: "Höhe in cm" }), inp,
+      el("div", { style: "display:flex;gap:8px;justify-content:flex-end;margin-top:16px" },
+        el("button", { class: "btn", onclick: close }, "Abbrechen"),
+        el("button", { class: "btn primary samehbtn", onclick: apply }, "Übernehmen")))));
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") apply(); });
+  document.body.append(box);
+}
 function bookLabel(b) { const v = volOf(b); return (b.title || "Ohne Titel") + (v && !new RegExp("\\b" + v + "\\s*\\)?\\s*$").test(b.title || "") ? " · Band " + v : ""); }
+const WLIST_STEP = 150;
 function sidebarEl() {
   const q = el("input", { class: "field", type: "search", placeholder: "Buch suchen (auch eingeräumte)", value: S.wq });
   const listEl = el("div", { class: "wlist" });
-  const draw = () => {
-    const qq = S.wq.trim();
-    const list = (qq ? S.books.filter(b => inStock(b) && matchQ(b, qq)) : S.books.filter(b => inStock(b) && !locationOf(b.id)))
-      .sort((a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || coll.compare(a.title || "", b.title || "") || (+volOf(a) || 0) - (+volOf(b) || 0));
-    fillNode(listEl, ...list.slice(0, 200).map(b => {
+  // Eingeräumte Bücher einmal sammeln (statt je Buch alle Fächer zu durchsuchen) – wichtig bei Tausenden Büchern
+  const shelved = new Set(); for (const f of allFachs()) for (const id of f.list) shelved.add(id);
+  let list = [];
+  const itemEl = b => {
       const loc = locationOf(b.id);
       const label = bookLabel(b);
       const it = el("div", { class: "witem" + (picking()?.includes(b.id) || (S.selMode && S.sel.has(b.id)) ? " on" : ""), "data-id": b.id, draggable: "true",title: `${label}${b.author ? " – " + b.author : ""}\nAntippen, dann auf ein Fach tippen – oder ins Regal ziehen` },
@@ -2056,11 +2085,30 @@ function sidebarEl() {
       it.addEventListener("click", () => { if (S.selMode) { S.sel.has(b.id) ? S.sel.delete(b.id) : S.sel.add(b.id); } else { S.pickMany = null; S.pick = S.pick === b.id ? null : b.id; } renderWall(); });
       it.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", b.id); e.dataTransfer.effectAllowed = "move"; });
       return it;
-    }), list.length ? null : el("div", { class: "saved", style: "padding:10px", text: qq ? "Nichts gefunden." : "Alle Bücher sind eingeräumt. 🎉" }));
   };
-  q.addEventListener("input", () => { S.wq = q.value; draw(); });
+  // Alle Bücher zeigen – in Stücken: beim Herunterrollen kommen weitere dazu (S.wShown bleibt beim Neuzeichnen erhalten)
+  const more = () => {
+    const have = listEl.querySelectorAll(".witem").length;
+    if (have >= list.length) return;
+    const next = list.slice(have, have + WLIST_STEP).map(itemEl);
+    listEl.querySelector(".wmore")?.remove();
+    listEl.append(...next);
+    S.wShown = Math.max(S.wShown || 0, have + next.length);
+    if (have + next.length < list.length) listEl.append(el("button", { class: "btn sm ghost wmore", onclick: more }, `Weitere ${Math.min(WLIST_STEP, list.length - have - next.length)} von ${list.length - have - next.length} anzeigen`));
+  };
+  const draw = (keep = true) => {
+    const qq = S.wq.trim();
+    list = (qq ? S.books.filter(b => inStock(b) && matchQ(b, qq)) : S.books.filter(b => inStock(b) && !shelved.has(b.id)))
+      .sort((a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || coll.compare(a.title || "", b.title || "") || (+volOf(a) || 0) - (+volOf(b) || 0));
+    if (!keep) S.wShown = 0;
+    fillNode(listEl, list.length ? null : el("div", { class: "saved", style: "padding:10px", text: qq ? "Nichts gefunden." : "Alle Bücher sind eingeräumt. 🎉" }));
+    const want = Math.max(WLIST_STEP, S.wShown || 0);
+    while (listEl.querySelectorAll(".witem").length < Math.min(want, list.length)) more();
+  };
+  listEl.addEventListener("scroll", () => { if (listEl.scrollTop + listEl.clientHeight > listEl.scrollHeight - 300) more(); });
+  q.addEventListener("input", () => { S.wq = q.value; draw(false); });
   draw();
-  const n = S.books.filter(b => inStock(b) && !locationOf(b.id)).length;
+  const n = S.books.filter(b => inStock(b) && !shelved.has(b.id)).length;
   const aside = el("aside", { class: "wside" }, el("h3", { text: `Noch nicht eingeräumt (${n})` }), q, listEl,
     el("div", { class: "saved", text: "Tipp: Ein Buch aus dem Regal hierher ziehen (oder antippen → ↩), um es wieder herauszunehmen." }));
   aside.addEventListener("dragover", e => { e.preventDefault(); aside.classList.add("hot"); });

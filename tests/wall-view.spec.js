@@ -240,3 +240,52 @@ for (const vp of [{ width: 1300, height: 950 }, { width: 390, height: 800 }]) te
   await expect(page.locator(".wside")).toHaveCount(1);
   await expect(page.locator(".modbar")).toHaveCount(0);
 });
+
+test("„Noch nicht eingeräumt“: zeigt alle Bücher (lädt beim Rollen nach) und aktualisiert sich bei neuen Büchern", async ({ page }) => {
+  await openApp(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    for (let i = 0; i < 320; i++) await DB.put({ id: "m" + i, title: "Band " + i, author: "Autor " + String(i).padStart(3, "0"), status: "unread", rating: 0, notes: "", addedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    S.books = await DB.all(); renderAll();
+  });
+  const side = page.locator(".wside");
+  await expect(side.locator("h3")).toHaveText("Noch nicht eingeräumt (320)");
+  await expect(side.locator(".witem")).toHaveCount(150);
+  // herunterrollen lädt weitere
+  await side.locator(".wlist").evaluate(e => { e.scrollTop = e.scrollHeight; e.dispatchEvent(new Event("scroll")); });
+  await expect(side.locator(".witem")).toHaveCount(300);
+  await expect(side.locator(".wmore")).toHaveText("Weitere 20 von 20 anzeigen");
+  await side.locator(".wmore").evaluate(b => b.click()); // Knopf (ohne Rollen) holt den Rest
+  await expect(side.locator(".witem")).toHaveCount(320);
+  // neues Buch ganz hinten im Alphabet erscheint ohne Neuladen; die geladene Länge bleibt erhalten
+  await page.evaluate(() => putBook({ id: "neu", title: "Ganz neu", author: "Zuletzt", status: "unread", rating: 0, notes: "", addedAt: new Date().toISOString() }));
+  await expect(side.locator("h3")).toHaveText("Noch nicht eingeräumt (321)");
+  await expect(side.locator('.witem[data-id="neu"]')).toHaveCount(1);
+  // einräumen nimmt es sofort aus der Liste
+  await page.evaluate(async () => { await placeBook("neu", S.shelves.walls[0].columns[0].modules[0], "TL"); renderAll(); });
+  await expect(side.locator("h3")).toHaveText("Noch nicht eingeräumt (320)");
+  await expect(side.locator('.witem[data-id="neu"]')).toHaveCount(0);
+});
+
+test("Ausgewählte Bücher auf dieselbe Höhe bringen", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    const m = S.shelves.walls[0].columns[0].modules[0];
+    const h = { b0: 18, b1: 21.5, b2: 19 };
+    for (const id of ["b0", "b1", "b2", "b3"]) { if (h[id]) await patchBook(id, { spine: { heightCm: h[id], color: "#336699" } }); await placeBook(id, m, "TL"); }
+    renderAll();
+  });
+  await page.click("text=☑ Auswählen");
+  for (const id of ["b0", "b1", "b2"]) await page.locator(`.wall .spine[data-id=${id}]`).click();
+  await page.click("text=↕ Gleiche Höhe");
+  await page.click(".confirm >> text=Höchstes (21,5 cm)");
+  await page.click(".confirm .samehbtn");
+  await expect(page.locator(".toast").last()).toContainText("3 Bücher sind jetzt 21,5 cm hoch");
+  const r = await page.evaluate(() => ["b0", "b1", "b2", "b3"].map(id => { const b = S.books.find(x => x.id === id); return [b.spine?.heightCm ?? null, b.spine?.color ?? null]; }));
+  expect(r).toEqual([[21.5, "#336699"], [21.5, "#336699"], [21.5, "#336699"], [null, null]]); // andere Angaben bleiben, nicht ausgewählte unverändert
+  // auch die Darstellung: gleich hohe Rücken
+  const hs = await page.evaluate(() => ["b0", "b1", "b2"].map(id => Math.round(document.querySelector(`.wall .spine[data-id=${id}]`).getBoundingClientRect().height)));
+  expect(new Set(hs).size).toBe(1);
+});
