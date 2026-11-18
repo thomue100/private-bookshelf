@@ -62,6 +62,8 @@ Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-
 
 Echtes Regal neu zeichnen nur über `renderWall` – `wallViewSave`/`wallViewRestore` halten Rollposition und das zuletzt angetippte Fach fest.
 Gesamtansicht (`S.overview`, localStorage `wallOverview`) zeigt alle Wände; Zoom stufenlos über `setWallZoom` (`S.zoom` bzw. `S.ovZoom`).
+Bücherliste eingeklappt `S.sideClosed` (localStorage `wallSideClosed`), Großansicht `S.wallBig` (`wallBig`, ganze Fensterbreite); Wände tauschen `moveWall`.
+Buchrücken: optionales Feld `spine.maxText` (Rückentitel maximiert, `maxFontPx`).
 
 Regal-Modell (`S.shelves`): `walls[] → columns[] → modules[]` mit `type` `"6112"` (2 Fächer, 69,6×35,4 cm), `"1112"` (4 Fächer, 69,6×69,6 cm)
 oder `"gap"`, `orient` `"h"|"v"`; Fächer `L/R`, `T/B` (hochkant), `TL/TR/BL/BR`; je Fach Ebenen `fachs` (vorne), `back`, `top`; liegende Bücher in `lying`.

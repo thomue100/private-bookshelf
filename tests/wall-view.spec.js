@@ -289,3 +289,93 @@ test("Ausgewählte Bücher auf dieselbe Höhe bringen", async ({ page }) => {
   const hs = await page.evaluate(() => ["b0", "b1", "b2"].map(id => Math.round(document.querySelector(`.wall .spine[data-id=${id}]`).getBoundingClientRect().height)));
   expect(new Set(hs).size).toBe(1);
 });
+
+// zweite Wand „Arbeitszimmer“ neben der ersten („Wohnzimmer“)
+async function twoWalls(page) {
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    S.shelves.walls.push({ id: "w2", name: "Arbeitszimmer", columns: [{ id: "c2", modules: [newModule("6112")] }] });
+    await saveShelves(); renderAll();
+  });
+}
+const wallNames = page => page.evaluate(() => S.shelves.walls.map(w => w.name));
+
+test("Ganze Wände tauschen: im Aufbau und in der Gesamtansicht", async ({ page }) => {
+  await openApp(page);
+  await twoWalls(page);
+  expect(await wallNames(page)).toEqual(["Wohnzimmer", "Arbeitszimmer"]);
+  await page.evaluate(() => { S.wallId = S.shelves.walls[0].id; renderWall(); });
+  await page.click("text=🧱 Aufbau ändern");
+  await expect(page.locator("text=◀ Wand nach vorne")).toBeDisabled();
+  await page.click("text=Wand nach hinten ▶");
+  expect(await wallNames(page)).toEqual(["Arbeitszimmer", "Wohnzimmer"]);
+  await page.click("text=✓ Aufbau fertig");
+  // Gesamtansicht: Pfeil neben dem Namen tauscht zurück; die Reihenfolge wird gespeichert
+  await page.click("text=🗺 Gesamtansicht");
+  await expect(page.locator(".ovname")).toHaveText(["Arbeitszimmer", "Wohnzimmer"]);
+  await page.locator(".ovhead").nth(1).getByLabel("Wand nach links").click();
+  await expect(page.locator(".ovname")).toHaveText(["Wohnzimmer", "Arbeitszimmer"]);
+  await page.reload(); await page.waitForFunction(() => S.loaded);
+  expect(await wallNames(page)).toEqual(["Wohnzimmer", "Arbeitszimmer"]);
+});
+
+test("Bücherliste einklappen und Großansicht: die Wand wird größer, die Einstellung bleibt", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  const wallW = () => page.evaluate(() => Math.round(document.querySelector(".wall").getBoundingClientRect().width));
+  const w0 = await wallW();
+  await expect(page.locator(".wside .witem").first()).toBeVisible();
+  // einklappen: nur noch die Leiste, mehr Platz für das Regal
+  await page.click(".wsidehead");
+  await expect(page.locator(".wside.closed")).toHaveCount(1);
+  await expect(page.locator(".wside .witem")).toHaveCount(0);
+  const w1 = await wallW();
+  expect(w1).toBeGreaterThan(w0); // ein einzelner Würfel füllt jetzt die Breite
+  await page.reload(); await page.waitForFunction(() => S.loaded);
+  await expect(page.locator(".wside.closed")).toHaveCount(1);
+  await page.click(".wsidehead");
+  await expect(page.locator(".wside .witem").first()).toBeVisible();
+  // Großansicht: ganze Fensterbreite (statt höchstens 1280 px), Liste eingeklappt
+  await page.click("text=⛶ Großansicht");
+  await expect(page.locator("body.wandbig")).toHaveCount(1);
+  await expect(page.locator(".wside.closed")).toHaveCount(1);
+  const w2 = await wallW();
+  expect(w2).toBeGreaterThan(w0 * 1.3);
+  expect(w2).toBeLessThanOrEqual(1800);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1800); // kein seitliches Rollen der Seite
+  // andere Ansichten bleiben normal breit
+  await page.goto("/#regal"); await expect(page.locator("body.wandbig")).toHaveCount(0);
+  await page.goto("/#wand"); await expect(page.locator("body.wandbig")).toHaveCount(1);
+  await page.click("text=✓ Großansicht");
+  await expect(page.locator("body.wandbig")).toHaveCount(0);
+});
+
+test("Rückentitel maximieren: ausgewählte Bücher, passt in den Rücken, zurück auf normal, in der Sicherung", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => { const m = S.shelves.walls[0].columns[0].modules[0]; for (const id of ["b0", "b2", "b5"]) await placeBook(id, m, "TL"); renderAll(); });
+  const font = id => page.evaluate(id => parseFloat(document.querySelector(`.wall .spine[data-id=${id}] .vt`).style.fontSize), id);
+  const before = { b0: await font("b0"), b2: await font("b2"), b5: await font("b5") };
+  await page.click("text=☑ Auswählen");
+  await page.locator(".wall .spine[data-id=b0]").click();
+  await page.locator(".wall .spine[data-id=b2]").click();
+  await page.click("text=🔠 Rückentitel maximieren");
+  await expect(page.locator(".toast").last()).toContainText("Rückentitel von 2 Büchern maximiert");
+  expect(await font("b0")).toBeGreaterThan(before.b0);
+  expect(await font("b2")).toBeGreaterThan(before.b2);
+  expect(await font("b5")).toBe(before.b5); // nicht ausgewählt
+  // Text passt längs und quer in den Rücken (nicht abgeschnitten)
+  const fits = await page.evaluate(() => ["b0", "b2"].map(id => { const vt = document.querySelector(`.wall .spine[data-id=${id}] .vt`), f = vt.parentElement; return vt.scrollHeight <= f.clientHeight + 1 && vt.getBoundingClientRect().width <= f.clientWidth + 1; }));
+  expect(fits).toEqual([true, true]);
+  // gespeichert und in der Sicherung (zusätzliches, optionales Feld)
+  const bk = await page.evaluate(async () => (await buildBackup()).books.filter(b => b.spine?.maxText).map(b => b.id).sort());
+  expect(bk).toEqual(["b0", "b2"]);
+  // die Auswahl bleibt bestehen – derselbe Knopf stellt wieder auf normal
+  await expect(page.locator(".spine.sel")).toHaveCount(2);
+  await page.click("text=🔡 Rückentitel normal");
+  expect(await font("b0")).toBe(before.b0);
+  expect(await page.evaluate(() => S.books.filter(b => b.spine && "maxText" in b.spine).length)).toBe(0);
+});
