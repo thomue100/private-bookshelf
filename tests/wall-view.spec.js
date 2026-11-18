@@ -95,7 +95,7 @@ test("Hintere Bücher: oben herausschauende lassen sich antippen und auswählen"
   await expect(page.locator(".spine.sel")).toHaveCount(0);
 });
 
-test("Hintere Reihe: nicht ausgegraut und erhöht – vorne wie hinten eingeblendet", async ({ page }) => {
+test("Hintere Reihe: steht erhöht; eingeblendet nicht ausgegraut, vorne eingeblendet abgedunkelt", async ({ page }) => {
   await openApp(page);
   await seedBooks(page);
   await newWall(page, "Ein 4er-Würfel (1112)");
@@ -110,10 +110,15 @@ test("Hintere Reihe: nicht ausgegraut und erhöht – vorne wie hinten eingeblen
     return { opacity: +cs.opacity, gray: /saturate|brightness|grayscale/.test(cs.filter), lift: fach.bottom - r.bottom };
   });
   const v = await look();
-  expect(v.opacity).toBe(1); expect(v.gray).toBe(false); expect(v.lift).toBeGreaterThan(2);
+  // vorne eingeblendet: hintere Reihe abgedunkelt, damit man die Reihen unterscheiden kann
+  expect(v.opacity).toBeLessThan(1); expect(v.gray).toBe(true); expect(v.lift).toBeGreaterThan(2);
   await page.click("text=⇅ hinten (1)");
   const h = await look();
   expect(h.opacity).toBe(1); expect(h.gray).toBe(false); expect(Math.abs(h.lift - v.lift)).toBeLessThan(1);
+  // und wieder zurück
+  await page.click("text=⇅ vorne");
+  const v2 = await look();
+  expect(v2.opacity).toBeLessThan(1); expect(v2.gray).toBe(true);
 });
 
 test("Schriftgröße der Buchrücken: stufenlos, wirkt bei dicken und dünnen Büchern, ausgegraut ohne Text", async ({ page }) => {
