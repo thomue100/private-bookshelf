@@ -20,9 +20,10 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
    Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
    mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
-3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (OCR, Hand-Eingabe, Claude-Chat-Brücke).
+3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (Barcode, Hand-Eingabe, Claude-Chat-Brücke).
+   Die frühere Texterkennung (Tesseract/OCR) ist bewusst entfernt – zu ungenau; nicht wieder einbauen.
 4. **Kein Build-Schritt, keine Frameworks.** Reines HTML/CSS/JavaScript in `app/`, direkt auslieferbar. Externe Bibliotheken nur per CDN
-   und nur bei Bedarf nachgeladen (Tesseract, ZXing).
+   und nur bei Bedarf nachgeladen (ZXing).
 5. **Oberfläche auf Deutsch**, freundlich und ohne Fachjargon. Muss am Handy (390 px breit) und am PC benutzbar sein.
 
 ## Aufbau
@@ -32,7 +33,8 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/index.html` | Gerüst, Navigation (`#regal`, `#wand`, `#wunsch`, `#verwaltung`), Skripte in fester Reihenfolge (alle `defer`) |
 | `app/app.js` | Kern: Zustand `S`, `DB` (IndexedDB), Rendering aller Ansichten, Erfassen/Bearbeiten, Katalogsuche, echtes Regal (Montana-Würfel), Tabelle mit Filtern/Sortierung, Import/Export, Einfügen/Ziehen von Bildern |
 | `app/attachments.js` | Weitere Bilder, Dateien (E-Books/PDF), Widmung/Signatur, Anhänge in Sicherungen |
-| `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke, OCR), Prüfliste, Übernahme ins Fach; Cover per KI |
+| `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke), Prüfliste, Übernahme ins Fach; Cover per KI |
+| `app/batchscan.js` | Viele Fach-Fotos auf einmal erkennen: Sammelauftrag (Anthropic Message Batches, localStorage `aiBatches`), Abholen `checkBatches`, Ausweichweg einzeln, „der Reihe nach prüfen“ (`S.reviewChain`, `nextReview`) |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
 | `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche |
 | `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |

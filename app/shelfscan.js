@@ -51,30 +51,34 @@ function parseJSONLoose(text) {
   if (a < 0 || b < a) throw new Error("Keine gültige Antwort der KI.");
   return JSON.parse(t.slice(a, b + 1));
 }
+// Anfrage für ein Fach-Foto (auch für den Sammelauftrag in batchscan.js)
+const AI_API = "https://api.anthropic.com";
+const aiHeaders = () => ({ "content-type": "application/json", "x-api-key": aiKey(), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" });
+const scanParams = b64 => ({ model: aiModel(), max_tokens: 12000, messages: [{ role: "user", content: [
+  { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } }, { type: "text", text: SCAN_PROMPT }] }] });
+function aiError(status, j) {
+  const msg = j?.error?.message || ("Fehler " + status);
+  if (status === 401) return new Error("Der KI-Schlüssel wurde abgelehnt. Bitte in den Einstellungen prüfen.");
+  if (status === 404 || /model/i.test(msg)) return new Error("Das gewählte KI-Modell ist nicht verfügbar (" + msg + "). Bitte in den Einstellungen ein anderes wählen.");
+  if (status === 429) return new Error("Zu viele Anfragen – bitte kurz warten.");
+  return new Error(msg);
+}
+// Antwort der KI → Erkennung {compartment, items}
+function scanFromMessage(m) {
+  if (m?.stop_reason === "refusal") throw new Error("Die KI hat das Foto nicht bearbeitet.");
+  const data = parseJSONLoose((m?.content || []).filter(c => c.type === "text").map(c => c.text).join(""));
+  if (!Array.isArray(data.items)) throw new Error("Die KI hat keine Liste geliefert.");
+  return data;
+}
 async function aiScanShelf(jpegBlob, onStatus) {
-  const key = aiKey(); if (!key) throw new Error("Kein KI-Schlüssel eingetragen.");
+  if (!aiKey()) throw new Error("Kein KI-Schlüssel eingetragen.");
   onStatus && onStatus("KI erkennt die Buchrücken … (dauert meist 20–60 Sekunden)");
   const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 180000);
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST", signal: ctl.signal,
-      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: aiModel(), max_tokens: 12000, messages: [{ role: "user", content: [
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToBase64(jpegBlob) } },
-        { type: "text", text: SCAN_PROMPT }] }] }),
-    });
+    const r = await fetch(AI_API + "/v1/messages", { method: "POST", signal: ctl.signal, headers: aiHeaders(), body: JSON.stringify(scanParams(await blobToBase64(jpegBlob))) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const msg = j?.error?.message || ("Fehler " + r.status);
-      if (r.status === 401) throw new Error("Der KI-Schlüssel wurde abgelehnt. Bitte in den Einstellungen prüfen.");
-      if (r.status === 404 || /model/i.test(msg)) throw new Error("Das gewählte KI-Modell ist nicht verfügbar (" + msg + "). Bitte in den Einstellungen ein anderes wählen.");
-      if (r.status === 429) throw new Error("Zu viele Anfragen – bitte kurz warten.");
-      throw new Error(msg);
-    }
-    const text = (j.content || []).filter(c => c.type === "text").map(c => c.text).join("");
-    const data = parseJSONLoose(text);
-    if (!Array.isArray(data.items)) throw new Error("Die KI hat keine Liste geliefert.");
-    return data;
+    if (!r.ok) throw aiError(r.status, j);
+    return scanFromMessage(j);
   } catch (e) {
     if (e.name === "AbortError") throw new Error("Die KI hat zu lange gebraucht.");
     if (e instanceof TypeError) throw new Error("Keine Verbindung zur KI (Internet prüfen).");
@@ -82,47 +86,11 @@ async function aiScanShelf(jpegBlob, onStatus) {
   } finally { clearTimeout(tm); }
 }
 
-/* ================= Erkennung ohne KI (Texterkennung, ungenau) ================= */
+/* ================= Hilfen ================= */
 function rotateCanvas(src, deg) {
   const c = document.createElement("canvas"); c.width = src.height; c.height = src.width;
   const x = c.getContext("2d"); x.translate(c.width / 2, c.height / 2); x.rotate(deg * Math.PI / 180); x.drawImage(src, -src.width / 2, -src.height / 2);
   return c;
-}
-async function ocrScanShelf(canvas, onStatus) {
-  if (!window.Tesseract) { onStatus && onStatus("Lade Texterkennung …"); await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"); }
-  if (!ocrWorker) ocrWorker = await Tesseract.createWorker(["deu", "eng"], 1);
-  const W = canvas.width, H = canvas.height, found = [];
-  for (const [deg, dir] of [[90, "up"], [-90, "down"]]) {
-    onStatus && onStatus(`Texterkennung läuft (${dir === "up" ? "1" : "2"}/2) …`);
-    const rc = rotateCanvas(canvas, deg);
-    const { data } = await ocrWorker.recognize(rc);
-    for (const l of data.lines || []) {
-      const t = l.text.replace(/[^\p{L}\p{N}\s'’.\-&:]/gu, " ").replace(/\s+/g, " ").trim();
-      if (l.confidence < 55 || t.length < 4 || !/\p{L}{3,}/u.test(t)) continue;
-      const b = l.bbox; let x0, x1, y0, y1;
-      if (deg === 90) { x0 = b.y0; x1 = b.y1; y0 = H - b.x1; y1 = H - b.x0; } else { x0 = W - b.y1; x1 = W - b.y0; y0 = b.x0; y1 = b.x1; }
-      found.push({ t, conf: l.confidence, dir, x0, x1, y0, y1 });
-    }
-  }
-  // gleiche Rücken zusammenführen (überlappende x-Bereiche)
-  found.sort((a, b) => (a.x0 + a.x1) - (b.x0 + b.x1));
-  const groups = [];
-  for (const f of found) {
-    const g = groups[groups.length - 1];
-    const ov = g ? Math.min(g.x1, f.x1) - Math.max(g.x0, f.x0) : -1;
-    if (g && ov > 0.5 * Math.min(g.x1 - g.x0, f.x1 - f.x0)) {
-      if (f.dir === g.dir) { g.parts.push(f); g.x0 = Math.min(g.x0, f.x0); g.x1 = Math.max(g.x1, f.x1); g.y0 = Math.min(g.y0, f.y0); g.y1 = Math.max(g.y1, f.y1); }
-      else if (f.conf > g.conf) groups[groups.length - 1] = { ...f, parts: [f] };
-    } else groups.push({ ...f, parts: [f] });
-  }
-  return {
-    compartment: { x0: 0, y0: 0, x1: 1, y1: 1 }, ocr: true,
-    items: groups.map(g => {
-      const text = g.parts.sort((a, b) => a.y0 - b.y0).map(p => p.t).join(" ");
-      return { kind: "book", position: "standing", title: text, author: "", publisher: "", spine_text_vertical: text, text_direction: g.dir,
-        bbox: { x0: g.x0 / W, x1: g.x1 / W, y0: Math.max(0, g.y0 / H - 0.03), y1: Math.min(1, g.y1 / H + 0.03) }, confidence: g.conf > 80 ? "medium" : "low", ocrText: true };
-    }),
-  };
 }
 
 /* ================= Katalogabgleich ================= */
@@ -177,7 +145,7 @@ async function matchItem(it) {
 // Automatisch übernommen wird ein Katalogtreffer nur, wenn er gut passt – und bei Reihen nur derselbe Band.
 // Ein Treffer ohne Band-Angabe ist meist ein bestimmter anderer Band (falsche ISBN) und bleibt nur zur Auswahl.
 function autoChoice(it) {
-  const b = it.cands[0]; if (!b || b._score < (it.ocrText ? 1.5 : 3)) return -1;
+  const b = it.cands[0]; if (!b || b._score < 3) return -1;
   const iv = itemVol(it); if (iv && candVol(b) !== iv && !(toIsbn13(it.isbn) && toIsbn13(it.isbn) === b.isbn)) return -1;
   return 0;
 }
@@ -202,8 +170,7 @@ function assessScan(items) {
   items.forEach((it, n) => {
     const r = [];
     if (it.kind !== "other") {
-      if (it.ocrText) r.push("Einfache Texterkennung – Titel bitte prüfen");
-      else if (it.confidence === "low") r.push("Rücken schlecht lesbar – Titel bitte prüfen");
+      if (it.confidence === "low") r.push("Rücken schlecht lesbar – Titel bitte prüfen");
       const c = it.cands[it.choice], iv = itemVol(it);
       if (!c) r.push(it.offline ? "Katalog nicht erreichbar – es werden nur die erkannten Angaben übernommen"
         : !it.cands.length ? "Nicht im Katalog gefunden – es werden die erkannten Angaben übernommen"
@@ -231,13 +198,12 @@ function fachOptions() {
   return out;
 }
 /* ================= Erkennungs-Wege ================= */
-// "api" = eigener API-Schlüssel, "chat" = Claude-Chat (claude.ai / Claude-App, dein Abo), "ocr" = Texterkennung im Browser
+// "api" = eigener API-Schlüssel, "chat" = Claude-Chat (claude.ai / Claude-App, dein Abo). Die frühere Texterkennung („ocr“) gibt es nicht mehr.
 function scanModes(later) {
   return [
     later ? ["later", "💾 Nur speichern – später erkennen", "Foto wird in der App gespeichert. Erkennen und einsortieren kannst du später – auch am PC (über den Abgleich oder eine Sicherung). Ideal, um viele Fächer schnell hintereinander zu fotografieren.", true] : null,
     ["api", "🤖 KI direkt (API-Schlüssel)", aiKey() ? "Automatisch, am bequemsten. Kosten pro Foto über dein API-Konto." : "Kein Schlüssel eingetragen.", !!aiKey()],
     ["chat", "💬 Über deinen Claude-Chat", "Mit deinem Claude-Abo: Foto + Auftrag an Claude geben, Antwort hier einfügen. Keine Zusatzkosten.", true],
-    ["ocr", "🔤 Einfache Texterkennung", "Ohne KI, im Browser. Findet nur gut lesbare Rücken.", true],
   ].filter(Boolean);
 }
 function modeChooser(cur, onPick, later) {
@@ -249,7 +215,7 @@ function modeChooser(cur, onPick, later) {
   }
   return box;
 }
-function defaultMode() { try { const m = localStorage.getItem("scanMode"); if (m === "api" && !aiKey()) return "chat"; if (m) return m; } catch {} return aiKey() ? "api" : "chat"; }
+function defaultMode() { try { const m = localStorage.getItem("scanMode"); if (m === "api" && !aiKey()) return "chat"; if (m === "api" || m === "chat" || m === "later") return m; } catch {} return aiKey() ? "api" : "chat"; }
 function setDefaultMode(m) { try { localStorage.setItem("scanMode", m); } catch {} }
 
 /* Claude-Chat-Brücke: Foto + Auftrag an Claude geben, JSON-Antwort zurück einfügen.
@@ -389,7 +355,7 @@ function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
     !saved && waiting ? el("div", { class: "note info", style: "margin-top:14px" }, `📥 ${waiting} gespeicherte${waiting === 1 ? "s Foto wartet" : " Fotos warten"} auf Erkennung. `, el("a", { href: "#", onclick: e => { e.preventDefault(); openPhotoInbox(); } }, "Ansehen")) : null);
   S.pasteHandler = go;
 }
-/* Erkennt ein gespeichertes Fach-Foto. mode: "api" | "chat" | "ocr" | "stored" (gespeicherte Erkennung nur prüfen). */
+/* Erkennt ein gespeichertes Fach-Foto. mode: "api" | "chat" | "stored" (gespeicherte Erkennung nur prüfen). */
 async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = {}) {
   const sh = openSheet || sheet("📷 Fach-Foto einlesen");
   S.pasteHandler = null;
@@ -401,11 +367,11 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
   try { const img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
   catch { toast("Das Foto konnte nicht gelesen werden."); openShelfScan(null, { photo }); return; }
   const onData = async data => {
-    if (!data.ocr && mode !== "stored") photo = await patchPhoto(photo.id, { scan: data, scanAt: new Date().toISOString() }) || photo; // Erkennung aufheben – prüfen geht dann auch später/am PC
+    if (mode !== "stored") photo = await patchPhoto(photo.id, { scan: data, scanAt: new Date().toISOString() }) || photo; // Erkennung aufheben – prüfen geht dann auch später/am PC
     continueShelfScan(sh, { file, canvas, data, fachKey: photo.fachKey || "", photo });
   };
   if (mode === "stored" && photo.scan) return onData(photo.scan);
-  if (mode === "chat") {
+  if (mode !== "api" || !aiKey()) {
     claudeChatBridge(sh, { title: "💬 Fach-Foto mit Claude erkennen", prompt: SCAN_PROMPT, jpeg, fileName: "regalfach.jpg", autoRead,
       onBack: () => { clearPending(photo.id); openShelfScan(null, { photo }); },
       accept: d => Array.isArray(d?.items) && d.items.some(it => it && (it.title || it.label || it.spine_text_vertical || it.spine_text_horizontal)),
@@ -413,7 +379,7 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
     return;
   }
   let data;
-  try { data = mode === "api" && aiKey() ? await aiScanShelf(jpeg, t => status.textContent = t) : await ocrScanShelf(canvas, t => status.textContent = t); }
+  try { data = await aiScanShelf(jpeg, t => status.textContent = t); }
   catch (e) {
     fillNode(sh.body, el("div", { class: "note", text: "Erkennung fehlgeschlagen: " + (e.message || e) + " – das Foto bleibt gespeichert." }),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(null, { photo }) }, "← Zurück"),
@@ -511,7 +477,7 @@ function scanReview(sh, st) {
   const photoUrl = canvas.toDataURL("image/jpeg", .85);
   const ov = el("div", { class: "scanphoto" }, el("img", { src: photoUrl, alt: "" }));
   items.forEach((it, n) => { const b = it.bbox; if (!b) return; ov.append(el("div", { class: "scanbox" + (it.kind === "other" ? " other" : "") + (it.include ? "" : " off"), "data-n": n, style: `left:${b.x0 * 100}%;top:${b.y0 * 100}%;width:${(b.x1 - b.x0) * 100}%;height:${(b.y1 - b.y0) * 100}%` }, el("span", { text: n + 1 }))); });
-  const optCrop = el("input", { type: "checkbox", checked: data.ocr ? null : true });
+  const optCrop = el("input", { type: "checkbox", checked: true });
   const optStatus = el("select", { class: "field" }, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v }, l)));
   const fachs = fachOptions(); const target = fachs.find(f => f.key === st.fachKey);
   const optReplace = el("select", { class: "field" }, el("option", { value: "replace" }, "Fach-Inhalt ersetzen (bisherige Bücher → „Noch nicht eingeräumt“)"), el("option", { value: "append" }, "Hinten an den bisherigen Inhalt anhängen"));
@@ -594,7 +560,7 @@ function scanReview(sh, st) {
     importScan(st, { crop: optCrop.checked, status: optStatus.value, replace: optReplace.value === "replace", target, tags: scanTags.tags });
   });
   fillNode(sh.body,
-    el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (data.ocr ? " (Einfache Texterkennung: bitte besonders genau prüfen; fehlende Bücher kannst du danach normal hinzufügen.)" : "")),
+    el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
     unsureNote,
     ov,
     el("div", { class: "scanopts" },
@@ -675,5 +641,7 @@ async function importScan(st, opt) {
   toast(`${created} neue Bücher angelegt${reused ? `, ${reused} vorhandene erkannt` : ""}${opt.target ? " und einsortiert" : ""}.`, 4500);
   if (opt.target) { S.wallId = allFachs().find(f => f.m === opt.target.m)?.w.id || S.wallId; if (location.hash !== "#wand") location.hash = "#wand"; }
   const noCov = newIds.filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
-  if (noCov.length && await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
+  // „Der Reihe nach prüfen“ (batchscan.js): gleich das nächste erkannte Fach; Cover am Ende gesammelt nachtragen
+  if (S.reviewChain) { S.chainNoCov = [...(S.chainNoCov || []), ...noCov]; nextReview(); return; }
+  if (noCov.length &&await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
 }

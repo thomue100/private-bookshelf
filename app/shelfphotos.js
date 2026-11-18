@@ -38,6 +38,7 @@ function photoStatus(p) {
   if (p.deletedAt) return "gelöscht";
   if (p.doneAt) return "einsortiert am " + new Date(p.doneAt).toLocaleDateString("de-DE");
   if (!p.blob) return "Bild kommt noch (Abgleich)";
+  if (!p.scan && batchPhotoIds().has(p.id)) return "wird gerade von Claude erkannt";
   return p.scan ? "erkannt – bitte prüfen" : "noch nicht erkannt";
 }
 function photoCard(p, redraw) {
@@ -53,6 +54,7 @@ function photoCard(p, redraw) {
         el("button", { class: "btn sm ghost danger", "aria-label": "Foto löschen", onclick: async () => { if (await confirmBox("Dieses Fach-Foto löschen?\n(Bereits übernommene Bücher bleiben erhalten.)")) { await deletePhoto(p); redraw(); } } }, "Löschen"))));
 }
 function openPhotoInbox() {
+  endReviewChain(false); // „Später weiter“ beendet das Prüfen der Reihe nach
   const sh = sheet("📥 Gespeicherte Fach-Fotos");
   const draw = () => {
     if (openSheet !== sh) return;
@@ -60,6 +62,7 @@ function openPhotoInbox() {
     const done = S.photos.filter(p => !p.deletedAt && p.doneAt).sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
     fillNode(sh.body,
       el("p", { class: "saved", style: "margin-top:0", text: "Fach-Fotos, die noch erkannt und einsortiert werden müssen. Mit dem Abgleich über deinen Server (oder per Sicherung) kommen sie auch auf deine anderen Geräte – so kannst du am Handy fotografieren und in Ruhe am PC prüfen." }),
+      batchInboxBox(draw),
       open.length ? el("div", { class: "phlist" }, ...open.map(p => photoCard(p, draw))) : el("div", { class: "note info", text: "Keine offenen Fach-Fotos." }),
       el("div", { class: "covertools", style: "margin-top:12px" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Neues Fach-Foto")),
       done.length ? el("details", { class: "sec" }, el("summary", { text: `Erledigt (${done.length})` }),

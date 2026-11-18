@@ -545,20 +545,6 @@ function liveScan() {
   });
 }
 
-/* ================= Texterkennung (OCR) fürs Cover ================= */
-let ocrWorker = null;
-async function ocrCover(file, onProgress) {
-  if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
-  if (!ocrWorker) ocrWorker = await Tesseract.createWorker(["deu", "eng"], 1, { logger: m => { if (m.status === "recognizing text") onProgress?.(Math.round(m.progress * 100)); } });
-  const img = await loadImage(file);
-  const c = toCanvas(img, 1600);
-  const { data } = await ocrWorker.recognize(c);
-  // große Schrift (Titel/Autor) zuerst: nach Zeilenhöhe sortieren
-  const lines = (data.lines || []).map(l => ({ t: l.text.replace(/[^\p{L}\p{N}\s'’.\-&:]/gu, " ").replace(/\s+/g, " ").trim(), h: l.bbox.y1 - l.bbox.y0, conf: l.confidence }))
-    .filter(l => l.t.length >= 2 && /\p{L}{2,}/u.test(l.t) && l.conf > 45);
-  lines.sort((a, b) => b.h - a.h);
-  return lines.slice(0, 4).map(l => l.t).join(" ").slice(0, 120);
-}
 
 /* ================= Diktieren (Web Speech API) ================= */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1011,12 +997,9 @@ async function handleIsbn(isbn) {
 async function coverFlow(file) {
   if (aiKey()) {
     busyView("Cover wird erkannt", file, "KI liest das Cover …");
-    try { coverResult(await aiRecognizeCover(file), file); return; } catch (e) { toast("KI-Erkennung nicht möglich: " + (e.message || e) + " – nutze Texterkennung.", 4000); }
+    try { coverResult(await aiRecognizeCover(file), file); return; } catch (e) { toast("KI-Erkennung nicht möglich: " + (e.message || e), 4000); }
   }
-  const msg = busyView("Cover wird gelesen", file, "Texterkennung startet … (beim ersten Mal werden Sprachdaten geladen)");
-  let text = "";
-  try { text = await ocrCover(file, p => { msg.textContent = `Lese Text vom Cover … ${p} %`; }); } catch (e) { console.warn(e); }
-  showSearch(text, file);
+  showSearch("", file); // ohne KI: Titel eintippen oder „💬 Mit Claude-Chat erkennen“
 }
 async function showSearch(query, coverFile, recognized) {
   const sh = openSheet || sheet("Suche");
@@ -1026,7 +1009,7 @@ async function showSearch(query, coverFile, recognized) {
   const results = el("div", { class: "cands" });
   const run = async () => {
     const q = qIn.value.trim();
-    if (!q) { results.replaceChildren(el("div", { class: "note", text: "Auf dem Cover war kein Text lesbar. Tipp: Titel und Autor oben eintippen." })); return; }
+    if (!q) { results.replaceChildren(el("div", { class: "note", text: coverFile ? "Titel und/oder Autor oben eintippen – oder das Cover mit Claude erkennen lassen." : "Titel und/oder Autor oben eintippen." })); return; }
     results.replaceChildren(el("div", { class: "busy", style: "padding:14px" }, el("div", { class: "spin" })));
     links.replaceChildren(webSearchLinks(q) || ""); // auch (gerade) bei „Nichts gefunden“
     let list = [];
@@ -3017,7 +3000,7 @@ function aboutBox() {
   const sh = sheet("Über diese App");
   sh.body.append(
     el("p", { text: "Mein Bücherregal speichert alle Daten in diesem Browser auf diesem Gerät – es gibt kein Konto. Wer möchte, kann zusätzlich einen eigenen Server (z. B. auf dem PC) für den automatischen Abgleich eintragen." }),
-    el("p", { text: "Buchdaten kommen von der Deutschen Nationalbibliothek (sehr vollständig für deutschsprachige und aktuelle Ausgaben), Google Books und Open Library. Die Texterkennung auf Covern läuft direkt im Browser (Tesseract)." }),
+    el("p", { text: "Buchdaten kommen von der Deutschen Nationalbibliothek (sehr vollständig für deutschsprachige und aktuelle Ausgaben), Google Books und Open Library." }),
     el("p", { text: "Handy und PC abgleichen: Menü ⋯ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
     el("p", { text: "Wichtig: Wenn du die Browserdaten löschst, ist auch das Regal weg. Exportiere deshalb ab und zu eine Sicherung." }),
     el("p", { class: "saved", text: `${S.books.length} Bücher gespeichert.` }),

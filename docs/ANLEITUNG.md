@@ -208,14 +208,15 @@ Unter **Buch hinzufügen → Weg C**, im **Echten Regal → 📷 Fach-Foto einle
 - **💾 Nur speichern – später erkennen:** Ideal, um eine ganze Wand schnell abzufotografieren. Nach jedem Foto steht gleich das **nächste Fach** in der Auswahl – also nur „📷 Nächstes Fach fotografieren“ antippen. Erkennen und einsortieren dann in Ruhe, z. B. am PC.
 - **Zum PC bringen:** Mit dem Abgleich über deinen eigenen Server kommen die Fotos (samt Fach) automatisch auf den PC. Ohne Server: Sicherung exportieren und am PC importieren – offene Fotos sind darin enthalten.
 - In der Übersicht je Foto **„Erkennen & einsortieren“** (Fach lässt sich dort noch ändern). Wurde ein Foto schon erkannt, aber noch nicht fertig geprüft, steht dort **„Prüfen & einsortieren“** – ohne neue Erkennung. Eingeräumte Fotos wandern nach „Erledigt“ und können gelöscht werden; die Bücher bleiben.
+- **Viele Fächer auf einmal erkennen (mit KI-Schlüssel):** Oben in „📥 Gespeicherte Fach-Fotos“ schickt **„🤖 Alle … Fotos erkennen“** alle noch nicht erkannten Fotos in einem Rutsch an Claude – als Sammelauftrag zum **halben Preis**. Meist ist alles in unter einer Stunde fertig; die App muss dabei nicht offen bleiben und sieht regelmäßig nach („Jetzt nachsehen“ fragt sofort). Danach führt **„✓ … erkannte Fächer der Reihe nach prüfen & einsortieren“** Fach für Fach durch die Prüfliste: Übernehmen, und das nächste Fach öffnet sich von selbst. Fehlende Cover trägt die App am Ende für alle auf einmal nach. Klappt der Sammelauftrag nicht, bietet die App an, die Fotos einzeln nacheinander zu erkennen (normaler Preis, die App bleibt dabei offen).
+  **So erfasst du eine ganze Bibliothek:** 1. Alle Fächer mit „💾 Nur speichern“ abfotografieren (Fach wählen, Foto, „Nächstes Fach fotografieren“). 2. Am PC „🤖 Alle Fotos erkennen“. 3. Später „der Reihe nach prüfen“ – nur gelb Markiertes braucht Aufmerksamkeit.
 - **Teilen → Bücherregal (Android, installierte App):** Fotos aus der Kamera-App oder Galerie lassen sich über „Teilen“ direkt an die App schicken; sie landen in der Übersicht (Fach dort zuordnen). Ebenso kann Claudes Antwort per „Teilen → Bücherregal“ zurückgeschickt werden.
 
-**Erkennung – drei Wege** (wählbar beim Fach-Foto):
+**Erkennung – zwei Wege** (wählbar beim Fach-Foto):
 - **💬 Über deinen Claude-Chat** – nutzt dein Claude-Abo, ohne Zusatzkosten: Die App bereitet Foto und Auftrag vor. Am Handy „📤 An Claude teilen“ und die Claude-App wählen; steht der Auftrag dort nicht schon im Eingabefeld, lange ins Feld tippen → „Einfügen“ (oder „Auftrag kopieren“ und das Foto in einem neuen Chat auf claude.ai anhängen). Am PC öffnet „📋 Auftrag kopieren & Claude öffnen“ claude.ai und legt den Auftrag gleich in die Zwischenablage. Claude antwortet mit einem Codeblock – den mit dem Kopieren-Knopf kopieren und zur App zurückkehren: Die App übernimmt die Antwort dann meist von selbst. Fragt der Browser beim ersten Mal, ob die Seite die Zwischenablage lesen darf, „Zulassen“ wählen. Klappt es nicht von selbst, „📥 Antwort einfügen“ antippen oder die Antwort ins Feld einfügen. Eine alte Antwort, die schon übernommen wurde, verwendet die App nie ein zweites Mal. Das funktioniert genauso für einzelne Cover („💬 Mit Claude-Chat erkennen“ in der Suche nach einem Cover-Foto).
 - **🤖 KI direkt (API-Schlüssel)** – vollautomatisch, siehe unten.
-- **🔤 Einfache Texterkennung** – ohne KI, ungenau.
 
-**KI direkt:** Für den vollautomatischen Weg braucht es die **KI-Erkennung** mit einem eigenen API-Schlüssel von Anthropic (Menü ⋯ → „Über die App & Einstellungen“ → „KI-Erkennung“). Abgerechnet wird pro Foto über dein eigenes API-Konto, meist wenige Cent. Der Schlüssel bleibt nur in deinem Browser und ist nicht in der Sicherung. Ohne Schlüssel nutzt die App eine **einfache Texterkennung** im Browser – die findet nur gut lesbare Rücken und braucht mehr Nacharbeit.
+**KI direkt:** Für den vollautomatischen Weg braucht es die **KI-Erkennung** mit einem eigenen API-Schlüssel von Anthropic (Menü ⋯ → „Über die App & Einstellungen“ → „KI-Erkennung“). Abgerechnet wird pro Foto über dein eigenes API-Konto, meist wenige Cent. Der Schlüssel bleibt nur in deinem Browser und ist nicht in der Sicherung. Ohne Schlüssel geht es über deinen Claude-Chat (siehe oben). Die frühere einfache Texterkennung im Browser gibt es nicht mehr – sie war zu ungenau.
 
 Tipps fürs Foto: gerade von vorne, ganzes Fach im Bild, gutes Licht, kein Blitz-Spiegeln auf Folien.
 
@@ -253,7 +254,7 @@ Schick ihnen einfach deine Adresse (z. B. `https://DEIN-NAME.github.io/buecherre
 
 - Erfassen braucht Internet (für Buchdaten und Cover). Ansehen, Notizen, Bewertungen und Verwaltung funktionieren auch offline.
 - Diktieren (🎙) gibt es in Chrome, Edge und Safari. Sonst geht das Mikrofon der Handy-Tastatur.
-- Die Texterkennung auf Covern lädt beim ersten Mal einige MB Sprachdaten. Bei verschnörkelten Schriften klappt sie nicht immer – dann einfach den Titel eintippen.
+- Cover-Foto ohne KI-Schlüssel: Titel eintippen oder „💬 Mit Claude-Chat erkennen“.
 - Google Books teilt ohne Schlüssel ein kleines Kontingent mit allen Nutzern und antwortet dann oft nicht. Abhilfe: unter Menü ⋯ → „Über die App & Einstellungen“ einen eigenen kostenlosen Google-Books-Schlüssel eintragen (Anleitung steht dort). Die DNB braucht keinen Schlüssel.
 - Klappentexte liefern vor allem Google Books und Open Library; die DNB liefert sehr genaue Ausgabedaten, aber meist keinen Klappentext.
 
