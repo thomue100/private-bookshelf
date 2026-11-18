@@ -584,4 +584,4 @@ tr.tmore .btn{margin-left:10px}
 .wall.editing .spine{pointer-events:none}
 .colbar{box-sizing:border-box;padding-right:2px}
 .editinfo{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}
-.editinfo .covertools{margin:0}
+.editinfo .covertools{margin:0}.wlist .wmore{flex:none;align-self:stretch;margin:4px 0}
