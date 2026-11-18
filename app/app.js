@@ -1556,6 +1556,7 @@ const MOD = {
 const FACH_LABEL = { L: "links", R: "rechts", T: "oben", B: "unten", TL: "oben links", TR: "oben rechts", BL: "unten links", BR: "unten rechts" };
 const LAYER_LABEL = { front: "", back: "hintere Reihe", top: "liegt oben auf der Reihe" };
 const BOARD = 1.2, FACH_W = 33.0, FACH_H = 33.0;
+const BACK_RISE = 1.6; // hintere Reihe steht so viele cm höher als die vordere
 const MOD_COLORS = [["Weiß", "#f3f2ee"], ["Hellgrau", "#d6d4cf"], ["Anthrazit", "#3a3a3a"], ["Ruby", "#7d2630"], ["Salbei", "#a7b4a0"], ["Blau", "#3f5d7d"], ["Senf", "#d9a640"]];
 S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = ""; S.showBack = new Set(); S.pickMany = null; S.selMode = false; S.sel = new Set(); S.lens = false;
 S.ovZoom = 1; S.anchor = null; S.zoomFocus = null; S.wallReset = false; // Gesamtansicht, Zoom, Ansicht beim Neuzeichnen halten
@@ -2016,8 +2017,8 @@ function fachEl(m, k, s, interior) {
   const fitted = isFit(m, k, active);
   const f = el("div", { class: "fach" + (u.full ? " full" : "") + (showBack ? " showback" : "") + (fitted ? " fit" : ""), style: `background:${interior}`, "data-fid": fid,
     title: `Fach ${FACH_LABEL[k]} · vorne ${front.length}${back.length ? ", hinten " + back.length : ""}${top.length ? ", oben drauf " + top.length : ""} Bücher · ` + (fitted ? "Reihe auf ganze Fachbreite verteilt (Fach ist voll)" : `Reihe ca. ${Math.round(Math.min(u.front.w, 99) / FACH_W * 100)} % belegt`) });
-  // hintere Reihe (etwas höher und abgedunkelt), vordere Reihe, oben aufgelegte Bücher
-  const backEl = rowEl(m, k, "back", s); backEl.style.bottom = (showBack ? 0 : 1.6 * s) + "px";
+  // hintere Reihe (erhöht, auch wenn eingeblendet), vordere Reihe, oben aufgelegte Bücher
+  const backEl = rowEl(m, k, "back", s); backEl.style.bottom = BACK_RISE * s + "px";
   const frontEl = rowEl(m, k, "front", s);
   const topEl = el("div", { class: "stack top", style: `left:${0.3 * s}px;bottom:${u.front.h * s}px` });
   top.forEach(id => { const b = bookOf(id); if (b) topEl.append(bookEl(b, s, true, bb => { const P = picking(); if (P && !P.includes(bb.id)) placeBooks(P, m, k, top.indexOf(bb.id), "top").then(() => { endPick(); renderAll(); }); else spineMenu(bb); })); });

@@ -258,10 +258,11 @@ td a{color:var(--ink);text-decoration:none}td a:hover{color:var(--accent);text-d
 .fach{display:block}
 .layer{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;height:100%;pointer-events:none}
 .layer > *{pointer-events:auto}
-.layer.back{opacity:.5;filter:saturate(.6) brightness(.8);z-index:0}
+/* hintere Reihe steht erhöht (wie auf einem Podest) und in voller Farbe – egal ob vorne oder hinten eingeblendet */
+.layer.back{z-index:0;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}
 /* hintere Bücher, die oben herausschauen, lassen sich direkt antippen – die vordere Reihe liegt darüber */
 .layer.front{z-index:1}
-.fach.showback .layer.back{opacity:1;filter:none;z-index:2}
+.fach.showback .layer.back{z-index:2}
 .fach.showback .layer.back > *{pointer-events:auto}
 .fach.showback .layer.front{opacity:.12;z-index:1}
 .fach.showback .layer.front > *{pointer-events:none}
