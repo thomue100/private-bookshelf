@@ -379,3 +379,37 @@ test("Rückentitel maximieren: ausgewählte Bücher, passt in den Rücken, zurü
   expect(await font("b0")).toBe(before.b0);
   expect(await page.evaluate(() => S.books.filter(b => b.spine && "maxText" in b.spine).length)).toBe(0);
 });
+
+test("Rückentitel maximieren: der ganze Titel bleibt lesbar (nichts abgeschnitten) – auch lang, mit Querschrift, andere Schriften", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    const m = S.shelves.walls[0].columns[0].modules[0];
+    const sp = {
+      b0: { mode: "beides", text: "URSULA RICHTER (HG.) Weihnachtsgeschichten am Kamin 8", quer: "rororo 13427", thickCm: 1.4, heightCm: 19 },
+      b1: { mode: "hoch", text: "Die unendliche Geschichte – Roman mit Illustrationen von Roswitha Quadflieg", font: "bold", thickCm: 3.5 },
+      b2: { mode: "quer", font: "mono", thickCm: 4 },
+      b3: { mode: "hoch", font: "sans", thickCm: 0.8 },
+      b4: { mode: "beides", font: "serif", quer: "Umberto Eco", thickCm: 5, heightCm: 21 },
+    };
+    for (const [id, s] of Object.entries(sp)) { await patchBook(id, { spine: { ...s, maxText: true } }); await placeBook(id, m, "TL"); }
+    renderAll();
+  });
+  await page.waitForTimeout(300);
+  const info = await page.evaluate(() => [...document.querySelectorAll(".wall .spine .face .mx")].map(t => {
+    const f = t.parentElement, tr = t.getBoundingClientRect(), fr = f.getBoundingClientRect();
+    const fits = t.scrollHeight <= t.clientHeight + 1 && t.scrollWidth <= t.clientWidth + 1 && tr.top >= fr.top - 1 && tr.bottom <= fr.bottom + 1 && tr.left >= fr.left - 1 && tr.right <= fr.right + 1;
+    return { id: f.closest(".spine").dataset.id, cls: t.className, text: t.textContent, px: parseFloat(t.style.fontSize), min: +t.dataset.min, fits };
+  }));
+  // nie kleiner als lesbar; entweder passt der ganze Text – oder er steht in der Mindestgröße da (dann wie gewohnt mit „…“)
+  for (const t of info) { expect(t.px, t.id + " " + t.cls).toBeGreaterThanOrEqual(t.min - 0.01); if (!t.fits) expect(t.px, t.id + " zu lang").toBeLessThanOrEqual(t.min + 0.01); }
+  // zu langer Titel: der kurze Titel ohne Untertitel passt ganz
+  const b1 = info.find(t => t.id === "b1");
+  expect(b1).toMatchObject({ text: "Die unendliche Geschichte", fits: true });
+  // kurze Titel passen ganz hinein
+  for (const id of ["b2", "b3", "b4"]) for (const t of info.filter(x => x.id === id)) expect(t.fits, id + " " + t.cls).toBe(true);
+  // und trotzdem deutlich größer als normal
+  const px = await page.evaluate(() => parseFloat(document.querySelector(".wall .spine[data-id=b4] .vt").style.fontSize));
+  expect(px).toBeGreaterThan(8);
+});

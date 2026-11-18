@@ -597,3 +597,4 @@ tr.tmore .btn{margin-left:10px}
 body.wandbig .wrap{max-width:none}
 .ovhead{display:flex;align-items:center;gap:4px;margin-bottom:6px}
 .ovmove{padding:2px 8px}
+.face .qt.mx{overflow-wrap:normal;word-break:normal;hyphens:manual}

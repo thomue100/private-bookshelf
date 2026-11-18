@@ -1793,6 +1793,8 @@ function renderWall() {
   fillNode(host, tools, typeof photoInboxBar === "function" ? photoInboxBar() : null, pickBar, selBar, editInfo,
     el("div", { class: "wandlayout" + (S.wallEdit ? " solo" : sideClosed() ? " sideclosed" : "") }, scroller, S.wallEdit ? null : sidebarEl()), lens);
   wallViewRestore(host, st);
+  fitMaxTitles(host); // maximierte Rückentitel: so groß wie möglich, aber ganz lesbar
+  fitMaxTitlesSoon(host);
   if (S.highlight) {
     const sp = host.querySelector(`.spine[data-id="${S.highlight}"]`);
     if (sp) { sp.classList.add("hl"); sp.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); }
@@ -1934,6 +1936,7 @@ function lensAttach(wallEl, s) {
     lx = Math.max(8, Math.min(innerWidth - 2 * R - 8, lx));
     Object.assign(lens.style, { width: 2 * R + "px", height: 2 * R + "px", left: lx + "px", top: ly + "px" });
     lens.classList.remove("hidden");
+    if (!cur.fitted) { cur.fitted = true; fitMaxTitles(inner); }
     const sp = hit.closest(".spine"), b = sp && bookOf(sp.dataset.id);
     if (b) { cap.textContent = bookLabel(b) + (b.author ? " – " + b.author : ""); Object.assign(cap.style, { left: lx + R + "px", top: ly + 2 * R + 6 + "px" }); cap.classList.remove("hidden"); }
     else cap.classList.add("hidden");
@@ -2250,10 +2253,14 @@ function spineFace(b, thick, len, spOverride, keyForImg) {
   const showText = (!img || sp.textOnImage) && mode !== "kein" && thick >= 5;
   const vText = sp.text || b.title || "", qText = sp.quer || (mode === "quer" ? (b.title || "") : firstAuthorLast(b.author));
   // „Rückentitel maximieren“: so groß, wie Breite und Länge des Rückens es erlauben (der Regler zählt dann nicht)
-  const vPx = sp.maxText ? maxFontPx(vText, sp.font, thick * 0.9, len * (mode === "beides" ? 0.68 : 0.9)) : spineFontPx(thick, 0.6, 2 * pxCm, scale);
-  const qPx = sp.maxText ? maxFontPx(qText, sp.font, len * (mode === "quer" ? 0.35 : 0.18), thick * 0.9) : spineFontPx(thick, 0.3, 1.55 * pxCm, scale, 0.6);
-  if (showText && (mode === "hoch" || mode === "beides")) face.append(el("span", { class: "vt" + (sp.dir === "down" ? " down" : ""), style: `font-size:${vPx}px`, text: vText }));
-  if (showText && (mode === "quer" || mode === "beides")) face.append(el("span", { class: "qt pos-" + (sp.querPos || "unten"), style: `font-size:${qPx}px`, text: qText }));
+  // Startwert aus der Textbreite; nach dem Zeichnen misst fitMaxTitles im Regal nach und verkleinert, bis der ganze Text sichtbar ist
+  const vN = spineFontPx(thick, 0.6, 2 * pxCm, scale), qN = spineFontPx(thick, 0.3, 1.55 * pxCm, scale, 0.6);
+  const vPx = sp.maxText ? Math.max(vN, maxFontPx(vText, sp.font, thick * 0.9, len * (mode === "beides" ? 0.68 : 0.9))) : vN;
+  const qPx = sp.maxText ? Math.max(qN, maxFontPx(qText, sp.font, len * (mode === "quer" ? 0.35 : 0.18), thick * 0.9)) : qN;
+  // nie kleiner als lesbar (MAX_TITLE_MIN bzw. normal); zu lang → erst kurzer Titel (ohne Untertitel), sonst wie gewohnt mit „…“
+  const mx = (px, normal, text) => { if (!sp.maxText) return {}; const sh = shortTitle(text); return { "data-min": Math.min(normal, MAX_TITLE_MIN), "data-start": px, ...(sh ? { "data-short": sh } : {}) }; };
+  if (showText && (mode === "hoch" || mode === "beides")) face.append(el("span", { class: "vt" + (sp.dir === "down" ? " down" : "") + (sp.maxText ? " mx" : ""), style: `font-size:${vPx}px`, text: vText, ...mx(vPx, vN, vText) }));
+  if (showText && (mode === "quer" || mode === "beides")) face.append(el("span", { class: "qt pos-" + (sp.querPos || "unten") + (sp.maxText ? " mx" : ""), style: `font-size:${qPx}px`, text: qText, ...mx(qPx, qN, qText) }));
   return face;
 }
 // Schriftgröße: Grundgröße wie bisher (Anteil der Rückenbreite, höchstens „cap“, mindestens 6 px), der Regler vergrößert bzw.
@@ -2275,6 +2282,58 @@ function textW100(text, font) {
     if (measureCache.size > 5000) measureCache.clear(); measureCache.set(k, w);
   }
   return w || 1;
+}
+// Maximierte Rückentitel nach dem Zeichnen nachmessen: verkleinern, bis nichts abgeschnitten ist und alles im Rücken liegt.
+// Gemessen wird im Browser selbst – so stimmt es auch, wenn eine Schrift anders breit ist als vorausberechnet oder erst später lädt.
+// Untergrenze: lesbare Mindestgröße (bzw. die normale, falls kleiner). Reicht das nicht, kommt der kurze Titel (data-short),
+// danach kürzt das „…“ wie bei normalen Rücken.
+const MAX_TITLE_MIN = 7; // px – kleiner ist auf dem Rücken nicht mehr gut lesbar
+function shortTitle(t) { const s = String(t || "").split(/\s[–—-]\s|:\s|\.\s/)[0].trim(); return s && s.length >= 3 && s.length < String(t).trim().length ? s : ""; }
+// Volle Größe des Textes ohne jede Begrenzung (unsichtbare Kopie im selben Rücken) – der Browser meldet ein „…“ bei
+// senkrechter Schrift nicht zuverlässig über scrollHeight.
+function titleNatural(t, f) {
+  const probe = extra => {
+    const c = t.cloneNode(true);
+    c.style.cssText += ";position:absolute;left:0;top:0;visibility:hidden;max-height:none;max-width:none;min-height:0;overflow:visible;margin:0;" + extra;
+    f.append(c); const r = { h: c.offsetHeight, w: c.offsetWidth }; c.remove(); return r;
+  };
+  if (!t.classList.contains("qt")) return probe("height:auto;width:auto"); // senkrecht: ganze Länge, Zeilenbreite
+  // quer: Höhe bei Rückenbreite (umbrochen), Breite des längsten Wortes
+  return { h: probe(`width:${f.clientWidth}px`).h, w: probe("width:min-content").w };
+}
+function fitMaxTitles(root) {
+  if (!root) return;
+  let todo = [...root.querySelectorAll(".face .mx")];
+  for (let pass = 0; pass < 8 && todo.length; pass++) {
+    const over = todo.map(t => {
+      const f = t.parentElement, W = f.clientWidth, H = f.clientHeight;
+      if (!W || !H) return null; // nicht sichtbar (z. B. ausgeblendet) – später
+      const n = titleNatural(t, f);
+      let r;
+      if (t.classList.contains("vt")) { // senkrecht: Länge in den Rücken (ohne Querschrift, 94 % wie im CSS), Zeilenhöhe in die Breite
+        const q = [...f.children].find(x => x !== t && x.classList.contains("qt"));
+        const len = (H - (q ? q.offsetHeight : 0)) * 0.94 - 1;
+        r = Math.min(len / n.h, (W - 1) / n.w);
+      } else r = Math.min(H * 0.4 / n.h, W / n.w); // quer: höchstens 40 % der Höhe, kein Wort breiter als der Rücken
+      return r < 0.995 ? [t, r] : null;
+    }).filter(Boolean);
+    todo = [];
+    for (const [t, r] of over) {
+      const px = parseFloat(t.style.fontSize), min = +t.dataset.min || 3;
+      if (px <= min) { // ganzer Text passt nicht lesbar → kurzer Titel, neu einpassen
+        if (t.dataset.short && t.textContent !== t.dataset.short) { t.textContent = t.dataset.short; t.style.fontSize = t.dataset.start + "px"; todo.push(t); }
+        continue;
+      }
+      t.style.fontSize = Math.max(min, px * Math.min(0.95, r * 0.97)).toFixed(2) + "px";
+      todo.push(t);
+    }
+  }
+}
+// Webschriften laden evtl. erst nach dem Zeichnen – dann einmal nachmessen
+let fontsFitted = false;
+function fitMaxTitlesSoon(root) {
+  requestAnimationFrame(() => fitMaxTitles(root));
+  if (!fontsFitted && document.fonts && document.fonts.status !== "loaded") { fontsFitted = true; document.fonts.ready.then(() => { if (root.isConnected) fitMaxTitles(root); }); }
 }
 // größte Schrift: quer zur Schreibrichtung höchstens „across“, längs passt der ganze Text in „along“
 function maxFontPx(text, font, across, along) { return +Math.max(3, Math.min(across, text ? along / textW100(text, font) * 100 : across)).toFixed(2); }
@@ -2300,6 +2359,7 @@ function spineEditor(b, onSave) {
     const lieFace = spineFace(b, w, h, d, prevKey); lieFace.style.cssText += ";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg)";
     const lie = el("div", { class: "spine lie", style: `width:${h}px;height:${w}px` }, lieFace);
     fillNode(prev, el("div", { class: "spcol" }, el("small", { text: "stehend" }), stand), el("div", { class: "spcol" }, el("small", { text: "liegend" }), lie));
+    requestAnimationFrame(() => fitMaxTitles(prev));
     syncSize();
   };
   const field = (label, input, cls = "c3") => el("div", { class: cls }, el("label", { class: "lbl", text: label }), input);
