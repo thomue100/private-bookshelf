@@ -1147,7 +1147,25 @@ function openReview(rec, coverFile, noteText) {
   };
   const setPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
   drawCover();
-  S.pasteHandler = setPhoto;
+  S.pasteHandler = setPhoto; // Strg+V geht ans Cover – außer die Rücken-Fläche ist gerade fokussiert (dropZone)
+  // --- Rückenfoto gleich beim Erfassen
+  const spBase = draft.spine ? { ...draft.spine } : null;
+  const spBox = el("div", { class: "spphoto" });
+  const setSpine = async f => {
+    try { draft.spine = await spineWithPhoto(draft, f, spBase); drawSpine(); toast("Rückenfoto übernommen.", 1800); }
+    catch { toast("Bild konnte nicht gelesen werden."); }
+  };
+  const spZone = isMobile() ? null : dropZone("Rücken hierher ziehen – oder hier klicken und Strg+V", setSpine);
+  if (spZone) spZone.style.cssText = "padding:8px;font-size:12px;margin-top:6px";
+  const drawSpine = () => {
+    const has = !!draft.spine?.imageBlob;
+    fillNode(spBox, el("label", { class: "lbl", text: "📷 Rücken" }),
+      has ? el("div", { class: "spmini" }, spineMini(draft, "review", 5)) : el("div", { class: "saved", text: "Optional – fürs echte Regal." }),
+      el("div", { class: "covertools" }, ...spinePhotoButtons(setSpine, isMobile() ? "📷 Foto" : "🖼 Bild wählen"),
+        has ? el("button", { class: "btn sm ghost danger", type: "button", onclick: () => { draft.spine = spBase ? { ...spBase } : null; drawSpine(); } }, "entfernen") : null),
+      spZone);
+  };
+  drawSpine();
   const notes = [];
   if (noteText) notes.push(el("div", { class: "note", text: noteText }));
   else if (rec.src) notes.push(el("div", { class: "note info", text: `Gefunden über ${rec.src}. Kurz drüberschauen – fehlende Felder sind gelb markiert.` }));
@@ -1181,6 +1199,7 @@ function openReview(rec, coverFile, noteText) {
         if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; // sonst: kein Cover
       }
       if (!b.wish) delete b.wish;
+      if (!b.spine) delete b.spine;
       await putBook(b);
       toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : `„${b.title}“ ist im Regal.`);
       if (next) openAdd(); else closeSheet();
@@ -1190,7 +1209,7 @@ function openReview(rec, coverFile, noteText) {
   fillNode(sh.body, 
     ...notes,
     whereSeg,
-    el("div", { class: "dtop" }, el("div", {}, coverBox, coverChoice, coverTools(setPhoto)), el("div", {}, personal)),
+    el("div", { class: "dtop" }, el("div", {}, coverBox, coverChoice, coverTools(setPhoto), spBox), el("div", {}, personal)),
     el("div", { class: "sec" }, el("h3", { text: "Buchdaten" }), form,
       el("label", { class: "lbl", style: "margin-top:12px", text: "Schlagworte" }), tagEditor(draft, () => {}),
       webSearchLinks([draft.title, draft.author].filter(Boolean).join(" "), draft.isbn, draft.title, draft.author)),
@@ -1471,12 +1490,18 @@ function drawDetailEdit(sh, b, keep) {
   goneCb.addEventListener("change", () => { syncGone(); markDirty(); });
   goneBody.style.display = goneState.on ? "" : "none";
   const spPrev = el("div", { class: "spmini" });
-  const drawSpPrev = () => { const sc = 6, c = spineCm(draft); fillNode(spPrev, el("div", { class: "spine", style: `width:${c.w * sc}px;height:${c.h * sc}px` }, spineFace(draft, c.w * sc, c.h * sc, null, "draft-" + b.id))); };
+  const spInfo = el("p", { class: "saved", style: "margin:0 0 8px" });
+  const drawSpPrev = () => { fillNode(spPrev, spineMini(draft, "draft-" + b.id)); spInfo.textContent = draft.spine?.imageBlob ? "Mit eigenem Foto." : draft.spine ? "Individuell gestaltet." : "Automatisch: Farbe aus dem Cover, Dicke aus der Seitenzahl."; };
   drawSpPrev();
+  const setSpinePhoto = async f => {
+    try { draft.spine = await spineWithPhoto(draft, f); markDirty(); drawSpPrev(); toast("Rückenfoto übernommen – mit Speichern sichern.", 2400); }
+    catch { toast("Bild konnte nicht gelesen werden."); }
+  };
   const spineSec = el("div", { class: "sec" }, el("h3", { text: "Buchrücken (echtes Regal)" }),
     el("div", { style: "display:flex;gap:14px;align-items:flex-end" }, spPrev,
-      el("div", {}, el("p", { class: "saved", style: "margin:0 0 8px", text: draft.spine ? "Individuell gestaltet." : "Automatisch: Farbe aus dem Cover, Dicke aus der Seitenzahl." }),
-        el("button", { class: "btn sm", type: "button", onclick: () => spineEditor(draft, sp => { draft.spine = sp; markDirty(); drawSpPrev(); }) }, "🎨 Gestalten"))));
+      el("div", {}, spInfo,
+        el("div", { class: "covertools" }, ...spinePhotoButtons(setSpinePhoto),
+          el("button", { class: "btn sm", type: "button", onclick: () => spineEditor(draft, sp => { draft.spine = sp; markDirty(); drawSpPrev(); }) }, "🎨 Gestalten")))));
   const wishCb = el("input", { type: "checkbox", checked: isWish(draft) || null, style: "width:18px;height:18px;accent-color:var(--accent)" });
   wishCb.addEventListener("change", () => { draft.wish = wishCb.checked; if (draft.wish && goneCb.checked) { goneCb.checked = false; syncGone(); } markDirty(); });
   const goneSec = el("div", { class: "sec" }, el("h3", { text: "Besitz" }),
@@ -2348,6 +2373,23 @@ async function prepSpineImage(file) {
   if (img.naturalWidth > img.naturalHeight) { blob = await rotateBlob(blob, -90); img = await loadImage(blob); } // Rücken ist immer höher als breit
   const c = toCanvas(img, 900); return { blob: await canvasBlob(c, .86), ratio: c.width / c.height };
 }
+/* Rückenfoto übernehmen (Editor, Prüfen & speichern, Bearbeiten): aufrichten, verkleinern und – nur wenn noch keine Dicke
+   gesetzt ist – die Dicke aus Seitenverhältnis und Höhe berechnen. Gibt ein neues spine-Objekt zurück, b bleibt unverändert. */
+async function spineWithPhoto(b, file, sp = b.spine) {
+  const { blob, ratio } = await prepSpineImage(file);
+  const out = { ...(sp || {}), imageBlob: blob };
+  if (!+out.thickCm) out.thickCm = Math.round(spineCm({ ...b, spine: out }).h * ratio * 10) / 10;
+  return out;
+}
+/* Knöpfe für ein Rückenfoto ohne Umweg über den Editor. Am Handy öffnet „📷 Rückenfoto“ direkt die Kamera. */
+function spinePhotoButtons(onFile, label = "📷 Rückenfoto") {
+  const m = isMobile();
+  return [
+    el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(m); if (f) onFile(f); } }, label),
+    m ? el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(false); if (f) onFile(f); } }, "Galerie") : null];
+}
+/* Kleine Vorschau eines Buchrückens (stehend). */
+function spineMini(b, key, sc = 6) { const c = spineCm(b); return el("div", { class: "spine", style: `width:${c.w * sc}px;height:${c.h * sc}px` }, spineFace(b, c.w * sc, c.h * sc, null, key)); }
 function spineEditor(b, onSave) {
   const d = { mode: "hoch", dir: "up", querPos: "unten", font: "serif", size: 100, ...(b.spine || {}) };
   const est = (() => { const p = +b.pages || 0; return { w: p ? Math.min(7, Math.max(0.8, p * 0.0058 + 0.35)) : 2.2, h: 18 + (hue(b.id || b.title) % 60) / 10 }; })();
@@ -2394,9 +2436,8 @@ function spineEditor(b, onSave) {
   const imgBtns = el("div", { class: "covertools" });
   const setImage = async f => {
     try {
-      const { blob, ratio } = await prepSpineImage(f); d.imageBlob = blob;
-      if (!d.thickCm) { d.thickCm = Math.round((+d.heightCm || est.h) * ratio * 10) / 10; thick.value = d.thickCm; }
-      drawImgBtns(); drawPrev(); toast("Bild übernommen – die Dicke wurde aus dem Bild berechnet.", 2600);
+      const had = +d.thickCm; Object.assign(d, await spineWithPhoto(b, f, d)); thick.value = d.thickCm || "";
+      drawImgBtns(); drawPrev(); toast(had ? "Bild übernommen." : "Bild übernommen – die Dicke wurde aus dem Bild berechnet.", 2600);
     } catch { toast("Bild konnte nicht gelesen werden."); }
   };
   const drawImgBtns = () => {
