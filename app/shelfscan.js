@@ -617,6 +617,7 @@ async function importScan(st, opt) {
         b.seriesNo = iv;
       }
       b.spine = spine;
+      const hsp = c && spineWithHeight(b, c); if (hsp) b.spine = hsp; // Katalog-Höhe nur, wenn das Foto keine liefert
       if ((opt.tags || []).length) b.tags = normTags(opt.tags);
       if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
       await putBook(b); id = b.id; created++; newIds.push(id);

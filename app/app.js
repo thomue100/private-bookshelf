@@ -238,6 +238,20 @@ function dnbSub(d, code) { const s = [...d.getElementsByTagNameNS(MARC, "subfiel
 function dnbFirst(r, tag, code) { for (const d of dnbFields(r, tag)) { const v = dnbSub(d, code); if (v) return v; } return ""; }
 const trimPunct = s => (s || "").replace(/[\s\/:;,.=]+$/, "").replace(/^[\s\/:;,.=]+/, "").trim();
 function flipName(n) { n = trimPunct(n); const m = n.match(/^([^,]+),\s*(.+)$/); return m ? `${m[2]} ${m[1]}` : n; }
+/* Buchhöhe aus der Formatangabe der Kataloge („21 cm“, „24 x 17 cm“, „21 x 13,5 cm“): die erste Zahl ist die Höhe.
+   Nur 8–33 cm (wie die Fächer), sonst 0. */
+function heightFromFormat(s) {
+  const m = String(s || "").match(/(?:^|[^\d,.])(\d{1,2}(?:[,.]\d{1,2})?)\s*(?:[x×]\s*\d{1,2}(?:[,.]\d{1,2})?\s*)?cm\b/i);
+  if (!m) return 0;
+  const h = parseFloat(m[1].replace(",", "."));
+  return h >= 8 && h <= 33 ? Math.round(h * 10) / 10 : 0;
+}
+/* Höhe aus einem Katalog-Datensatz übernehmen – nur wenn das Buch noch keine hat (gemessen, Fach-Foto, Editor bleiben).
+   Gibt das neue spine-Objekt zurück oder null. */
+function spineWithHeight(b, rec) {
+  if (!+rec?.heightCm || +b.spine?.heightCm) return null;
+  return { ...(b.spine || {}), heightCm: +rec.heightCm };
+}
 function fromDNB(r) {
   const names = [], editors = [];
   for (const tag of ["100", "700"]) for (const d of dnbFields(r, tag)) {
@@ -276,7 +290,8 @@ function fromDNB(r) {
   let series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "", orderNo = "";
   // „Weihnachtsgeschichten am Kamin 27.“ – der Band zählt mehr als die Verlagsreihe („Rororo 25795“, eine Bestellnummer)
   if (/^\d{1,3}$/.test(part) && !/^\d{1,3}$/.test(seriesNo)) { orderNo = seriesNo; series = nosort(dnbFirst(r, "245", "a")); seriesNo = String(+part); }
-  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo };
+  const heightCm = av ? 0 : heightFromFormat(dnbFirst(r, "300", "c")); // 300 $c: Format, z. B. „21 cm“
+  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo, ...(heightCm ? { heightCm } : {}) };
 }
 async function dnbQuery(cql, max = 15) {
   const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
@@ -331,7 +346,9 @@ function fromLobid(m) {
   const series = trimPunct(lm ? lm[1] : lbl), seriesNo = trimPunct(rel.numbering || (lm ? lm[2] : ""));
   const ebook = /online|elektron|e-book/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" "));
   const av = /audio|tonträger|hörbuch|hörspiel|\bCD\b|DVD/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" ") + " " + (m.extent || "") + " " + m.title);
+  const heightCm = av ? 0 : heightFromFormat(m.extent); // „317 S. ; 21 cm“
   return {
+    ...(heightCm ? { heightCm } : {}),
     title, author, year: String(pub.startDate || "").slice(0, 4), publisher: (pub.publishedBy || [])[0] || "",
     pages: (String(m.extent || "").match(/(\d+)\s*(Seiten|S\.)/) || [, ""])[1], genre: "", language: ((m.language || [])[0] || {}).label || "",
     summary: "", isbn, coverUrl: "", src: "Bibliotheksverbund (lobid)", ebook, av, edition: (m.edition || [])[0] || "", series, seriesNo, part: /^\d{1,3}$/.test(seriesNo) ? seriesNo : "",
@@ -1129,6 +1146,7 @@ function openReview(rec, coverFile, noteText) {
   sh.h2.textContent = "Prüfen & speichern";
   const draft = { status: "unread", rating: 0, notes: "", wish: !!S.addAsWish };
   for (const f of FIELDS) draft[f.k] = rec[f.k] || "";
+  const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Buchhöhe aus dem Katalog (DNB/lobid)
   let coverMode = coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
   let photo = coverFile || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
   const webCovers = rec.altCovers || (rec.coverUrl ? [rec.coverUrl] : []);
@@ -1442,6 +1460,7 @@ function drawDetailEdit(sh, b, keep) {
     const got = [];
     for (const f of FIELDS) if (!String(draft[f.k] ?? "").trim() && rec[f.k]) { draft[f.k] = rec[f.k]; got.push(f.l); }
     if (!draft.coverBlob && !draft.coverUrl && rec.coverUrl) { draft.coverUrl = rec.coverUrl; st.coverChanged = true; got.push("Cover"); }
+    const hsp = spineWithHeight(draft, rec); if (hsp) { draft.spine = hsp; got.push(`Höhe (${String(hsp.heightCm).replace(".", ",")} cm)`); }
     if (got.length) { markDirty(); toast("Ergänzt (noch nicht gespeichert): " + got.join(", "), 4000); drawDetailEdit(sh, b, { draft, st }); }
     else { toast("Nichts Neues gefunden."); fillBtn.disabled = false; fillBtn.textContent = "🔎 Leere Felder online ergänzen"; }
   });
@@ -1454,6 +1473,7 @@ function drawDetailEdit(sh, b, keep) {
     let rec = null; try { rec = await lookupIsbn(i); } catch { toast("Keine Internetverbindung."); return; }
     if (!rec) { toast("Zu dieser ISBN wurde online nichts gefunden."); return; }
     for (const f of FIELDS) if (rec[f.k]) draft[f.k] = rec[f.k];
+    const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Höhe nur, wenn noch keine eingetragen ist
     markDirty(); toast("Übernommen – prüfen und speichern.", 3000); drawDetailEdit(sh, b, { draft, st });
   });
 
@@ -1546,12 +1566,47 @@ async function fillMissing(id, btn) {
     if (!rec) { toast("Online nichts Passendes gefunden."); return; }
     const patch = {};
     for (const f of FIELDS) if (!String(b[f.k] ?? "").trim() && rec[f.k]) patch[f.k] = rec[f.k];
+    const hsp = spineWithHeight(b, rec); if (hsp) patch.spine = hsp;
     if (needsCover(b) && rec.coverUrl) { const blob = await fetchCoverBlob(rec.coverUrl); if (blob) { patch.coverUrl = rec.coverUrl; patch.coverBlob = blob; S.badCover.delete(b.id); } else if (await imgOk(rec.coverUrl)) { patch.coverUrl = rec.coverUrl; S.badCover.delete(b.id); } }
     if (!Object.keys(patch).length) { toast("Nichts Neues gefunden."); return; }
     await patchBook(id, patch);
-    toast("Ergänzt: " + Object.keys(patch).filter(k => k !== "coverBlob").map(k => k === "coverUrl" ? "Cover" : FIELDS.find(f => f.k === k).l).join(", "));
+    toast("Ergänzt: " + Object.keys(patch).filter(k => k !== "coverBlob").map(k => k === "coverUrl" ? "Cover" : k === "spine" ? "Höhe" : FIELDS.find(f => f.k === k).l).join(", "));
   } catch { toast("Keine Internetverbindung."); }
   finally { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "🔎"; } }
+}
+/* Sammellauf: Buchhöhen aus der DNB für Bücher mit ISBN und ohne Höhe – nacheinander, mit Pause, abbrechbar. */
+async function heightRun() {
+  const ids = S.books.filter(b => !isWish(b) && toIsbn13(b.isbn) && !+b.spine?.heightCm).map(b => b.id);
+  if (!ids.length) { toast("Alle Bücher mit ISBN haben schon eine Höhe."); return; }
+  const sh = sheet("📏 Buchhöhen aus der DNB");
+  const bar = el("div", { class: "progress" }, el("div", {}));
+  const status = el("div", { class: "saved" });
+  const log = el("div", { class: "covlog" });
+  let stop = false, set = 0, none = 0;
+  const stopBtn = el("button", { class: "btn", onclick: () => { stop = true; stopBtn.disabled = true; stopBtn.textContent = "Wird beendet …"; } }, "Anhalten");
+  fillNode(sh.body,
+    el("p", { style: "margin-top:0", text: `${ids.length} ${ids.length === 1 ? "Buch" : "Bücher"} mit ISBN ohne Höhe. Die App fragt die Deutsche Nationalbibliothek nacheinander – selbst gemessene Höhen bleiben unverändert.` }),
+    bar, status, log, el("div", { class: "actions" }, stopBtn, el("span")));
+  sh.guard = async () => { stop = true; return true; };
+  const row = (b, txt, cls) => log.prepend(el("div", { class: "covrow " + (cls || "") }, el("span", { text: txt }), el("b", { text: b.title || "Ohne Titel" })));
+  for (let i = 0; i < ids.length && !stop; i++) {
+    const b = S.books.find(x => x.id === ids[i]); if (!b || +b.spine?.heightCm) continue;
+    bar.firstChild.style.width = Math.round(i / ids.length * 100) + "%";
+    status.textContent = `${i + 1} / ${ids.length}: „${b.title}“`;
+    const isbn = toIsbn13(b.isbn);
+    let recs; try { recs = await dnbQuery(`num=${isbn}`, 3); } catch { row(b, "⚠ offline", "warn"); break; }
+    const rec = recs.find(r => r.isbn === isbn) || recs[0];
+    const cur = S.books.find(x => x.id === b.id); // kann sich inzwischen geändert haben
+    const sp = cur && spineWithHeight(cur, rec);
+    if (sp) { await patchBook(b.id, { spine: sp }); set++; row(b, `✓ ${String(sp.heightCm).replace(".", ",")} cm`, "ok"); }
+    else { none++; row(b, "– keine Angabe", "none"); }
+    if (!stop && i < ids.length - 1) await new Promise(r => setTimeout(r, S.heightPause ?? 400)); // schonend
+  }
+  bar.firstChild.style.width = "100%";
+  sh.guard = null;
+  status.textContent = `Fertig: ${set} Höhen nachgetragen, ${none} ohne Angabe.` + (stop ? " (angehalten)" : "");
+  sh.body.querySelector(".actions").replaceWith(el("div", { class: "actions" }, el("span"), el("button", { class: "btn primary", onclick: closeSheet }, "Schließen")));
+  renderAll();
 }
 
 /* ================= Echtes Regal (Montana-Würfel) ================= */
@@ -3171,6 +3226,7 @@ function exportCsv(only) {
 }
 $("#exportCsv").addEventListener("click", exportCsv);
 $("#coverRun").addEventListener("click", () => coverRun());
+$("#heightRun").addEventListener("click", () => heightRun());
 $("#dupRun").addEventListener("click", () => openDuplicates());
 async function remindBackup() {
   if (!S.books.length) return;
