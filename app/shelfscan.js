@@ -163,28 +163,53 @@ function resolveCollisions(items) {
     for (const it of g) if (itemVol(it) !== cv) it.choice = -1;
   }
 }
-// Gründe zum Nachfragen je Rücken (leer = sicher)
-function assessScan(items) {
+// Texte der Nachfrage – je nach Quelle (Fach-Foto oder eingefügte Titelliste, titlelist.js)
+const SCAN_WORDS = {
+  photo: {
+    low: "Rücken schlecht lesbar – Titel bitte prüfen",
+    offline: "Katalog nicht erreichbar – es werden nur die erkannten Angaben übernommen",
+    none: "Nicht im Katalog gefunden – es werden die erkannten Angaben übernommen",
+    vol: v => `Band ${v} nicht im Katalog gefunden – es werden die erkannten Angaben übernommen (ohne ISBN)`,
+    unsure: "Kein sicherer Katalogtreffer – es werden die erkannten Angaben übernommen",
+    volNone: v => `Band ${v} erkannt – der Katalogtreffer nennt keinen Band`,
+    rival: "Mehrere ähnliche Katalogeinträge – bitte den richtigen auswählen",
+    same: ns => `Gleiches Buch wie Nr. ${ns} – ein zweites Exemplar? Sonst Titel oder Band korrigieren und neu suchen`,
+    own: "Nur erkannte Angaben übernehmen (ohne Katalogtreffer)",
+  },
+  list: {
+    low: "Titel aus der Liste nicht eindeutig – bitte prüfen",
+    offline: "Katalog nicht erreichbar – es werden deine Angaben aus der Liste übernommen",
+    none: "Nicht im Katalog gefunden – es werden deine Angaben aus der Liste übernommen",
+    vol: v => `Band ${v} nicht im Katalog gefunden – es werden deine Angaben übernommen (ohne ISBN)`,
+    unsure: "Titel aus der Liste nicht eindeutig – bitte den richtigen Treffer wählen oder deine Angaben übernehmen",
+    volNone: v => `Band ${v} laut Liste – der Katalogtreffer nennt keinen Band`,
+    rival: "Mehrere ähnliche Katalogeinträge – bitte den richtigen auswählen",
+    same: ns => `Steht mehrfach in der Liste (Nr. ${ns}) – ein zweites Exemplar? Sonst eine Zeile überspringen`,
+    own: "Nur meine Angaben aus der Liste übernehmen",
+  },
+};
+// Gründe zum Nachfragen je Rücken bzw. Listenzeile (leer = sicher)
+function assessScan(items, W = SCAN_WORDS.photo) {
   const byKey = new Map();
   items.forEach((it, n) => { if (it.kind === "other" || !it.include) return; const k = itemKey(it); if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(n); });
   items.forEach((it, n) => {
     const r = [];
     if (it.kind !== "other") {
-      if (it.confidence === "low") r.push("Rücken schlecht lesbar – Titel bitte prüfen");
+      if (it.confidence === "low") r.push(W.low);
       const c = it.cands[it.choice], iv = itemVol(it);
-      if (!c) r.push(it.offline ? "Katalog nicht erreichbar – es werden nur die erkannten Angaben übernommen"
-        : !it.cands.length ? "Nicht im Katalog gefunden – es werden die erkannten Angaben übernommen"
-        : iv && !it.cands.some(x => candVol(x) === iv) ? `Band ${iv} nicht im Katalog gefunden – es werden die erkannten Angaben übernommen (ohne ISBN)`
-        : "Kein sicherer Katalogtreffer – es werden die erkannten Angaben übernommen");
+      if (!c) r.push(it.offline ? W.offline
+        : !it.cands.length ? W.none
+        : iv && !it.cands.some(x => candVol(x) === iv) ? W.vol(iv)
+        : W.unsure);
       else {
         const cv = candVol(c);
-        if (iv && !cv) r.push(`Band ${iv} erkannt – der Katalogtreffer nennt keinen Band`);
+        if (iv && !cv) r.push(W.volNone(iv));
         const isbnSure = toIsbn13(it.isbn) && toIsbn13(it.isbn) === c.isbn;
         const rival = it.cands.find(x => x !== c && x._score > c._score - 1 && (normTxt(x.title) !== normTxt(c.title) || candVol(x) !== cv));
-        if (rival && !isbnSure) r.push("Mehrere ähnliche Katalogeinträge – bitte den richtigen auswählen");
+        if (rival && !isbnSure) r.push(W.rival);
       }
       const same = it.include ? (byKey.get(itemKey(it)) || []).filter(m => m !== n) : [];
-      if (same.length) r.push(`Gleiches Buch wie Nr. ${same.map(m => m + 1).join(", ")} – ein zweites Exemplar? Sonst Titel oder Band korrigieren und neu suchen`);
+      if (same.length) r.push(W.same(same.map(m => m + 1).join(", ")));
     }
     it.reasons = r;
   });
@@ -483,14 +508,18 @@ function spineFromScan(it, comp, cropCanvas) {
   if (/rororo|dtv|fischer|suhrkamp/i.test(it.publisher || "")) sp.font = "sans";
   return { sp, cropCanvas };
 }
+/* Prüfliste – für das Fach-Foto (st.canvas, st.data) und ohne Foto für die Titelliste (titlelist.js). Ohne Foto entfallen Fotobereich,
+   Rücken-Ausschnitte und Fach-Optionen; optional in st: words (Texte, SCAN_WORDS), title, intro, options (eigene Optionen),
+   thumb(it) (Bild je Zeile), rowExtra(it, ctx) → { top, bottom }, dupText(it), onImport(), onChange(), back { label, fn }. */
 function scanReview(sh, st) {
   const { canvas, data, items } = st;
-  sh.h2.textContent = "Erkannte Bücher prüfen";
-  const comp = data.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const W = st.words || SCAN_WORDS.photo;
+  sh.h2.textContent = st.title || "Erkannte Bücher prüfen";
+  const comp = data?.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 };
   // Foto mit nummerierten Rahmen
-  const photoUrl = canvas.toDataURL("image/jpeg", .85);
-  const ov = el("div", { class: "scanphoto" }, el("img", { src: photoUrl, alt: "" }));
-  items.forEach((it, n) => { const b = it.bbox; if (!b) return; ov.append(el("div", { class: "scanbox" + (it.kind === "other" ? " other" : "") + (it.include ? "" : " off"), "data-n": n, style: `left:${b.x0 * 100}%;top:${b.y0 * 100}%;width:${(b.x1 - b.x0) * 100}%;height:${(b.y1 - b.y0) * 100}%` }, el("span", { text: n + 1 }))); });
+  const photoUrl = canvas ? canvas.toDataURL("image/jpeg", .85) : null;
+  const ov = el("div", { class: "scanphoto" }, photoUrl ? el("img", { src: photoUrl, alt: "" }) : null);
+  if (canvas) items.forEach((it, n) => { const b = it.bbox; if (!b) return; ov.append(el("div", { class: "scanbox" + (it.kind === "other" ? " other" : "") + (it.include ? "" : " off"), "data-n": n, style: `left:${b.x0 * 100}%;top:${b.y0 * 100}%;width:${(b.x1 - b.x0) * 100}%;height:${(b.y1 - b.y0) * 100}%` }, el("span", { text: n + 1 }))); });
   const optCrop = el("input", { type: "checkbox", checked: true });
   const optStatus = el("select", { class: "field" }, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v }, l)));
   const fachs = fachOptions(); const target = fachs.find(f => f.key === st.fachKey);
@@ -512,13 +541,14 @@ function scanReview(sh, st) {
       "oder Titel/Band korrigieren und „🔎 Neu suchen“ – oder „✓ Passt so“, wenn alles stimmt.",
       el("label", { class: "prow", style: "margin-top:6px" }, onlyUnsure, el("span", { text: "Nur unsichere zeigen" }))) : null);
   };
-  const refresh = () => { assessScan(items); drawers.forEach(d => d()); updCount(); updUnsure(); };
+  const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); st.onChange && st.onChange(); };
   const POS = { standing: "steht", lying_in_row: "liegt in der Reihe", lying_on_top: "liegt oben auf", behind: "hintere Reihe" };
   const rowFor = (it, n) => {
     const cb = el("input", { type: "checkbox", checked: it.include || null });
     cb.addEventListener("change", () => { it.include = cb.checked; row.classList.toggle("off", !it.include); refresh(); });
-    const crop = cropSpine(canvas, it, comp);
-    const thumb = el("div", { class: "scanthumb" }); if (crop) { const c2 = crop; c2.style.cssText = "max-width:100%;max-height:100%"; thumb.append(c2); }
+    const crop = canvas ? cropSpine(canvas, it, comp) : null;
+    const thumb = el("div", { class: "scanthumb" + (canvas ? "" : " cov") }); if (crop) { const c2 = crop; c2.style.cssText = "max-width:100%;max-height:100%"; thumb.append(c2); }
+    const drawThumb = () => { if (st.thumb) fillNode(thumb, st.thumb(it)); };
     const tIn = el("input", { class: "field", value: it.title || "", placeholder: "Titel" });
     const aIn = el("input", { class: "field", value: it.author || "", placeholder: "Autor" });
     const editHint = el("div", { class: "saved", style: "color:var(--accent)" });
@@ -528,11 +558,11 @@ function scanReview(sh, st) {
     vIn.addEventListener("input", () => { it.volume = vIn.value.replace(/\D/g, "").slice(0, 3); it.series_no = it.volume; it.spine_text_vertical = ""; edited(); }); // eigene Angabe ersetzt die erkannte
     const pick = el("select", { class: "field", style: "width:100%" });
     const drawPick = () => fillNode(pick,
-      el("option", { value: -1, selected: it.choice === -1 || null }, "Nur erkannte Angaben übernehmen (ohne Katalogtreffer)"),
+      el("option", { value: -1, selected: it.choice === -1 || null }, W.own),
       ...it.cands.map((c, i) => el("option", { value: i, selected: it.choice === i || null }, `${c.title} – ${c.author || "?"} · ${[c.publisher, c.year].filter(Boolean).join(" ")}${c.isbn ? " · ISBN " + c.isbn : ""}${c.ebook ? " · E-Book" : ""}`)));
     drawPick();
     const dupInfo = el("div", { class: "saved" });
-    const drawDup = () => { it.dup = scanDup(it); dupInfo.textContent = it.dup ? (isWish(it.dup) ? `⭐ Stand auf deiner Wunschliste („${it.dup.title}“) – wird als gekauft in den Bestand übernommen.` : `✓ Schon in deiner Sammlung („${it.dup.title}“) – wird nicht doppelt angelegt, nur einsortiert.`) : ""; };
+    const drawDup = () => { it.dup = scanDup(it); dupInfo.textContent = it.dup && st.dupText ? st.dupText(it) : it.dup ? (isWish(it.dup) ? `⭐ Stand auf deiner Wunschliste („${it.dup.title}“) – wird als gekauft in den Bestand übernommen.` : `✓ Schon in deiner Sammlung („${it.dup.title}“) – wird nicht doppelt angelegt, nur einsortiert.`) : ""; };
     pick.addEventListener("change", () => { it.choice = +pick.value; it.confirmed = true; refresh(); }); // eigene Auswahl = geprüft
     const re = el("button", { class: "btn sm", type: "button" }, "🔎 Neu suchen");
     re.addEventListener("click", async () => {
@@ -549,19 +579,25 @@ function scanReview(sh, st) {
         it.confirmed ? el("div", { class: "saved", text: "✓ Von dir geprüft" })
           : el("button", { class: "btn sm", type: "button", title: "Angaben stimmen – ohne weitere Nachfrage übernehmen", onclick: () => { it.confirmed = true; refresh(); } }, "✓ Passt so")] : []);
     };
-    drawers.push(() => { drawWarn(); drawDup(); });
+    drawers.push(() => { drawWarn(); drawDup(); drawThumb(); });
     const vol = itemVol(it);
     const meta = [POS[it.position] || "", it.publisher, it.order_no ? "Nr. " + it.order_no : (!vol && it.series_no ? "Nr. " + it.series_no : "")].filter(Boolean).join(" · ");
+    // Zusätze der Titelliste (Originalzeile, Websuche, Link einfügen, überspringen)
+    const extra = st.rowExtra ? st.rowExtra(it, {
+      update: () => { drawPick(); refresh(); },
+      setInclude: v => { it.include = v; cb.checked = v; row.classList.toggle("off", !v); refresh(); },
+    }) : {};
     const row = el("div", { class: "scanrow" + (it.include ? "" : " off") + (it.kind === "other" ? " other" : "") },
       el("label", { class: "scancb" }, cb, el("b", { text: n + 1 })),
       thumb,
       el("div", { class: "scanmain" },
+        extra.top || null,
         it.kind === "other" ? el("div", { class: "saved", text: `Kein Buch erkannt: ${it.label || "Objekt"} – wird standardmäßig übersprungen.` }) : null,
         el("div", { class: "scanin" }, tIn, aIn, it.kind === "other" ? null : vIn), editHint,
         el("div", { class: "saved", text: meta }),
         it.kind === "other" ? null : el("div", { class: "scanpick" }, pick, re),
         it.offline ? el("div", { class: "saved", text: "Katalogsuche nicht möglich (offline)." }) : null,
-        dupInfo, warn));
+        dupInfo, warn, extra.bottom || null));
     return row;
   };
   fillNode(list, ...items.map(rowFor));
@@ -571,22 +607,51 @@ function scanReview(sh, st) {
       list.children[items.indexOf(open[0])]?.scrollIntoView({ block: "center", behavior: "smooth" });
       return;
     }
+    if (st.onImport) { st.onImport(); return; }
     importScan(st, { crop: optCrop.checked, status: optStatus.value, replace: optReplace.value === "replace", target, tags: scanTags.tags });
   });
   fillNode(sh.body,
-    el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
+    st.intro ? el("div", { class: "note info", text: st.intro }) : el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
     unsureNote,
-    ov,
-    el("div", { class: "scanopts" },
+    canvas ? ov : null,
+    st.options || el("div", { class: "scanopts" },
       el("label", { class: "prow" }, optCrop, el("span", {}, el("b", { text: "Buchrücken-Bilder aus dem Foto übernehmen" }), el("div", { class: "saved", text: "Sonst Farbe, Text und Maße wie erkannt." }))),
       el("div", { class: "fgrid" }, el("div", { class: "c3" }, el("label", { class: "lbl", text: "Lesestatus für neue Bücher" }), optStatus),
         target ? el("div", { class: "c3" }, el("label", { class: "lbl", text: "Ziel: " + target.label }), optReplace) : el("div", { class: "c3 saved", style: "align-self:end", text: "Ohne Fach: Bücher landen unter „Noch nicht eingeräumt“." }),
         el("div", { class: "c6" }, el("label", { class: "lbl", text: "Schlagworte für alle übernommenen Bücher (optional)" }), tagEditor(scanTags, () => {})))),
     list,
-    el("div", { class: "actions sticky" }, el("button", { class: "btn ghost", onclick: () => st.photo ? openPhotoInbox() : openShelfScan(st.fachKey) }, st.photo ? "← Später weiter" : "← Anderes Foto"), countBtn));
+    el("div", { class: "actions sticky" }, st.back ? el("button", { class: "btn ghost", onclick: st.back.fn }, st.back.label) : el("button", { class: "btn ghost", onclick: () => st.photo ? openPhotoInbox() : openShelfScan(st.fachKey) }, st.photo ? "← Später weiter" : "← Anderes Foto"), countBtn));
   refresh();
   sh.guard = async () => await confirmBox("Die erkannten Bücher wurden noch nicht übernommen.\nWirklich schließen?", "Schließen");
   sh.body.parentElement.scrollTop = 0;
+}
+/* Neues Buch aus einer Prüflisten-Zeile (Fach-Foto oder Titelliste) und dem gewählten Katalogtreffer c (oder keinem).
+   opt: status, tags, source, spine (aus dem Foto), copyOf (bewusst weiteres Exemplar dieses Buchs). Katalog-Cover wird als Bild gespeichert. */
+async function bookFromItem(it, c, opt) {
+  const base = c ? { ...c } : { title: it.title, author: it.author, publisher: it.publisher || "" };
+  if (c && it.title && !overlap(it.title, c.title)) base.title = it.title; // Katalogtitel passt nicht → Erkanntes behalten
+  const b = { id: uid(), status: opt.status || "unread", rating: 0, notes: opt.copyOf ? "Weiteres Exemplar" : "", addedAt: new Date().toISOString(), source: opt.source };
+  if (opt.copyOf) b.notDup = [opt.copyOf]; // bewusst zweites Exemplar – keine Dublette
+  for (const f of FIELDS) b[f.k] = String(base[f.k] || "").trim();
+  if (!b.title) b.title = it.title || it.label || "Unbekanntes Buch";
+  if (!b.author && it.author) b.author = it.author;
+  if (!b.publisher && it.publisher) b.publisher = it.publisher;
+  if (!b.year && it.year) b.year = String(it.year);
+  if (it.isbn && !b.isbn) b.isbn = toIsbn13(it.isbn) || "";
+  if (!b.series && (it.series || it.series_no)) { b.series = it.series || it.publisher || ""; b.seriesNo = it.series_no || ""; }
+  if (!b.seriesNo && it.series_no && b.series) b.seriesNo = it.series_no;
+  // Erkannter Band einer Reihe: als Reihe + Band-Nr. speichern (statt einer Verlagsnummer wie rororo 13427 aus dem Katalog)
+  const iv = itemVol(it);
+  if (iv) {
+    const pubSeries = digits(b.seriesNo).length >= 4; // Katalog-„Reihe“ ist nur die Verlagsreihe
+    b.series = String(it.series || "").trim() || (!pubSeries && b.series) || String(it.title || b.title).replace(/[\s·.\-–]*\d{1,3}\s*$/, "").trim();
+    b.seriesNo = iv;
+  }
+  if ("spine" in opt) b.spine = opt.spine;
+  const hsp = c && spineWithHeight(b, c); if (hsp) b.spine = hsp; // Katalog-Höhe nur, wenn das Foto keine liefert
+  if ((opt.tags || []).length) b.tags = normTags(opt.tags);
+  if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
+  return b;
 }
 async function importScan(st, opt) {
   const sh = openSheet; const { data, items } = st;
@@ -613,28 +678,7 @@ async function importScan(st, opt) {
       if ((opt.tags || []).length) { const t = normTags([...(dup.tags || []), ...opt.tags]); if (t.length !== (dup.tags || []).length) patch.tags = t; }
       if (Object.keys(patch).length) await patchBook(id, patch);
     } else {
-      const base = c ? { ...c } : { title: it.title, author: it.author, publisher: it.publisher || "" };
-      if (c && it.title && !overlap(it.title, c.title)) base.title = it.title; // Katalogtitel passt nicht → Erkanntes behalten
-      const b = { id: uid(), status: opt.status, rating: 0, notes: copy ? "Weiteres Exemplar" : "", addedAt: new Date().toISOString(), source: "fachfoto" };
-      if (copyOf) b.notDup = [copyOf]; // bewusst zweites Exemplar – keine Dublette
-      for (const f of FIELDS) b[f.k] = String(base[f.k] || "").trim();
-      if (!b.title) b.title = it.title || it.label || "Unbekanntes Buch";
-      if (!b.author && it.author) b.author = it.author;
-      if (!b.publisher && it.publisher) b.publisher = it.publisher;
-      if (it.isbn && !b.isbn) b.isbn = toIsbn13(it.isbn) || "";
-      if (!b.series && (it.series || it.series_no)) { b.series = it.series || it.publisher || ""; b.seriesNo = it.series_no || ""; }
-      if (!b.seriesNo && it.series_no && b.series) b.seriesNo = it.series_no;
-      // Erkannter Band einer Reihe: als Reihe + Band-Nr. speichern (statt einer Verlagsnummer wie rororo 13427 aus dem Katalog)
-      const iv = itemVol(it);
-      if (iv) {
-        const pubSeries = digits(b.seriesNo).length >= 4; // Katalog-„Reihe“ ist nur die Verlagsreihe
-        b.series = String(it.series || "").trim() || (!pubSeries && b.series) || String(it.title || b.title).replace(/[\s·.\-–]*\d{1,3}\s*$/, "").trim();
-        b.seriesNo = iv;
-      }
-      b.spine = spine;
-      const hsp = c && spineWithHeight(b, c); if (hsp) b.spine = hsp; // Katalog-Höhe nur, wenn das Foto keine liefert
-      if ((opt.tags || []).length) b.tags = normTags(opt.tags);
-      if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
+      const b = await bookFromItem(it, c, { status: opt.status, tags: opt.tags, spine, source: "fachfoto", copyOf });
       await putBook(b); id = b.id; created++; newIds.push(id);
     }
     used.add(id);

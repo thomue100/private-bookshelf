@@ -34,7 +34,8 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/index.html` | Gerüst, Navigation (`#regal`, `#wand`, `#wunsch`, `#verwaltung`), Skripte in fester Reihenfolge (alle `defer`) |
 | `app/app.js` | Kern: Zustand `S`, `DB` (IndexedDB), Rendering aller Ansichten, Erfassen/Bearbeiten, Katalogsuche, echtes Regal (Montana-Würfel), Tabelle mit Filtern/Sortierung, Import/Export, Einfügen/Ziehen von Bildern |
 | `app/attachments.js` | Weitere Bilder, Dateien (E-Books/PDF), Widmung/Signatur, Anhänge in Sicherungen |
-| `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke), Prüfliste, Übernahme ins Fach; Cover per KI |
+| `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke), Katalogabgleich (`matchItem`, `autoChoice`, `resolveCollisions`, `assessScan` mit Texten `SCAN_WORDS`), Prüfliste `scanReview` (mit Foto oder ohne – siehe `titlelist.js`), neues Buch `bookFromItem`, Übernahme ins Fach `importScan`; Cover per KI |
+| `app/titlelist.js` | „📋 Titelliste einfügen“: `parseTitleList` (Freitext, Tabellen mit/ohne Kopfzeile, eigener CSV-Export), Vorschau, Suche über `matchItem`, Prüfliste über `scanReview` ohne Foto, `tlImport`; angefangener Lauf im Meta-Eintrag `titleListRun` (nur Gerät, nicht in Sicherung/Abgleich), Weitermachen `resumeTitleList` |
 | `app/batchscan.js` | Viele Fach-Fotos auf einmal erkennen: Sammelauftrag (Anthropic Message Batches, localStorage `aiBatches`), Abholen `checkBatches`, Ausweichweg einzeln, „der Reihe nach prüfen“ (`S.reviewChain`, `nextReview`) |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
 | `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche |
