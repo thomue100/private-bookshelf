@@ -640,3 +640,9 @@ body.wandbig .wrap{max-width:none}
 @media (max-width:480px){.stkfields{grid-template-columns:1fr}}
 .stkrow .covertools{margin-top:6px}
 .stkdup{color:var(--accent)}
+.presetbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+.presetbar .presettext{flex:1 1 200px;min-width:0;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.presetbar.dark{margin:0}
+.presetbar.dark .presettext{background:rgba(0,0,0,.45);border-color:rgba(255,255,255,.3);color:#fff;font-size:12px;padding:4px 8px}
+.presetbar.dark .btn{color:#1f1b18}
+.presetbar.dark .btn.ghost{color:#fff;border-color:rgba(255,255,255,.5)}

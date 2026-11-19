@@ -91,7 +91,7 @@ async function openStackCapture() {
   const count = el("div", { class: "stkcount" }), info = el("p"), btns = el("div", { class: "stkbtns" });
   const flash = el("div", { class: "stkflash" });
   let stream, track, stopLoop = () => {}, closed = false, cur = null, lastIsbn = null, busy = false;
-  const presetBar = typeof presetBarEl === "function" ? presetBarEl({ dark: true }) : null; // Vorgaben (Stufe 6)
+  const presetBar = presetBarEl({ dark: true }); // Vorgaben bleiben sichtbar
   const ov = el("div", { class: "scan stack" }, video, el("div", { class: "frame" }), flash,
     el("div", { class: "stktop" }, count, presetBar, el("button", { class: "btn sm", onclick: () => finish() }, "✕")),
     el("div", { class: "bottom" }, info, btns));
@@ -205,7 +205,7 @@ function openStackReview() {
     } else if (todoAi.length) top.push(el("div", { class: "note info" }, `${todoAi.length} ${todoAi.length === 1 ? "Buch" : "Bücher"} ohne Barcode: je Buch „💬 Mit Claude-Chat erkennen“ – oder Titel und Autor selbst eintragen. Mit einem KI-Schlüssel geht es für alle auf einmal (`, el("a", { href: "#", onclick: ev => { ev.preventDefault(); aboutBox(); } }, "einrichten"), ")."));
     if (waiting) top.push(el("div", { class: "note info" }, el("b", { text: `⏳ ${waiting} ${waiting === 1 ? "Buch wird" : "Bücher werden"} gerade von Claude erkannt.` }), " ", el("button", { class: "btn sm", onclick: () => checkBatches({ loud: true }) }, "Jetzt nachsehen")));
     if (unsure) top.push(el("div", { class: "note warnnote", text: `⚠ ${unsure} ${unsure === 1 ? "Buch ist" : "Bücher sind"} gelb markiert – bitte Titel und Autor kurz prüfen.` }));
-    const presetBar = typeof presetBarEl === "function" ? presetBarEl({ onChange: draw }) : null;
+    const presetBar = presetBarEl({ onChange: draw });
     fillNode(sh.body,
       el("p", { class: "saved", style: "margin-top:0", text: `${list.length} ${list.length === 1 ? "Buch" : "Bücher"} im Stapel. Grün = sicher erkannt, gelb = bitte prüfen. Schon vorhandene Bücher sind nicht angehakt.` }),
       presetBar, ...top, el("div", { class: "stklist" }, ...rows),
@@ -266,11 +266,11 @@ async function importStack(list) {
     const e = S.stack.find(x => x.id === e0.id); if (!e) continue;
     msg.textContent = `${created + bought + 1} / ${list.length}: ${stackTitle(e)}`;
     const r = e.rec || {};
-    const pre = typeof capturePreset === "function" ? capturePreset() : null; // Vorgaben (Stufe 6)
+    const pre = capturePreset(); // Vorgaben (Fach, Schlagworte, Status, Wunschliste)
     const dup = findDuplicate({ isbn: r.isbn || e.isbn, title: r.title, author: r.author });
-    if (dup && isWish(dup) && !pre?.wish) {
-      await patchBook(dup.id, { wish: false, addedAt: new Date().toISOString() }); bought++; placed.push(dup.id);
-      await dropStackEntry(e.id); continue;
+    if (dup && isWish(dup)) {
+      if (!pre?.wish) { await patchBook(dup.id, { wish: false, addedAt: new Date().toISOString() }); bought++; placed.push(dup.id); } // gekauft
+      await dropStackEntry(e.id); continue; // als Wunsch erfasst, steht aber schon auf der Wunschliste
     }
     const b = { id: uid(), status: "unread", rating: 0, notes: "", addedAt: new Date().toISOString(), source: "stapel" };
     for (const f of FIELDS) b[f.k] = String(r[f.k] || "").trim();
@@ -294,7 +294,7 @@ async function importStack(list) {
     await putBook(b); created++; if (!b.wish) placed.push(b.id);
     await dropStackEntry(e.id);
   }
-  if (typeof placePresetBooks === "function") await placePresetBooks(placed);
+  await placePresetBooks(placed); // in Erfassungsreihenfolge ans Ende des Vorgabe-Fachs
   closeSheet(); renderAll();
   toast(`${created} ${created === 1 ? "Buch" : "Bücher"} angelegt${bought ? `, ${bought} von der Wunschliste gekauft` : ""}.${S.stack.length ? ` ${S.stack.length} ${S.stack.length === 1 ? "bleibt" : "bleiben"} im Stapel.` : ""}`, 4500);
 }
@@ -305,3 +305,75 @@ async function importStack(list) {
   if (S.stack.length) stackWork();
   window.addEventListener("online", () => { if (S.stack.length) stackWork(); });
 })();
+
+/* ================= Vorgaben für einen Stapel (auch für „Speichern & nächstes“) =================
+   Einmal festlegen: Ziel-Fach, Schlagworte, Lesestatus, Bestand oder Wunschliste. Jedes erfasste Buch übernimmt sie und kommt in
+   Erfassungsreihenfolge ans Ende des Fachs. Gespeichert nur auf diesem Gerät (localStorage „capturePreset“) – wie Filter und Ansichten,
+   gehört nicht zu den Buchdaten. */
+function presetGet() { try { const p = JSON.parse(localStorage.getItem("capturePreset") || "null"); return p && typeof p === "object" ? p : null; } catch { return null; } }
+function presetSet(p) { try { if (p) localStorage.setItem("capturePreset", JSON.stringify(p)); else localStorage.removeItem("capturePreset"); } catch {} }
+// Aktive Vorgaben (eingeschaltet) oder null; ein gelöschtes Fach zählt nicht mehr
+function capturePreset() {
+  const p = presetGet(); if (!p?.on) return null;
+  const fach = p.fachKey && typeof fachOptions === "function" ? fachOptions().find(f => f.key === p.fachKey) : null;
+  return { status: STATUS[p.status] ? p.status : "unread", tags: normTags(p.tags || []), wish: !!p.wish, fachKey: fach ? p.fachKey : "", fach: fach || null };
+}
+// Vorgaben auf ein neues Buch anwenden (Stapel); in „Prüfen & speichern“ füllen sie stattdessen den Entwurf vor
+function applyPreset(b, pre) {
+  if (pre.status && pre.status !== (b.status || "unread")) Object.assign(b, statusPatch(b, pre.status));
+  if (pre.tags.length) b.tags = normTags([...(b.tags || []), ...pre.tags]);
+  if (pre.wish) b.wish = true; else delete b.wish;
+}
+// Bücher in dieser Reihenfolge ans Ende des Vorgabe-Fachs stellen (Wünsche nie)
+async function placePresetBooks(ids) {
+  const pre = capturePreset(); if (!pre?.fach) return;
+  ids = ids.filter(id => { const b = S.books.find(x => x.id === id); return b && !isWish(b) && !isGone(b); });
+  if (ids.length) await placeBooks(ids, pre.fach.m, pre.fach.k);
+}
+function presetText(pre) {
+  return [pre.fach ? "📍 " + pre.fach.label : "", pre.tags.length ? pre.tags.map(t => "#" + t).join(" ") : "", STATUS[pre.status], pre.wish ? "⭐ Wunschliste" : "📚 Bestand"].filter(Boolean).join(" · ");
+}
+/* Leiste „Vorgaben: …“ mit „ändern“ und Ein/Aus. onChange wird nach jeder Änderung aufgerufen. */
+function presetBarEl({ dark = false, onChange = () => {} } = {}) {
+  const bar = el("div", { class: "presetbar" + (dark ? " dark" : "") });
+  const draw = () => {
+    const p = presetGet(), pre = capturePreset();
+    if (!pre) fillNode(bar, el("button", { class: "btn sm ghost", type: "button", onclick: () => presetDialog(redraw) }, p ? "⚙ Vorgaben (aus) – einschalten" : "⚙ Vorgaben für alle Bücher festlegen"));
+    else fillNode(bar,
+      el("span", { class: "presettext" }, el("b", { text: "Vorgaben: " }), presetText(pre)),
+      el("button", { class: "btn sm", type: "button", onclick: () => presetDialog(redraw) }, "ändern"),
+      el("button", { class: "btn sm ghost", type: "button", title: "Vorgaben abschalten (bleiben gespeichert)", onclick: () => { presetSet({ ...presetGet(), on: false }); redraw(); } }, "aus"));
+  };
+  const redraw = () => { draw(); onChange(); };
+  draw();
+  return bar;
+}
+function presetDialog(done = () => {}) {
+  const p = { status: "unread", tags: [], wish: false, fachKey: "", ...(presetGet() || {}) };
+  const fachs = typeof fachOptions === "function" ? fachOptions() : [];
+  const fachSel = el("select", { class: "field" }, el("option", { value: "" }, "nicht einsortieren"),
+    ...fachs.map(f => el("option", { value: f.key, selected: f.key === p.fachKey || null }, f.label)));
+  const stSel = el("select", { class: "field" }, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v, selected: v === p.status || null }, l)));
+  const tagsObj = { tags: [...(p.tags || [])] };
+  const seg = el("div", { class: "seg" });
+  const drawSeg = () => seg.replaceChildren(
+    el("button", { type: "button", class: p.wish ? "" : "on", onclick: () => { p.wish = false; drawSeg(); } }, "📚 Bestand"),
+    el("button", { type: "button", class: p.wish ? "on" : "", onclick: () => { p.wish = true; drawSeg(); } }, "⭐ Wunschliste"));
+  drawSeg();
+  const close = () => box.remove();
+  const save = on => { presetSet({ on, fachKey: fachSel.value, status: stSel.value, tags: normTags(tagsObj.tags), wish: p.wish }); close(); done(); };
+  const box = el("div", { class: "overlay confirm", style: "z-index:96", onclick: e => { if (e.target === box) close(); } },
+    el("div", { class: "sheet", style: "max-width:520px" },
+      el("div", { class: "sheet-h" }, el("h2", { text: "⚙ Vorgaben für alle Bücher" }), el("button", { class: "x", onclick: close }, "✕")),
+      el("div", { class: "sheet-b" },
+        el("p", { class: "saved", style: "margin-top:0", text: "Gilt für den Stapel und für „Speichern & nächstes“, bis du die Vorgaben abschaltest. Jedes Buch kommt in Erfassungsreihenfolge ans Ende des Fachs." }),
+        el("label", { class: "lbl", text: "Ziel-Fach im echten Regal" }), fachSel,
+        fachs.length ? null : el("div", { class: "saved", text: "Noch keine Regalwand angelegt – siehe „Echtes Regal“." }),
+        el("label", { class: "lbl", style: "margin-top:10px", text: "Schlagworte" }), tagEditor(tagsObj, () => {}),
+        el("label", { class: "lbl", style: "margin-top:10px", text: "Lesestatus" }), stSel,
+        el("label", { class: "lbl", style: "margin-top:10px", text: "Besitz" }), seg,
+        el("div", { class: "actions" },
+          el("button", { class: "btn ghost", onclick: () => save(false) }, "Vorgaben aus"),
+          el("div", { class: "covertools" }, el("button", { class: "btn", onclick: close }, "Abbrechen"), el("button", { class: "btn primary", onclick: () => save(true) }, "Übernehmen"))))));
+  document.body.append(box);
+}

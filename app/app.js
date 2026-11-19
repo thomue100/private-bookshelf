@@ -966,6 +966,7 @@ function openAdd(asWish) {
   const qGo = () => { if (qIn.value.trim()) showSearch(qIn.value.trim(), null); };
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") qGo(); });
   fillNode(sh.body,
+    presetBarEl(), // Vorgaben für Stapel und „Speichern & nächstes“
     el("div", { class: "ways" },
       el("div", { class: "way" }, el("h3", { text: "Weg A · Barcode" }),
         el("p", { text: "Kamera über den ISBN-Barcode auf der Rückseite halten – Titel, Autor, Klappentext und Cover werden aus dem Internet geladen." }),
@@ -1166,6 +1167,9 @@ function openReview(rec, coverFile, noteText) {
   const draft = { status: "unread", rating: 0, notes: "", wish: !!S.addAsWish };
   for (const f of FIELDS) draft[f.k] = rec[f.k] || "";
   const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Buchhöhe aus dem Katalog (DNB/lobid)
+  // Vorgaben (stackscan.js): Status, Schlagworte, Bestand/Wunschliste vorbelegen – pro Buch änderbar; das Fach gilt beim Speichern
+  const pre = capturePreset();
+  if (pre) { Object.assign(draft, statusPatch(draft, pre.status)); draft.wish = pre.wish; if (pre.tags.length) draft.tags = [...pre.tags]; }
   let coverMode = coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
   let photo = coverFile || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
   let orig = coverFile || null, quads = coverFile?.quads || null, spineFromQuad = false; // Originalfoto + Ecken (KI oder von Hand) zum Zuschneiden
@@ -1257,12 +1261,15 @@ function openReview(rec, coverFile, noteText) {
       if (!b.wish) delete b.wish;
       if (!b.spine) delete b.spine;
       await putBook(b);
-      toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : `„${b.title}“ ist im Regal.`);
+      const fach = !b.wish && capturePreset()?.fach;
+      if (fach) await placePresetBooks([b.id]); // Vorgabe-Fach: ans Ende stellen
+      toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : fach ? `„${b.title}“ steht jetzt in ${fach.label}.` : `„${b.title}“ ist im Regal.`);
       if (next) openAdd(); else closeSheet();
     } catch (e) { console.error(e); toast("Speichern fehlgeschlagen."); saveBtn.disabled = false; saveBtn.textContent = label(); }
   };
   saveBtn.addEventListener("click", () => doSave(false));
-  fillNode(sh.body, 
+  fillNode(sh.body,
+    presetBarEl({ onChange: () => toast("Vorgaben gespeichert – Status, Schlagworte und Besitz gelten ab dem nächsten Buch, das Fach schon für dieses.", 4000) }),
     ...notes,
     whereSeg,
     el("div", { class: "dtop" }, el("div", {}, coverBox, coverChoice, coverTools(setPhoto), spBox), el("div", {}, personal)),

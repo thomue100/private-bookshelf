@@ -62,6 +62,15 @@ Alternative: Netlify (https://app.netlify.com/drop) – Ordner hineinziehen, kos
 - In der **Verwaltung** (Tabelle) öffnet ✏️ direkt den Bearbeiten-Modus. Änderungen direkt in den Tabellenzellen werden wie in Excel sofort gespeichert.
 - „Speichern & nächstes“ ist praktisch, wenn du einen ganzen Stapel erfasst.
 
+## Vorgaben für einen Stapel
+
+Stehen alle Bücher eines Stapels im selben Fach oder gehören zum selben Thema? Lege es einmal vorab fest. Oben in „Buch hinzufügen“ auf **„⚙ Vorgaben für alle Bücher festlegen“** tippen:
+- **Ziel-Fach** im echten Regal (oder „nicht einsortieren“), **Schlagworte**, **Lesestatus** und **Bestand oder Wunschliste**.
+- Die Vorgaben gelten für **„Speichern & nächstes“** und für **„📚 Stapel erfassen“**. Jedes Buch übernimmt sie und kommt in der Reihenfolge, in der du es erfasst hast, **ans Ende des Fachs**. Bücher auf der Wunschliste werden nicht eingeräumt.
+- In „Prüfen & speichern“ sind Status, Schlagworte und Bestand/Wunschliste schon ausgefüllt. Du kannst sie für ein einzelnes Buch trotzdem ändern.
+- Solange die Vorgaben eingeschaltet sind, stehen sie oben als Leiste („Vorgaben: 📍 Wohnzimmer · … · #Flohmarkt“), auch im Stapel-Modus über dem Kamerabild. **„ändern“** passt sie an, **„aus“** schaltet sie ab. Sie bleiben dann gespeichert und lassen sich wieder einschalten.
+- Die Vorgaben gelten nur auf diesem Gerät und gehören nicht zu den Buchdaten.
+
 ## Mehrfach gelesen
 
 Unter „Gelesen (auch mehrfach)“ trägst du beliebig viele Lesedurchgänge ein – jeweils mit Anfang, Ende und optionaler Notiz („im Urlaub“, „Hörbuch“). Setzt du ein bereits gelesenes Buch wieder auf **Gerade dabei**, beginnt automatisch ein neuer Durchgang mit dem heutigen Datum; **Gelesen** schließt ihn ab. Auf der Buchseite steht dann z. B. „2× gelesen“ mit allen Zeiträumen, in der Tabelle die Spalte „Gelesen“.

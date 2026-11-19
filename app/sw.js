@@ -1,5 +1,5 @@
 /* Service Worker: App offline verfügbar machen. Version erhöhen, wenn sich Dateien ändern. */
-const VERSION = "v44";
+const VERSION = "v45";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
 const FILES = ["./", "index.html", "app.js", "attachments.js", "shelfscan.js", "shelfphotos.js", "batchscan.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "webtake.js", "perspective.js", "stackscan.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
