@@ -33,6 +33,8 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 |---|---|
 | `app/index.html` | Gerüst, Navigation (`#regal`, `#wand`, `#wunsch`, `#verwaltung`), Skripte in fester Reihenfolge (alle `defer`) |
 | `app/app.js` | Kern: Zustand `S`, `DB` (IndexedDB), Rendering aller Ansichten, Erfassen/Bearbeiten, Katalogsuche, echtes Regal (Montana-Würfel), Tabelle mit Filtern/Sortierung, Import/Export, Einfügen/Ziehen von Bildern |
+| `app/reclog.js` | Erkennungsprotokoll: `recRun`, `recAi`, `recBook`, `recSearch` (Meta `recLog`, letzte 30 Läufe, nur Gerät, Schlüssel werden entfernt), Ansicht `openRecLog`. Katalogabfragen je Quelle über `catTrack` (app.js) – `searchBooks(q, log)`, `lookupIsbn(isbn, log)`, `matchItem(it, log)`; KI-Anfragen über `aiRequest` (shelfscan.js) |
+| `evalrun/eval.spec.js` | `npm run eval` (eigene Konfiguration `playwright.eval.config.js`, echtes Internet): wertet Fotos in `eval/` (nicht im Repo) mit `recognizeShelf` aus |
 | `app/attachments.js` | Weitere Bilder, Dateien (E-Books/PDF), Widmung/Signatur, Anhänge in Sicherungen |
 | `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke), Katalogabgleich (`matchItem`, `autoChoice`, `resolveCollisions`, `assessScan` mit Texten `SCAN_WORDS`), Prüfliste `scanReview` (mit Foto oder ohne – siehe `titlelist.js`), neues Buch `bookFromItem`, Übernahme ins Fach `importScan`; Cover per KI |
 | `app/titlelist.js` | „📋 Titelliste einfügen“: `parseTitleList` (Freitext, Tabellen mit/ohne Kopfzeile, eigener CSV-Export), Vorschau, Suche über `matchItem`, Prüfliste über `scanReview` ohne Foto, `tlImport`; angefangener Lauf im Meta-Eintrag `titleListRun` (nur Gerät, nicht in Sicherung/Abgleich), Weitermachen `resumeTitleList` |
@@ -58,11 +60,13 @@ Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGo
 Abgleich (`sync.js`): Server-Dokumente `book:<id>` = `{type:"book", updatedAt, book:{…Felder ohne Blobs}, _attachments}` mit Anhängen
 `cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`;
 Fach-Fotos = `photo:<id>` `{type:"photo", updatedAt, photo:{…ohne blob}, _attachments:{image}}` (gelöscht: `deletedAt`, ohne Bild – lokal als Grabstein).
-Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, doneAt?, deletedAt?}`; ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
+Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, review?, doneAt?, deletedAt?}` (`review` = gemerkter Stand der Prüfliste `{at, fachKey, opts, items}`, über `photoReviewSave`; beim Übernehmen `null`); ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
 Serveradresse immer über `syNormUrl` (Port/Pfad erlaubt – mehrere Anwendungen über Tailscale auf einem PC; `syStateKey` darf sich für alte Adressen nicht ändern).
 Lokaler Stand in Meta `syncConf` (Zugang) und `syncState` (`since`, je Dokument `rev`/`upd`/Anhang-Digests). Änderungen an Büchern
 immer über `putBook`/`patchBook`/`removeBook`/`saveShelves` – die rufen `dataChanged()` und lösen Sicherung und Abgleich aus.
 Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-Versionen auf anderen Geräten müssen mitlesen können).
+
+Blätter (`sheet()`): am Handy schließt nur ✕, ein Blatt mit `guard` wird nie still ersetzt (`sheetStack`), Zurück-Taste über `popstate`. Wer ein offenes Blatt wiederverwendet (`openSheet || sheet()`), setzt `sh.redraw = null`. Hintergrund-Aktionen öffnen kein Blatt über einem offenen (`sh.webTake` erlaubt das Zwischenablage-Angebot). Entwurf „Prüfen & speichern“ in Meta `reviewDraft`, Hinweisleisten über `resumeBar`.
 
 Echtes Regal neu zeichnen nur über `renderWall` – `wallViewSave`/`wallViewRestore` halten Rollposition und das zuletzt angetippte Fach fest.
 Gesamtansicht (`S.overview`, localStorage `wallOverview`) zeigt alle Wände; Zoom stufenlos über `setWallZoom` (`S.zoom` bzw. `S.ovZoom`).

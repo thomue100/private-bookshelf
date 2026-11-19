@@ -60,8 +60,10 @@ async function checkBatches({ loud = false } = {}) {
           if (res && d && await stackRecognized(res.custom_id, d)) gotStack++;
           continue;
         }
-        let res, data = null;
-        try { res = JSON.parse(line); if (res.result?.type === "succeeded") data = scanFromMessage(res.result.message); } catch {}
+        let res, data = null, err = "";
+        try { res = JSON.parse(line); if (res.result?.type === "succeeded") data = scanFromMessage(res.result.message); else err = res.result?.type || "unbekannt"; } catch (e) { err = e.message || "nicht lesbar"; }
+        const m = res?.result?.message;
+        recAi(recRun("fach-foto", { mode: "sammelauftrag" }), { step: "fach (Sammelauftrag)", model: m?.model, stop_reason: m?.stop_reason, usage: m?.usage, raw: m ? aiText(m) : "", err: data ? undefined : err });
         const p = res && S.photos.find(x => x.id === res.custom_id && !x.deletedAt);
         if (!p) continue;
         if (data && !p.scan) { await patchPhoto(p.id, { scan: data, scanAt: new Date().toISOString() }); got++; ok.add(p.id); }
@@ -98,9 +100,12 @@ async function directScanAll(photos, onStatus, alive) {
 }
 
 /* ---------- Der Reihe nach prüfen ---------- */
+// Der Ablauf überlebt einen Neustart (localStorage „reviewChain“, nur Gerät): danach geht es mit dem nächsten Fach weiter
+function chainSave() { try { if (S.reviewChain) localStorage.setItem("reviewChain", JSON.stringify({ noCov: S.chainNoCov || [] })); else localStorage.removeItem("reviewChain"); } catch {} }
+function chainRestore() { try { const c = JSON.parse(localStorage.getItem("reviewChain") || "null"); if (c) { S.reviewChain = true; S.chainNoCov = c.noCov || []; } return !!c; } catch { return false; } }
 function startReviewChain() {
   const first = scannedPhotos()[0]; if (!first) return;
-  S.reviewChain = true; S.chainNoCov = [];
+  S.reviewChain = true; S.chainNoCov = []; chainSave();
   runShelfScan(first, "stored");
 }
 function nextReview() {
@@ -111,7 +116,7 @@ function nextReview() {
 async function endReviewChain(all) {
   if (!S.reviewChain) return;
   const noCov = (S.chainNoCov || []).filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
-  S.reviewChain = false; S.chainNoCov = [];
+  S.reviewChain = false; S.chainNoCov = []; chainSave();
   if (all) toast("Alle erkannten Fächer sind geprüft und einsortiert.", 4500);
   if (noCov.length && await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
 }

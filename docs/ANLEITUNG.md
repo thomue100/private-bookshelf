@@ -293,6 +293,19 @@ Freunde, die keinen eigenen Server haben, nutzen die App einfach wie bisher.
 
 Schick ihnen einfach deine Adresse (z. B. `https://DEIN-NAME.github.io/buecherregal/`). Jede Person hat ihr **eigenes, privates Regal** auf ihrem Gerät – niemand sieht die Bücher der anderen, auch du nicht.
 
+## Nichts geht verloren
+
+- **Prüflisten werden laufend gemerkt.** Beim Fach-Foto stehen Auswahl, Korrekturen und „✓ Passt so“ am Fach-Foto. Schließt Android die App (etwa während die Kamera offen ist) oder schließt du die Liste, geht es beim nächsten Öffnen genau dort weiter, auch mitten in „der Reihe nach prüfen“. Sonst unter Menü ⋯ → „📥 Gespeicherte Fach-Fotos“ → „Prüfen & einsortieren“. Mit dem Abgleich kommt der Stand auch auf den PC.
+- **„Prüfen & speichern“** sichert den Entwurf samt Cover- und Rückenfoto. Nach einem Neustart steht unten „Du warst gerade dabei, „…“ zu erfassen – weitermachen?“.
+- **Schließen:** Am Handy schließt nur ✕, Tippen neben das Fenster schließt nichts mehr. Am PC schließt ein Klick daneben; gibt es ungespeicherte Änderungen, fragt die App vorher. Die **Zurück-Taste** am Handy schließt das offene Fenster (mit Nachfrage) statt die App.
+- Hinweise, die von selbst auftauchen (z. B. „In der Zwischenablage: …“), ersetzen nie eine offene Liste.
+
+## Erkennungsprotokoll
+
+Jede Erkennung schreibt ein Protokoll: Fach-Foto, Cover-Foto, Barcode, Titelsuche, Titelliste und Stapel. Es zeigt, was die KI gelesen hat (rohe Antwort, Modell, Bildgröße, ob die Antwort abgeschnitten wurde, Dauer), welche Kataloge wie geantwortet haben (Treffer, Fehler, Zeitüberschreitung, gesperrt bzw. Kontingent erschöpft) und warum ein Treffer gewählt wurde oder keiner. Du findest es in jeder Prüfliste unter **„🧾 Protokoll anzeigen / teilen“** und im Menü ⋯ → „🧾 Erkennungsprotokoll“. „📤 Teilen“ bzw. „⬇ Als Datei“ erzeugt eine JSON-Datei, praktisch zum Weitergeben, wenn etwas nicht klappt. Gespeichert werden die letzten 30 Läufe, nur auf diesem Gerät, nicht in Sicherung oder Abgleich. Dein KI-Schlüssel und andere Zugangsdaten stehen nie darin.
+
+**Mit eigenen Fotos messen (am PC, für Fortgeschrittene):** `npm run eval` wertet echte Fach-Fotos aus, wie gut Rücken, Titel und Katalogtreffer erkannt werden. Wie du Fotos und die erwarteten Bücher anlegst, steht in der `README.md` unter „Auswertung der Fach-Foto-Erkennung“.
+
 ## Gut zu wissen
 
 - **Neue Version:** Wurde die App aktualisiert, erscheint unten „Neue Version der App ist da“. „Jetzt aktualisieren“ lädt sie neu; mit ✕ geht es später beim nächsten Öffnen.

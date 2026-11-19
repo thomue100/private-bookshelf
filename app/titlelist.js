@@ -260,11 +260,13 @@ async function tlSearch(run) {
   const show = () => { bar.firstChild.style.width = Math.round(done / run.items.length * 100) + "%"; status.textContent = `Suche ${Math.min(done + 1, run.items.length)} von ${run.items.length} …`; };
   show();
   const queue = [...todo];
+  const R = todo.length ? recRun("titelliste", { zeilen: run.items.length, zuSuchen: todo.length }) : null;
   await Promise.all([0, 1, 2].map(async () => {
     while (queue.length && !stop) {
-      const it = queue.shift();
-      try { it.cands = await matchItem(it); it.offline = false; } catch { it.cands = []; it.offline = true; }
+      const it = queue.shift(), log = [];
+      try { it.cands = await matchItem(it, log); it.offline = false; } catch { it.cands = []; it.offline = true; }
       it.choice = autoChoice(it); it.searched = true; done++;
+      recBook(R, it, log);
       if (openSheet === sh) show();
       tlSave(run);
     }
@@ -388,10 +390,9 @@ async function resumeTitleList() {
 function tlResumeHint() {
   const run = S.titleRun; if (!run || document.querySelector(".tlresume")) return;
   const n = run.items.length;
-  document.body.append(el("div", { class: "tlresume" },
-    el("span", { text: `📋 Angefangene Titelliste (${n} ${n === 1 ? "Buch" : "Bücher"})` }),
-    el("button", { class: "btn sm primary", onclick: resumeTitleList }, "Titelliste weiter prüfen"),
-    el("button", { class: "btn sm ghost", onclick: async () => { if (await confirmBox("Die angefangene Titelliste verwerfen?\nBereits übernommene Bücher bleiben natürlich.", "Verwerfen")) { await tlDrop(); toast("Titelliste verworfen."); } } }, "verwerfen")));
+  resumeBar("titleList", `📋 Angefangene Titelliste (${n} ${n === 1 ? "Buch" : "Bücher"})`, resumeTitleList,
+    async () => { await tlDrop(); toast("Titelliste verworfen."); },
+    { goLabel: "Titelliste weiter prüfen", cls: "tlresume", ask: "Die angefangene Titelliste verwerfen?\nBereits übernommene Bücher bleiben natürlich." });
 }
 (async () => {
   await new Promise(r => { const t = setInterval(() => { if (S.loaded) { clearInterval(t); r(); } }, 50); });

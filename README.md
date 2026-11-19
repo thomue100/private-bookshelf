@@ -33,6 +33,33 @@ Voraussetzungen: [Node.js](https://nodejs.org) ab Version 20, Git, IntelliJ IDEA
 3. App lokal starten: `npm start` → http://localhost:8765
 4. Tests: `npm test` (alle), `npm run test:ui` (mit Oberfläche zum Durchklicken), `npm run test:headed` (sichtbarer Browser).
    Einen bereits installierten Chrome nutzen: `CHROME_PATH=/pfad/zu/chrome npm test`.
+5. **Erkennung mit echten Fotos messen:** `npm run eval` (siehe unten, „Auswertung der Fach-Foto-Erkennung“).
+
+### Auswertung der Fach-Foto-Erkennung (`npm run eval`)
+
+Misst, wie gut die App echte Fach-Fotos erkennt – mit der echten App-Logik (KI + Katalogsuche + Treffer-Wahl) und echtem Internet.
+
+1. Im Projektordner einen Ordner **`eval`** anlegen (er wird nicht hochgeladen, steht in `.gitignore`).
+2. Fach-Fotos hineinlegen, z. B. `wohnzimmer-1.jpg` (auch `.png`, `.webp`).
+3. Zu jedem Foto eine Datei mit gleichem Namen und der Endung **`.expected.json`**, z. B. `wohnzimmer-1.expected.json` –
+   die Bücher **von links nach rechts**, so wie sie im Foto stehen. Autor und ISBN sind freiwillig, machen die Auswertung aber genauer:
+   ```json
+   [
+     { "title": "Momo", "author": "Michael Ende", "isbn": "9783522202107" },
+     { "title": "Krabat", "author": "Otfried Preußler" },
+     { "title": "Weihnachtsgeschichten am Kamin 27" }
+   ]
+   ```
+4. Den eigenen Anthropic-Schlüssel setzen und starten (Git Bash in IntelliJ):
+   ```bash
+   ANTHROPIC_API_KEY=sk-ant-… npm run eval
+   ```
+   In PowerShell: `$env:ANTHROPIC_API_KEY="sk-ant-…"; npm run eval`. Anderes Modell: zusätzlich `EVAL_MODEL=claude-opus-5-5`.
+   Kosten: wie in der App, etwa wenige Cent pro Foto.
+5. Ausgabe: je Foto und insgesamt **Rücken gefunden · Titel richtig gelesen · richtiger Treffer automatisch · richtiger Treffer unter den Kandidaten ·
+   FALSCH automatisch übernommen** (der schlimmste Fehler). Jede Auswertung wird in `eval/ergebnisse/` gespeichert und die vorige als „vorher“ daneben gezeigt.
+
+Ohne Ordner oder ohne Schlüssel wird die Auswertung übersprungen. Der Schlüssel bleibt nur im Test-Browser und wird nirgends gespeichert.
 
 ### Mit Claude Code arbeiten
 

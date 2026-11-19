@@ -10,7 +10,7 @@ function aiKeyBox() {
   const sel = el("select", { class: "field", style: "width:100%" }, ...AI_MODELS.map(([v, l]) => el("option", { value: v, selected: aiModel() === v || null }, l)));
   const save = () => { try { const v = inp.value.trim(); if (v) localStorage.setItem("aiKey", v); else localStorage.removeItem("aiKey"); localStorage.setItem("aiModel", sel.value); toast(v ? "KI-Schlüssel gespeichert." : "KI-Schlüssel entfernt."); } catch { toast("Konnte nicht gespeichert werden."); } };
   return el("div", { class: "sec" }, el("h3", { text: "KI-Erkennung für Fach-Fotos (optional)" }),
-    el("p", { class: "saved", text: "Mit einem eigenen Schlüssel für die Claude-API erkennt die App auf Fach-Fotos alle Buchrücken – auch gestaltete Schriften, liegende Bücher und Reihennummern. Abgerechnet wird pro Foto direkt über dein API-Konto bei Anthropic (in der Regel wenige Cent pro Foto). Der Schlüssel bleibt nur in diesem Browser und wird nicht mit exportiert. Ohne Schlüssel nutzt die App eine einfache Texterkennung." }),
+    el("p", { class: "saved", text: "Mit einem eigenen Schlüssel für die Claude-API erkennt die App auf Fach-Fotos alle Buchrücken – auch gestaltete Schriften, liegende Bücher und Reihennummern. Abgerechnet wird pro Foto direkt über dein API-Konto bei Anthropic (in der Regel wenige Cent pro Foto). Der Schlüssel bleibt nur in diesem Browser und wird nicht mit exportiert. Ohne Schlüssel geht es über deinen Claude-Chat (ohne Zusatzkosten)." }),
     el("div", { style: "display:grid;gap:8px;margin-top:6px" }, inp, sel, el("button", { class: "btn", onclick: save }, "Speichern")),
     el("p", { class: "saved", style: "margin-top:6px" }, "Schlüssel bekommst du unter ", el("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com ↗"), ". Gib die App mit eingetragenem Schlüssel nicht an andere weiter – jede Person trägt ihren eigenen ein."));
 }
@@ -70,20 +70,30 @@ function scanFromMessage(m) {
   if (!Array.isArray(data.items)) throw new Error("Die KI hat keine Liste geliefert.");
   return data;
 }
-async function aiScanShelf(jpegBlob, onStatus) {
+/* Eine Anfrage an die Messages-API mit Protokoll (run, siehe reclog.js): Modell, Bildgrößen, rohe Antwort, stop_reason, Dauer.
+   parse(j) wertet die Antwort aus; eine abgeschnittene Antwort (max_tokens) wird klar gemeldet statt still zu scheitern. */
+async function aiRequest(params, { run, step, imgs = [], timeout = 180000, parse }) {
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), timeout);
+  const t0 = performance.now();
+  const entry = { step, model: params.model, max_tokens: params.max_tokens, imgs };
+  try {
+    const r = await fetch(AI_API + "/v1/messages", { method: "POST", signal: ctl.signal, headers: aiHeaders(), body: JSON.stringify(params) });
+    const j = await r.json().catch(() => ({}));
+    Object.assign(entry, { status: r.status, stop_reason: j.stop_reason, usage: j.usage, raw: aiText(j) || (r.ok ? "" : JSON.stringify(j.error || j)) });
+    if (!r.ok) throw aiError(r.status, j);
+    if (j.stop_reason === "max_tokens") throw new Error("Die Antwort der KI wurde abgeschnitten (zu lang) – bitte noch einmal versuchen.");
+    return parse(j);
+  } catch (e) {
+    const err = e.name === "AbortError" ? new Error("Die KI hat zu lange gebraucht.") : e instanceof TypeError ? new Error("Keine Verbindung zur KI (Internet prüfen).") : e;
+    entry.err = err.message; throw err;
+  } finally { clearTimeout(tm); entry.ms = Math.round(performance.now() - t0); if (typeof recAi === "function") recAi(run, entry); }
+}
+const aiText = j => (j?.content || []).filter(c => c.type === "text").map(c => c.text).join("");
+async function aiScanShelf(jpegBlob, onStatus, run) {
   if (!aiKey()) throw new Error("Kein KI-Schlüssel eingetragen.");
   onStatus && onStatus("KI erkennt die Buchrücken … (dauert meist 20–60 Sekunden)");
-  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 180000);
-  try {
-    const r = await fetch(AI_API + "/v1/messages", { method: "POST", signal: ctl.signal, headers: aiHeaders(), body: JSON.stringify(scanParams(await blobToBase64(jpegBlob))) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw aiError(r.status, j);
-    return scanFromMessage(j);
-  } catch (e) {
-    if (e.name === "AbortError") throw new Error("Die KI hat zu lange gebraucht.");
-    if (e instanceof TypeError) throw new Error("Keine Verbindung zur KI (Internet prüfen).");
-    throw e;
-  } finally { clearTimeout(tm); }
+  const img = await loadImage(jpegBlob).catch(() => null);
+  return aiRequest(scanParams(await blobToBase64(jpegBlob)), { run, step: "fach", imgs: [{ w: img?.naturalWidth, h: img?.naturalHeight, bytes: jpegBlob.size }], parse: scanFromMessage });
 }
 
 /* ================= Hilfen ================= */
@@ -123,17 +133,18 @@ function scoreCandidate(it, c) {
   const on = digits(it.order_no); if (on.length >= 4 && (digits(c.seriesNo) === on || digits(c.orderNo) === on)) s += 4; // Verlagsnummer (rororo 13427) passt genau
   return s;
 }
-async function matchItem(it) {
+// log (optional): Array für das Erkennungsprotokoll – jede Katalogabfrage mit Quelle und Ergebnis
+async function matchItem(it, log) {
   const i13 = toIsbn13(it.isbn);
   let cands = [];
   try {
-    if (i13) { const r = await lookupIsbn(i13); if (r) cands.push({ ...r, isbn: i13 }); }
+    if (i13) { const r = await lookupIsbn(i13, log); if (r) cands.push({ ...r, isbn: i13 }); }
     const last = (it.author || "").split(/[,;&]| und /)[0].trim().split(/\s+/).pop() || "";
     const vol = itemVol(it);
     const q1 = [it.title, vol, last].filter(Boolean).join(" ");
-    if (q1.trim()) cands.push(...await searchBooks(q1));
-    if (vol && it.title && !cands.some(c => candVol(c) === vol)) cands.push(...await searchBooks([it.title, last].filter(Boolean).join(" ")));
-    if (cands.length < 2 && it.title && (last || vol)) cands.push(...await searchBooks(it.title));
+    if (q1.trim()) cands.push(...await searchBooks(q1, log));
+    if (vol && it.title && !cands.some(c => candVol(c) === vol)) cands.push(...await searchBooks([it.title, last].filter(Boolean).join(" "), log));
+    if (cands.length < 2 && it.title && (last || vol)) cands.push(...await searchBooks(it.title, log));
   } catch (e) { if (!cands.length) throw e; }
   const seen = new Set();
   cands = cands.filter(c => { const k = c.isbn || normTxt(c.title + c.author + c.year); if (seen.has(k)) return false; seen.add(k); return true; })
@@ -148,6 +159,17 @@ function autoChoice(it) {
   const b = it.cands[0]; if (!b || b._score < 3) return -1;
   const iv = itemVol(it); if (iv && candVol(b) !== iv && !(toIsbn13(it.isbn) && toIsbn13(it.isbn) === b.isbn)) return -1;
   return 0;
+}
+// Warum wurde (k)ein Treffer gewählt? – fürs Erkennungsprotokoll
+function choiceWhy(it) {
+  const b = it.cands?.[0];
+  if (it.offline) return "Katalog nicht erreichbar";
+  if (!b) return "keine Kandidaten gefunden";
+  if (it.choice >= 0) { const c = it.cands[it.choice]; return it.confirmed ? "von Hand gewählt" : `automatisch: ${(+c._score || 0).toFixed(1)} Punkte (Schwelle 3)`; }
+  const iv = itemVol(it);
+  if (b._score < 3) return `bester Kandidat nur ${(+b._score || 0).toFixed(1)} Punkte (Schwelle 3)`;
+  if (iv && candVol(b) !== iv) return `Band ${iv} gelesen, bester Kandidat nennt Band ${candVol(b) || "keinen"}`;
+  return "anderer Band in der Gruppe (Kollision) oder von Hand abgewählt";
 }
 const candKey = c => c ? (c.isbn || "t:" + normTxt(c.title + " " + c.author)) : "";
 const itemKey = it => candKey(it.cands[it.choice]) || "r:" + normTxt(it.title + " " + it.author) + "|" + itemVol(it);
@@ -383,28 +405,39 @@ function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
 /* Erkennt ein gespeichertes Fach-Foto. mode: "api" | "chat" | "stored" (gespeicherte Erkennung nur prüfen). */
 async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = {}) {
   const sh = openSheet || sheet("📷 Fach-Foto einlesen");
+  sh.redraw = null; // ein wiederverwendetes Blatt (z. B. die Fach-Foto-Übersicht) darf sich nicht mehr darüber zeichnen
   S.pasteHandler = null;
   const file = photo.blob;
   setPending(photo.id, mode);
   sh.onClose = () => clearPending(photo.id);
   const status = busyView(mode === "stored" ? "Foto wird geladen" : "Fach wird erkannt", file, "Bereite das Foto vor …");
-  let canvas, jpeg;
-  try { const img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
+  let canvas, jpeg, img;
+  try { img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
   catch { toast("Das Foto konnte nicht gelesen werden."); openShelfScan(null, { photo }); return; }
+  // Angefangene Prüfung (am Fach-Foto gemerkt): genau dort weitermachen – Auswahl, Korrekturen, „Passt so“
+  if (mode === "stored" && photo.scan && photo.review?.items?.length) {
+    const rv = photo.review;
+    scanReview(sh, { file, canvas, data: photo.scan, items: rv.items, fachKey: rv.fachKey ?? photo.fachKey ?? "", photo, opts: rv.opts });
+    return;
+  }
+  const run = typeof recRun === "function" ? recRun("fach-foto", { mode, foto: { w: img.naturalWidth, h: img.naturalHeight }, gesendet: { w: canvas.width, h: canvas.height, bytes: jpeg.size } }) : null;
   const onData = async data => {
     if (mode !== "stored") photo = await patchPhoto(photo.id, { scan: data, scanAt: new Date().toISOString() }) || photo; // Erkennung aufheben – prüfen geht dann auch später/am PC
-    continueShelfScan(sh, { file, canvas, data, fachKey: photo.fachKey || "", photo });
+    continueShelfScan(sh, { file, canvas, data, fachKey: photo.fachKey || "", photo, run });
   };
   if (mode === "stored" && photo.scan) return onData(photo.scan);
   if (mode !== "api" || !aiKey()) {
     claudeChatBridge(sh, { title: "💬 Fach-Foto mit Claude erkennen", prompt: SCAN_PROMPT, jpeg, fileName: "regalfach.jpg", autoRead,
       onBack: () => { clearPending(photo.id); openShelfScan(null, { photo }); },
       accept: d => Array.isArray(d?.items) && d.items.some(it => it && (it.title || it.label || it.spine_text_vertical || it.spine_text_horizontal)),
-      onResult: data => { if (!Array.isArray(data.items)) { toast("In der Antwort fehlt die Bücherliste."); return; } onData(data); } });
+      onResult: data => {
+        if (typeof recAi === "function") recAi(run, { step: "fach (Claude-Chat)", raw: JSON.stringify(data) });
+        if (!Array.isArray(data.items)) { toast("In der Antwort fehlt die Bücherliste."); return; } onData(data);
+      } });
     return;
   }
   let data;
-  try { data = await aiScanShelf(jpeg, t => status.textContent = t); }
+  try { data = await aiScanShelf(jpeg, t => status.textContent = t, run); }
   catch (e) {
     fillNode(sh.body, el("div", { class: "note", text: "Erkennung fehlgeschlagen: " + (e.message || e) + " – das Foto bleibt gespeichert." }),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(null, { photo }) }, "← Zurück"),
@@ -413,25 +446,48 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
   }
   onData(data);
 }
-async function continueShelfScan(sh, { file, canvas, data, fachKey, photo }) {
-  const status = busyView("Buchdaten werden gesucht", file, "…");
+/* Erkannte Objekte → Prüflisten-Zeilen mit Katalogtreffern (3 Suchen gleichzeitig). Gemeinsam für App und Auswertung (npm run eval). */
+async function matchScanItems(data, onStatus, run) {
   const items = data.items.map((it, i) => ({ ...it, _i: i, include: it.kind !== "other", cands: [], choice: -1, title: it.title || it.spine_text_vertical || it.label || "" }));
-  // Buchdaten suchen (3 gleichzeitig)
   let done = 0; const books = items.filter(x => x.kind !== "other");
-  status.textContent = `${items.length} Objekte erkannt – suche Buchdaten (0/${books.length}) …`;
-  const queue = [...books];
+  onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (0/${books.length}) …`);
+  const queue = [...books], logs = new Map();
   await Promise.all([0, 1, 2].map(async () => {
     while (queue.length) {
-      const it = queue.shift();
-      try { it.cands = await matchItem(it); } catch { it.cands = []; it.offline = true; }
+      const it = queue.shift(), log = []; logs.set(it, log);
+      try { it.cands = await matchItem(it, log); } catch { it.cands = []; it.offline = true; }
       it.choice = autoChoice(it);
-      status.textContent = `${items.length} Objekte erkannt – suche Buchdaten (${++done}/${books.length}) …`;
+      onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (${++done}/${books.length}) …`);
     }
   }));
   resolveCollisions(items);
   assessScan(items);
+  if (run && typeof recBook === "function") for (const it of books) recBook(run, it, logs.get(it));
+  return items;
+}
+// Ganzes Fach-Foto erkennen und Treffer suchen – ohne Oberfläche (für die Auswertung mit echten Fotos)
+async function recognizeShelf(file, { onStatus, run } = {}) {
+  const img = await loadImage(file); const canvas = toCanvas(img, 1568); const jpeg = await canvasBlob(canvas, .88);
+  const data = await aiScanShelf(jpeg, onStatus, run);
+  return { data, items: await matchScanItems(data, onStatus, run) };
+}
+async function continueShelfScan(sh, { file, canvas, data, fachKey, photo, run }) {
+  const status = busyView("Buchdaten werden gesucht", file, "…");
+  const items = await matchScanItems(data, t => { status.textContent = t; }, run);
   for (const it of items) it.dup = scanDup(it);
-  scanReview(sh, { file, canvas, data, items, fachKey, photo });
+  const st = { file, canvas, data, items, fachKey, photo };
+  if (photo) await photoReviewSave(st, true); // Ergebnis sofort merken – auch wenn Android die App gleich schließt
+  scanReview(sh, st);
+}
+/* Stand der Prüfliste am Fach-Foto merken (optionales Feld „review“; geht mit Sicherung und Abgleich mit, ältere Versionen ignorieren es) */
+const reviewItem = it => { const { dup, reasons, ...rest } = it; return rest; };
+let reviewSaveT = null;
+function photoReviewSave(st, now) {
+  if (!st.photo) return;
+  const go = () => patchPhoto(st.photo.id, { review: { at: new Date().toISOString(), fachKey: st.fachKey || "", opts: st.opts || null, items: st.items.map(reviewItem) } });
+  clearTimeout(reviewSaveT);
+  if (now) return go();
+  reviewSaveT = setTimeout(go, 700);
 }
 
 /* ================= Einzelnes Cover per KI / Claude-Chat ================= */
@@ -445,12 +501,11 @@ clockwise starting at the top-left corner as the book stands upright. Use null f
 const coverParams = b64 => ({ model: aiModel(), max_tokens: 1000, messages: [{ role: "user", content: [
   { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } }, { type: "text", text: COVER_PROMPT }] }] });
 async function coverB64(file) { const img = await loadImage(file); return blobToBase64(await canvasBlob(toCanvas(img, 1200), .86)); }
-async function aiRecognizeCover(file) {
+async function aiRecognizeCover(file, run) {
   const key = aiKey(); if (!key) throw new Error("Kein KI-Schlüssel.");
-  const r = await fetch(AI_API + "/v1/messages", { method: "POST", headers: aiHeaders(), body: JSON.stringify(coverParams(await coverB64(file))) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j?.error?.message || "Fehler " + r.status);
-  return parseJSONLoose((j.content || []).filter(c => c.type === "text").map(c => c.text).join(""));
+  const b64 = await coverB64(file);
+  const img = await loadImage(file).catch(() => null);
+  return aiRequest(coverParams(b64), { run, step: "cover", timeout: 90000, imgs: [{ w: img?.naturalWidth, h: img?.naturalHeight, bytes: Math.round(b64.length * 0.75), sentMax: 1200 }], parse: j => parseJSONLoose(aiText(j)) });
 }
 async function coverViaChat(file) {
   const sh = openSheet || sheet("Cover erkennen");
@@ -460,16 +515,17 @@ async function coverViaChat(file) {
     accept: d => !!(d && (d.title || d.isbn)) && !Array.isArray(d.items),
     onResult: d => coverResult(d, file) });
 }
-function coverResult(d, file) {
+function coverResult(d, file, run) {
   const q = quadsFromAnswer(d); if (q && file) file.quads = q; // Ecken von Cover/Rücken (fehlen bei alten Antworten) reisen mit dem Foto bis „Prüfen & speichern“
   const i = toIsbn13(d.isbn);
-  if (i) { handleIsbnWithCover(i, file); return; }
+  if (i) { handleIsbnWithCover(i, file, run); return; }
   const last = (d.author || "").split(/[,;&]| und /)[0].trim().split(/\s+/).pop() || "";
-  showSearch([d.title, last].filter(Boolean).join(" "), file, d);
+  showSearch([d.title, last].filter(Boolean).join(" "), file, d, run);
 }
-async function handleIsbnWithCover(isbn, file) {
+async function handleIsbnWithCover(isbn, file, run) {
   busyView("Buchdaten werden geladen", file, `ISBN ${isbn} – suche …`);
-  let rec = null; try { rec = await lookupIsbn(isbn); } catch {}
+  let rec = null; const log = []; try { rec = await lookupIsbn(isbn, log); } catch {}
+  if (typeof recSearch === "function") recSearch(run, "isbn:" + isbn, log, rec ? 1 : 0);
   openReview(rec || { isbn }, file, rec ? null : "Zu dieser ISBN wurde online nichts gefunden – bitte ergänzen.");
 }
 
@@ -515,16 +571,23 @@ function scanReview(sh, st) {
   const { canvas, data, items } = st;
   const W = st.words || SCAN_WORDS.photo;
   sh.h2.textContent = st.title || "Erkannte Bücher prüfen";
+  sh.redraw = null; sh.stackView = false; sh.webTake = false;
   const comp = data?.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 };
   // Foto mit nummerierten Rahmen
   const photoUrl = canvas ? canvas.toDataURL("image/jpeg", .85) : null;
   const ov = el("div", { class: "scanphoto" }, photoUrl ? el("img", { src: photoUrl, alt: "" }) : null);
   if (canvas) items.forEach((it, n) => { const b = it.bbox; if (!b) return; ov.append(el("div", { class: "scanbox" + (it.kind === "other" ? " other" : "") + (it.include ? "" : " off"), "data-n": n, style: `left:${b.x0 * 100}%;top:${b.y0 * 100}%;width:${(b.x1 - b.x0) * 100}%;height:${(b.y1 - b.y0) * 100}%` }, el("span", { text: n + 1 }))); });
-  const optCrop = el("input", { type: "checkbox", checked: true });
-  const optStatus = el("select", { class: "field" }, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v }, l)));
+  // Stand merken: beim Fach-Foto am Foto-Datensatz (photoReviewSave), bei der Titelliste über st.onChange
+  const persist = () => { if (st.onChange) st.onChange(); else if (st.photo) photoReviewSave(st); };
+  const O = st.opts || (st.opts = { crop: true, status: "unread", replace: "replace", tags: [] });
+  const optCrop = el("input", { type: "checkbox", checked: O.crop !== false || null });
+  optCrop.addEventListener("change", () => { O.crop = optCrop.checked; persist(); });
+  const optStatus = el("select", { class: "field" }, ...Object.entries(STATUS).map(([v, l]) => el("option", { value: v, selected: v === O.status || null }, l)));
+  optStatus.addEventListener("change", () => { O.status = optStatus.value; persist(); });
   const fachs = fachOptions(); const target = fachs.find(f => f.key === st.fachKey);
-  const optReplace = el("select", { class: "field" }, el("option", { value: "replace" }, "Fach-Inhalt ersetzen (bisherige Bücher → „Noch nicht eingeräumt“)"), el("option", { value: "append" }, "Hinten an den bisherigen Inhalt anhängen"));
-  const scanTags = { tags: [] };
+  const optReplace = el("select", { class: "field" }, el("option", { value: "replace" }, "Fach-Inhalt ersetzen (bisherige Bücher → „Noch nicht eingeräumt“)"), el("option", { value: "append", selected: O.replace === "append" || null }, "Hinten an den bisherigen Inhalt anhängen"));
+  optReplace.addEventListener("change", () => { O.replace = optReplace.value; persist(); });
+  const scanTags = { tags: [...(O.tags || [])] };
   const list = el("div", { class: "scanlist" });
   const countBtn = el("button", { class: "btn primary" });
   const updCount = () => { const n = items.filter(x => x.include).length; countBtn.textContent = `${n} ${n === 1 ? "Buch" : "Bücher"} übernehmen${target ? " & einsortieren" : ""}`; countBtn.disabled = !n || null; ov.querySelectorAll(".scanbox").forEach(bx => bx.classList.toggle("off", !items[+bx.dataset.n].include)); };
@@ -541,7 +604,7 @@ function scanReview(sh, st) {
       "oder Titel/Band korrigieren und „🔎 Neu suchen“ – oder „✓ Passt so“, wenn alles stimmt.",
       el("label", { class: "prow", style: "margin-top:6px" }, onlyUnsure, el("span", { text: "Nur unsichere zeigen" }))) : null);
   };
-  const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); st.onChange && st.onChange(); };
+  const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); persist(); };
   const POS = { standing: "steht", lying_in_row: "liegt in der Reihe", lying_on_top: "liegt oben auf", behind: "hintere Reihe" };
   const rowFor = (it, n) => {
     const cb = el("input", { type: "checkbox", checked: it.include || null });
@@ -554,8 +617,8 @@ function scanReview(sh, st) {
     const editHint = el("div", { class: "saved", style: "color:var(--accent)" });
     const edited = () => { if (it.kind !== "other" && it.cands.length) editHint.textContent = "Geändert – „🔎 Neu suchen“ tippen, damit der Katalogtreffer passt."; };
     const vIn = el("input", { class: "field", value: itemVol(it), placeholder: "Band", inputmode: "numeric", title: "Band-Nummer einer Reihe (leer = keine)", "aria-label": "Band" });
-    tIn.addEventListener("input", () => { it.title = tIn.value; edited(); }); aIn.addEventListener("input", () => { it.author = aIn.value; edited(); });
-    vIn.addEventListener("input", () => { it.volume = vIn.value.replace(/\D/g, "").slice(0, 3); it.series_no = it.volume; it.spine_text_vertical = ""; edited(); }); // eigene Angabe ersetzt die erkannte
+    tIn.addEventListener("input", () => { it.title = tIn.value; edited(); persist(); }); aIn.addEventListener("input", () => { it.author = aIn.value; edited(); persist(); });
+    vIn.addEventListener("input", () => { it.volume = vIn.value.replace(/\D/g, "").slice(0, 3); it.series_no = it.volume; it.spine_text_vertical = ""; edited(); persist(); }); // eigene Angabe ersetzt die erkannte
     const pick = el("select", { class: "field", style: "width:100%" });
     const drawPick = () => fillNode(pick,
       el("option", { value: -1, selected: it.choice === -1 || null }, W.own),
@@ -618,11 +681,17 @@ function scanReview(sh, st) {
       el("label", { class: "prow" }, optCrop, el("span", {}, el("b", { text: "Buchrücken-Bilder aus dem Foto übernehmen" }), el("div", { class: "saved", text: "Sonst Farbe, Text und Maße wie erkannt." }))),
       el("div", { class: "fgrid" }, el("div", { class: "c3" }, el("label", { class: "lbl", text: "Lesestatus für neue Bücher" }), optStatus),
         target ? el("div", { class: "c3" }, el("label", { class: "lbl", text: "Ziel: " + target.label }), optReplace) : el("div", { class: "c3 saved", style: "align-self:end", text: "Ohne Fach: Bücher landen unter „Noch nicht eingeräumt“." }),
-        el("div", { class: "c6" }, el("label", { class: "lbl", text: "Schlagworte für alle übernommenen Bücher (optional)" }), tagEditor(scanTags, () => {})))),
+        el("div", { class: "c6" }, el("label", { class: "lbl", text: "Schlagworte für alle übernommenen Bücher (optional)" }), tagEditor(scanTags, () => { O.tags = scanTags.tags; persist(); })))),
     list,
+    el("div", { class: "covertools", style: "margin-top:10px" }, el("button", { class: "btn sm ghost", type: "button", title: "Was die KI gelesen und die Kataloge geantwortet haben – zum Ansehen oder Weitergeben", onclick: () => openRecLog() }, "🧾 Protokoll anzeigen / teilen")),
     el("div", { class: "actions sticky" }, st.back ? el("button", { class: "btn ghost", onclick: st.back.fn }, st.back.label) : el("button", { class: "btn ghost", onclick: () => st.photo ? openPhotoInbox() : openShelfScan(st.fachKey) }, st.photo ? "← Später weiter" : "← Anderes Foto"), countBtn));
   refresh();
-  sh.guard = async () => await confirmBox("Die erkannten Bücher wurden noch nicht übernommen.\nWirklich schließen?", "Schließen");
+  if (st.photo) {
+    // Nichts geht verloren: der Stand steht am Fach-Foto – Schließen ohne Nachfrage, mit Hinweis, wo es weitergeht
+    sh.guard = null;
+    const prevClose = sh.onClose;
+    sh.onClose = () => { prevClose && prevClose(); if (!st.imported) toast("Prüfliste gemerkt – weiter unter „📥 Gespeicherte Fach-Fotos“.", 3500); };
+  } else sh.guard = async () => await confirmBox("Die erkannten Bücher wurden noch nicht übernommen.\nWirklich schließen?", "Schließen");
   sh.body.parentElement.scrollTop = 0;
 }
 /* Neues Buch aus einer Prüflisten-Zeile (Fach-Foto oder Titelliste) und dem gewählten Katalogtreffer c (oder keinem).
@@ -694,15 +763,15 @@ async function importScan(st, opt) {
     if (placed.back.length) S.showBack.delete(m.id + ":" + k);
     await saveShelves();
   }
-  if (st.photo) { clearPending(); await patchPhoto(st.photo.id, { doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
+  if (st.photo) { clearPending(); clearTimeout(reviewSaveT); await patchPhoto(st.photo.id, { review: null, doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
   if (st.full && st.full !== st.canvas) { st.full.width = st.full.height = 0; st.full = null; } // großes Bild freigeben
-  sh.guard = null;
+  sh.guard = null; st.imported = true;
   closeSheet();
   renderAll();
   toast(`${created} neue Bücher angelegt${reused ? `, ${reused} vorhandene erkannt` : ""}${opt.target ? " und einsortiert" : ""}.`, 4500);
   if (opt.target) { S.wallId = allFachs().find(f => f.m === opt.target.m)?.w.id || S.wallId; if (location.hash !== "#wand") location.hash = "#wand"; }
   const noCov = newIds.filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
   // „Der Reihe nach prüfen“ (batchscan.js): gleich das nächste erkannte Fach; Cover am Ende gesammelt nachtragen
-  if (S.reviewChain) { S.chainNoCov = [...(S.chainNoCov || []), ...noCov]; nextReview(); return; }
+  if (S.reviewChain) { S.chainNoCov = [...(S.chainNoCov || []), ...noCov]; chainSave(); nextReview(); return; }
   if (noCov.length &&await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
 }

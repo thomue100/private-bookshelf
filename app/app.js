@@ -202,6 +202,23 @@ async function fetchCoverBlob(url) {
 
 /* ================= Buchdaten aus dem Internet ================= */
 function gKey() { try { const k = localStorage.getItem("gbooksKey"); return k ? "&key=" + encodeURIComponent(k) : ""; } catch { return ""; } }
+/* Erkennungsprotokoll (reclog.js): jede Katalogabfrage mit Quelle, Suchbegriff, Trefferzahl bzw. Fehlerart und Dauer.
+   log ist ein Array (oder nichts). Es wird nur der Suchbegriff gemerkt, nie die Adresse (Google-Schlüssel steht in der Adresse). */
+function catErr(e) {
+  if (e?.name === "AbortError") return "Zeitüberschreitung";
+  const s = String(e?.message || e || "");
+  if (/^(429|403)$/.test(s)) return `gesperrt/Kontingent (${s})`;
+  if (/^\d{3}$/.test(s)) return "HTTP " + s;
+  if (e instanceof TypeError) return "nicht erreichbar (Netz/CORS)";
+  return s.slice(0, 120) || "Fehler";
+}
+function catTrack(log, src, q, p) {
+  if (!Array.isArray(log)) return p;
+  const t0 = performance.now(), e = { src, q: String(q || "").slice(0, 200) }; log.push(e);
+  const cnt = v => Array.isArray(v) ? v.length : Array.isArray(v?.items) ? v.items.length : Array.isArray(v?.docs) ? v.docs.length : v ? 1 : 0;
+  return p.then(v => { e.ms = Math.round(performance.now() - t0); e.n = cnt(v); return v; },
+    err => { e.ms = Math.round(performance.now() - t0); e.err = catErr(err); throw err; });
+}
 async function getJSON(url, ms = 9000) {
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
   try { const r = await fetch(url, { signal: ctl.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); }
@@ -313,11 +330,11 @@ async function dnbQuery(cql, max = 15) {
 const gIsbnCover = isbn => `https://books.google.com/books/content?vid=ISBN${isbn}&printsec=frontcover&img=1&zoom=1`;
 const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null, gIsbnCover(isbn)].filter(Boolean); };
 
-async function lookupIsbn(isbn) {
+async function lookupIsbn(isbn, log) {
   const [g, ol, dnb] = await Promise.allSettled([
-    getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}${gKey()}`),
-    getJSON(`https://openlibrary.org/search.json?q=isbn:${isbn}&limit=1&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`),
-    dnbQuery(`num=${isbn}`, 3),
+    catTrack(log, "Google Books", "isbn:" + isbn, getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}${gKey()}`)),
+    catTrack(log, "Open Library", "isbn:" + isbn, getJSON(`https://openlibrary.org/search.json?q=isbn:${isbn}&limit=1&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`)),
+    catTrack(log, "DNB", "num=" + isbn, dnbQuery(`num=${isbn}`, 3)),
   ]);
   let rec = {};
   if (g.status === "fulfilled" && g.value.items?.length) rec = fromGoogle(g.value.items[0]);
@@ -381,24 +398,24 @@ function hitVol(r) { const p = String(r.part ?? "").replace(/\D/g, ""); if (p &&
 async function searchWave(text, opts = {}) {
   const enc = encodeURIComponent(text);
   const res = await Promise.allSettled([
-    Promise.allSettled((opts.dnb || [`woe all "${text}"`]).map(c => dnbQuery(c, opts.dnbMax || 20))).then(rs => { if (rs.every(x => x.status === "rejected")) throw rs[0].reason; return rs.flatMap(x => x.status === "fulfilled" ? x.value : []); }),
-    getJSON(`https://www.googleapis.com/books/v1/volumes?q=${enc}&maxResults=10&printType=books${gKey()}`).then(j => (j.items || []).map(fromGoogle)),
-    lobidQuery(text, 15, opts.all !== false),
-    getJSON(`https://openlibrary.org/search.json?q=${enc}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`).then(j => (j.docs || []).map(fromOLSearch)),
+    Promise.allSettled((opts.dnb || [`woe all "${text}"`]).map(c => catTrack(opts.log, "DNB", c, dnbQuery(c, opts.dnbMax || 20)))).then(rs => { if (rs.every(x => x.status === "rejected")) throw rs[0].reason; return rs.flatMap(x => x.status === "fulfilled" ? x.value : []); }),
+    catTrack(opts.log, "Google Books", text, getJSON(`https://www.googleapis.com/books/v1/volumes?q=${enc}&maxResults=10&printType=books${gKey()}`)).then(j => (j.items || []).map(fromGoogle)),
+    catTrack(opts.log, "lobid", text, lobidQuery(text, 15, opts.all !== false)),
+    catTrack(opts.log, "Open Library", text, getJSON(`https://openlibrary.org/search.json?q=${enc}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`)).then(j => (j.docs || []).map(fromOLSearch)),
   ]);
   return { ok: res.some(r => r.status === "fulfilled"), lists: res.map(r => r.status === "fulfilled" ? r.value : []) };
 }
-async function searchBooks(q) {
+async function searchBooks(q, log) {
   const P = parseQuery(q);
   if (!P.words) return [];
   // 1. Runde: Suchbegriff ohne „Band“; 2. Runde ohne Bandnummer bzw. lockerer, wenn der Band fehlt oder kaum etwas kommt
   // „woe“ (alle Wörter) findet bei kurzen Zahlen fast alles – mit Band daher genau im Titel suchen („Kamin 8.“)
-  const waves = [await searchWave(P.core, P.vol ? { dnb: [`tit all "${P.core}"`] } : {})];
+  const waves = [await searchWave(P.core, P.vol ? { dnb: [`tit all "${P.core}"`], log } : { log })];
   let all = waves[0].lists.flat();
   const volHit = () => P.vol && all.some(r => hitVol(r) === P.vol);
   if (all.length < 3 || (P.vol && !volHit())) {
-    if (P.base !== P.core) waves.push(await searchWave(P.base, { dnb: [`tit all "${P.base}"`, `woe all "${P.core}"`], dnbMax: 50 }));
-    else if (!all.length) waves.push(await searchWave(P.core, { dnb: [`woe any "${P.core}"`], all: false }));
+    if (P.base !== P.core) waves.push(await searchWave(P.base, { dnb: [`tit all "${P.base}"`, `woe all "${P.core}"`], dnbMax: 50, log }));
+    else if (!all.length) waves.push(await searchWave(P.core, { dnb: [`woe any "${P.core}"`], all: false, log }));
     all = waves.flatMap(w => w.lists).flat();
   }
   if (!waves.some(w => w.ok)) throw new Error("offline");
@@ -804,20 +821,44 @@ window.addEventListener("hashchange", renderAll);
 document.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => openAdd(view() === "wunsch")));
 
 /* ================= Dialoge ================= */
+/* Blätter (Dialoge) – nichts geht still verloren:
+   - Am Handy schließt nur ✕ (kein versehentliches Tippen auf den Hintergrund); am PC schließt der Hintergrund, bei Änderungen mit Nachfrage (guard).
+   - Ein Blatt mit guard (ungespeicherte Änderungen) wird nie still ersetzt: es bleibt versteckt erhalten und kommt zurück,
+     wenn das neue Blatt geschlossen wird.
+   - Android-Zurück-Taste: Beim Öffnen gibt es einen History-Eintrag; Zurück schließt das Blatt (mit Nachfrage) statt die App zu verlassen.
+     Programmatisches Schließen lässt den Eintrag stehen (history.back() würde mit Ansichtswechseln über location.hash kollidieren);
+     das nächste Blatt verwendet ihn wieder. */
 let openSheet = null;
+const sheetStack = [];
+function sheetHistPush() { try { history.pushState({ ...(history.state || {}), sheet: true }, ""); } catch {} }
 function sheet(title, { onClose } = {}) {
-  closeSheet();
+  if (openSheet?.guard) { const prev = openSheet; prev.paste = S.pasteHandler; prev.ov.style.display = "none"; sheetStack.push(prev); openSheet = null; sheetHistPush(); }
+  else closeSheet();
   const body = el("div", { class: "sheet-b" });
   const h2 = el("h2", { text: title });
   const head = el("div", { class: "sheet-h" }, h2, el("button", { class: "x", "aria-label": "Schließen", onclick: requestClose }, "✕"));
   const sh = el("div", { class: "sheet", role: "dialog", "aria-modal": "true" }, head, body);
-  const ov = el("div", { class: "overlay", onclick: e => { if (e.target === ov) requestClose(); } }, sh);
+  const ov = el("div", { class: "overlay", onclick: e => { if (e.target === ov && !isMobile()) requestClose(); } }, sh);
   document.body.append(ov); document.body.style.overflow = "hidden";
   openSheet = { ov, body, h2, onClose };
+  if (!history.state?.sheet) sheetHistPush();
   return openSheet;
 }
 async function requestClose() { if (!openSheet) return; const s = openSheet; if (s.guard && !(await s.guard())) return; if (openSheet === s) closeSheet(); }
-function closeSheet() { if (!openSheet) return; const s = openSheet; openSheet = null; s.onClose && s.onClose(); s.ov.remove(); document.body.style.overflow = ""; S.pasteHandler = null; }
+function closeSheet() {
+  if (!openSheet) return; const s = openSheet; openSheet = null; s.onClose && s.onClose(); s.ov.remove(); S.pasteHandler = null;
+  const prev = sheetStack.pop();
+  if (prev) { prev.ov.style.display = ""; openSheet = prev; S.pasteHandler = prev.paste || null; return; }
+  document.body.style.overflow = "";
+}
+// Zurück-Taste (Android) bzw. Browser-Zurück: offenes Blatt schließen – bei Änderungen erst fragen
+window.addEventListener("popstate", async () => {
+  if (!openSheet || document.querySelector(".scan")) return;
+  const s = openSheet;
+  if (s.guard && !(await s.guard())) { if (openSheet === s && !history.state?.sheet) sheetHistPush(); return; }
+  if (openSheet === s) closeSheet();
+  if (openSheet && !history.state?.sheet) sheetHistPush(); // darunter liegt noch ein Blatt
+});
 document.addEventListener("keydown", e => { if (e.key === "Escape") { if ($(".lightbox")) $(".lightbox").remove(); else if ($(".confirm")) $(".confirm").remove(); else if (!$(".scan")) requestClose(); } else if (openSheet?.onKey) openSheet.onKey(e); });
 function confirmBox(text, okLabel = "Löschen") {
   return new Promise(res => {
@@ -959,6 +1000,7 @@ function dropZone(text, onFile, { urlOk = false, paste = true } = {}) {
 function openAdd(asWish) {
   if (asWish !== undefined) S.addAsWish = asWish === true;
   const sh = sheet(S.addAsWish ? "⭐ Wunsch hinzufügen" : "Buch hinzufügen");
+  sh.webTake = true; // Zwischenablage-Angebot darf hier ein Buch übernehmen
   const m = isMobile();
   const scanBtn = el("button", { class: "btn primary", onclick: startLiveScan }, "▦ Barcode scannen");
   const isbnRow = webTakeField("ISBN eintippen oder Link einfügen");
@@ -997,7 +1039,7 @@ function openAdd(asWish) {
 }
 function busyView(title, img, msg) {
   const sh = openSheet || sheet(title);
-  sh.h2.textContent = title; S.pasteHandler = null;
+  sh.h2.textContent = title; S.pasteHandler = null; sh.redraw = null; sh.webTake = false;
   const m = el("div", { text: msg });
   fillNode(sh.body, el("div", { class: "busy" }, img ? el("img", { src: URL.createObjectURL(img) }) : null, el("div", { class: "spin" }), m));
   return m;
@@ -1029,7 +1071,9 @@ async function handleIsbn(isbn) {
   if (dup && !(await confirmBox(`${dupText(dup)}\nTrotzdem noch einmal hinzufügen?`, "Trotzdem"))) { openDetail(dup.id); return; }
   busyView("Buchdaten werden geladen", null, `ISBN ${isbn} – suche bei Google Books und Open Library …`);
   let rec = null, err = null;
-  try { rec = await lookupIsbn(isbn); } catch (e) { err = e; }
+  const run = recRun("barcode", { isbn }), log = [];
+  try { rec = await lookupIsbn(isbn, log); } catch (e) { err = e; }
+  recSearch(run, "isbn:" + isbn, log, rec ? 1 : 0, err ? catErr(err) : rec ? "" : "nichts gefunden");
   if (!rec) {
     openReview({ isbn }, null, err ? "Keine Internetverbindung – trag die Daten von Hand ein oder versuch es später mit „Daten suchen“." : "Zu dieser ISBN wurde online nichts gefunden. Trag die Daten von Hand ein oder fotografiere das Cover.");
     return;
@@ -1039,13 +1083,15 @@ async function handleIsbn(isbn) {
 async function coverFlow(file) {
   if (aiKey()) {
     busyView("Cover wird erkannt", file, "KI liest das Cover …");
-    try { coverResult(await aiRecognizeCover(file), file); return; } catch (e) { toast("KI-Erkennung nicht möglich: " + (e.message || e), 4000); }
+    const run = recRun("cover");
+    try { coverResult(await aiRecognizeCover(file, run), file, run); return; } catch (e) { toast("KI-Erkennung nicht möglich: " + (e.message || e), 4000); }
   }
   showSearch("", file); // ohne KI: Titel eintippen oder „💬 Mit Claude-Chat erkennen“
 }
-async function showSearch(query, coverFile, recognized) {
+async function showSearch(query, coverFile, recognized, recRunCover) {
   const sh = openSheet || sheet("Suche");
   sh.h2.textContent = coverFile ? "Welches Buch ist es?" : "Suchergebnisse";
+  sh.webTake = true; sh.redraw = null;
   S.pasteHandler = null;
   const qIn = el("input", { class: "field", type: "search", value: query || "", placeholder: "Titel und/oder Autor" });
   const results = el("div", { class: "cands" });
@@ -1055,7 +1101,8 @@ async function showSearch(query, coverFile, recognized) {
     results.replaceChildren(el("div", { class: "busy", style: "padding:14px" }, el("div", { class: "spin" })));
     links.replaceChildren(webSearchLinks(q) || ""); // auch (gerade) bei „Nichts gefunden“
     let list = [];
-    try { list = await searchBooks(q); } catch { results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
+    const R = recRunCover || recRun("titelsuche"), log = []; recRunCover = null; // erste Suche zum Cover gehört zu dessen Lauf
+    try { list = await searchBooks(q, log); recSearch(R, q, log, list.length); } catch (e) { recSearch(R, q, log, 0, catErr(e)); results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "In den Katalogen nichts gefunden. Suchbegriff kürzen oder anpassen – oder unten über „Im Internet suchen“ die Buchseite finden und ihren Link einfügen." })); return; }
     const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
     const card = (r, best) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
@@ -1165,20 +1212,31 @@ function coverTools(onFile) {
 }
 
 /* ================= Prüfen & speichern (neues Buch) ================= */
-function openReview(rec, coverFile, noteText) {
+/* restore: gesicherter Entwurf (Meta „reviewDraft“) – nach einem Neustart genau dort weitermachen */
+function openReview(rec, coverFile, noteText, restore) {
   const sh = openSheet || sheet("Prüfen & speichern");
   sh.h2.textContent = "Prüfen & speichern";
+  sh.webTake = false; sh.redraw = null;
   const draft = { status: "unread", rating: 0, notes: "", wish: !!S.addAsWish };
   for (const f of FIELDS) draft[f.k] = rec[f.k] || "";
   const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Buchhöhe aus dem Katalog (DNB/lobid)
   // Vorgaben (stackscan.js): Status, Schlagworte, Bestand/Wunschliste vorbelegen – pro Buch änderbar; das Fach gilt beim Speichern
   const pre = capturePreset();
-  if (pre) { Object.assign(draft, statusPatch(draft, pre.status)); draft.wish = pre.wish; if (pre.tags.length) draft.tags = [...pre.tags]; }
-  let coverMode = coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
-  let photo = coverFile || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
-  let orig = coverFile || null, quads = coverFile?.quads || null, spineFromQuad = false; // Originalfoto + Ecken (KI oder von Hand) zum Zuschneiden
+  if (pre && !restore) { Object.assign(draft, statusPatch(draft, pre.status)); draft.wish = pre.wish; if (pre.tags.length) draft.tags = [...pre.tags]; }
+  if (restore?.draft) Object.assign(draft, restore.draft);
+  let coverMode = restore ? restore.coverMode || "none" : coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
+  let photo = (restore ? restore.photo : coverFile) || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
+  let orig = (restore ? restore.orig : coverFile) || null, quads = (restore ? restore.quads : coverFile?.quads) || null, spineFromQuad = !!restore?.spineFromQuad; // Originalfoto + Ecken (KI oder von Hand) zum Zuschneiden
   const webCovers = rec.altCovers || (rec.coverUrl ? [rec.coverUrl] : []);
-  let webIdx = 0;
+  let webIdx = restore?.webIdx || 0;
+  // Entwurf laufend sichern (Meta „reviewDraft“, nur auf diesem Gerät, samt Cover- und Rückenfoto): schließt Android die App,
+  // während die Kamera offen ist, geht nichts verloren
+  let draftT = null, draftGone = false;
+  const keepDraft = () => {
+    if (draftGone) return; clearTimeout(draftT);
+    draftT = setTimeout(() => { if (!draftGone) DB.setMeta("reviewDraft", { at: new Date().toISOString(), rec, note: noteText || "", draft: { ...draft }, coverMode, webIdx, photo, orig, quads, spBase, spineFromQuad }).catch(() => {}); }, 400);
+  };
+  const dropDraft = () => { draftGone = true; clearTimeout(draftT); DB.setMeta("reviewDraft", null).catch(() => {}); };
   const coverBox = el("div", {});
   const coverChoice = el("div", { class: "covertools" });
   const drawCover = () => {
@@ -1191,13 +1249,14 @@ function openReview(rec, coverFile, noteText) {
     coverChoice.replaceChildren(...[
       orig && coverMode === "photo" ? el("button", { class: "btn sm", type: "button", title: "Ecken des Buchs setzen: Hintergrund weg, schräg Fotografiertes wird gerade – auch den Rücken", onclick: cropDialog }, "✂ Zuschneiden") : null,
       photo && webCovers.length ? el("button", { class: "btn sm", type: "button", onclick: () => { coverMode = coverMode === "photo" ? "web" : "photo"; drawCover(); } }, coverMode === "photo" ? "Online-Cover nehmen" : "Mein Foto nehmen") : null].filter(Boolean));
+    keepDraft();
   };
   const showPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
   const setPhoto = f => { orig = f; quads = f.quads || null; showPhoto(f); if (quads) applyQuads(quads); };
   drawCover();
   S.pasteHandler = setPhoto; // Strg+V geht ans Cover – außer die Rücken-Fläche ist gerade fokussiert (dropZone)
   // --- Rückenfoto gleich beim Erfassen
-  const spBase = draft.spine ? { ...draft.spine } : null;
+  const spBase = restore ? restore.spBase || null : draft.spine ? { ...draft.spine } : null;
   const spBox = el("div", { class: "spphoto" });
   const setSpine = async (f, quiet) => {
     try { draft.spine = await spineWithPhoto(draft, f, spBase); spineFromQuad = false; drawSpine(); if (quiet !== true) toast("Rückenfoto übernommen.", 1800); }
@@ -1212,6 +1271,7 @@ function openReview(rec, coverFile, noteText) {
       el("div", { class: "covertools" }, ...spinePhotoButtons(setSpine, isMobile() ? "📷 Foto" : "🖼 Bild wählen"),
         has ? el("button", { class: "btn sm ghost danger", type: "button", onclick: () => { draft.spine = spBase ? { ...spBase } : null; drawSpine(); } }, "entfernen") : null),
       spZone);
+    keepDraft();
   };
   drawSpine();
   // --- Zuschneiden / Entzerren: Cover und Rücken aus einem (schräg aufgenommenen) Foto (perspective.js)
@@ -1229,7 +1289,7 @@ function openReview(rec, coverFile, noteText) {
     if (!r) return;
     quads = r; await applyQuads(r, false);
   }
-  if (quads) applyQuads(quads);
+  if (quads && !restore) applyQuads(quads);
   const notes = [];
   if (noteText) notes.push(el("div", { class: "note", text: noteText }));
   else if (rec.src) notes.push(el("div", { class: "note info", text: `Gefunden über ${rec.src}. Kurz drüberschauen – fehlende Felder sind gelb markiert.` }));
@@ -1248,7 +1308,7 @@ function openReview(rec, coverFile, noteText) {
     if (!String(draft.title || "").trim()) { toast("Bitte mindestens einen Titel eintragen."); return; }
     const dup = findDuplicate(draft);
     if (dup && isWish(dup) && !draft.wish) {
-      if (await confirmBox(`„${dup.title}“ steht auf deiner Wunschliste.\nAls gekauft in den Bestand übernehmen?`, "Übernehmen")) { await wishBought(dup.id); if (next) openAdd(); else openDetail(dup.id); }
+      if (await confirmBox(`„${dup.title}“ steht auf deiner Wunschliste.\nAls gekauft in den Bestand übernehmen?`, "Übernehmen")) { dropDraft(); sh.guard = null; await wishBought(dup.id); if (next) openAdd(); else openDetail(dup.id); }
       return;
     }
     if (dup && !(await confirmBox(`${dupText(dup)}\nTrotzdem noch einmal anlegen?`, "Trotzdem anlegen"))) return;
@@ -1268,6 +1328,7 @@ function openReview(rec, coverFile, noteText) {
       const fach = !b.wish && capturePreset()?.fach;
       if (fach) await placePresetBooks([b.id]); // Vorgabe-Fach: ans Ende stellen
       toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : fach ? `„${b.title}“ steht jetzt in ${fach.label}.` : `„${b.title}“ ist im Regal.`);
+      dropDraft(); sh.guard = null;
       if (next) openAdd(); else closeSheet();
     } catch (e) { console.error(e); toast("Speichern fehlgeschlagen."); saveBtn.disabled = false; saveBtn.textContent = label(); }
   };
@@ -1281,10 +1342,32 @@ function openReview(rec, coverFile, noteText) {
       el("label", { class: "lbl", style: "margin-top:12px", text: "Schlagworte" }), tagEditor(draft, () => {}),
       webSearchLinks([draft.title, draft.author].filter(Boolean).join(" "), draft.isbn, draft.title, draft.author)),
     el("div", { class: "actions" },
-      el("button", { class: "btn ghost", onclick: openAdd }, "← Zurück"),
+      el("button", { class: "btn ghost", onclick: async () => { if (await sh.guard()) { sh.guard = null; openAdd(); } } }, "← Zurück"),
       el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, el("button", { class: "btn", onclick: () => doSave(true) }, "Speichern & nächstes"), saveBtn))
   );
+  // Noch nicht gespeichert: Schließen, Zurück-Taste und „← Zurück“ fragen nach
+  sh.guard = async () => { const ok = await confirmBox(`${draft.title ? `„${draft.title}“` : "Das Buch"} ist noch nicht gespeichert.\nWirklich verwerfen?`, "Verwerfen"); if (ok) dropDraft(); return ok; };
+  for (const ev of ["input", "change", "click"]) sh.body.addEventListener(ev, keepDraft);
+  keepDraft();
   sh.body.parentElement.scrollTop = 0;
+}
+/* Leiste unten „… weitermachen?“ (Entwurf, Titelliste …). Mehrere stehen untereinander. */
+function resumeBar(id, text, onGo, onDrop, { goLabel = "Weitermachen", cls = "", ask = "Wirklich verwerfen?" } = {}) {
+  let box = $(".resumebox"); if (!box) { box = el("div", { class: "resumebox" }); document.body.append(box); }
+  box.querySelector(`[data-id="${id}"]`)?.remove();
+  const bar = el("div", { class: "resumebar " + cls, "data-id": id }, el("span", { text }),
+    el("button", { class: "btn sm primary", onclick: () => { if (openSheet) { toast("Bitte zuerst das offene Fenster schließen."); return; } bar.remove(); onGo(); } }, goLabel),
+    el("button", { class: "btn sm ghost", onclick: async () => { if (await confirmBox(ask, "Verwerfen")) { bar.remove(); onDrop && await onDrop(); } } }, "verwerfen"));
+  box.append(bar);
+  return bar;
+}
+async function offerReviewDraft() {
+  let d = null; try { d = await DB.getMeta("reviewDraft"); } catch {}
+  if (!d?.draft) return;
+  if (Date.now() - Date.parse(d.at) > 14 * 864e5) { DB.setMeta("reviewDraft", null).catch(() => {}); return; }
+  const t = d.draft.title ? `„${d.draft.title}“` : "ein Buch";
+  resumeBar("reviewDraft", `✏️ Du warst gerade dabei, ${t} zu erfassen – weitermachen?`, () => openReview(d.rec || {}, null, d.note || null, d),
+    () => DB.setMeta("reviewDraft", null).catch(() => {}), { ask: `Den angefangenen Eintrag ${t} verwerfen?` });
 }
 
 /* ================= Detailseite: Ansicht ================= */
@@ -3323,6 +3406,7 @@ $("#menuBtn").addEventListener("click", e => {
     item("📷 Fach-Foto einlesen", () => openShelfScan()),
     item("📥 Gespeicherte Fach-Fotos" + (openPhotos().length ? ` (${openPhotos().length} offen)` : ""), () => openPhotoInbox()),
     item("🖼 Fehlende Cover online nachtragen", () => coverRun()),
+    item("🧾 Erkennungsprotokoll", () => openRecLog()),
     item("⚙️ Über die App & Einstellungen", aboutBox),
     el("small", { text: "Abgleich: Auf dem einen Gerät exportieren, auf dem anderen importieren. Neuere Änderungen gewinnen." }));
   $(".menu").append(list);
@@ -3374,4 +3458,4 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
   watchForUpdates();
 }
 renderAll();
-loadAll();
+loadAll().then(offerReviewDraft);

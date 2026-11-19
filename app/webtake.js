@@ -88,12 +88,14 @@ async function checkWebReturn() {
   WT.offered.add(t);
   let what = isbn ? "ISBN " + isbn : "Link";
   if (!isbn) { try { what = "Link von " + new URL(url).hostname.replace(/^www\./, ""); } catch {} }
+  // Eine offene Prüfliste oder ein angefangenes Buch nie ersetzen – dort gibt es eigene Felder zum Einfügen
+  if (openSheet && !openSheet.webTake) { toast(`📋 In der Zwischenablage: ${what} – zum Übernehmen hier in das Feld „Link oder ISBN“ einfügen.`, 5000); return; }
   showClipOffer(`📋 In der Zwischenablage: ${what}`, () => takeFromWeb(t));
 }
 function showClipOffer(text, onTake) {
   hideClipOffer();
   const bar = el("div", { class: "clipoffer", role: "status" }, el("span", { text }),
-    el("button", { class: "btn sm primary", onclick: () => { hideClipOffer(); onTake(); } }, "Übernehmen"),
+    el("button", { class: "btn sm primary", onclick: () => { hideClipOffer(); if (openSheet && !openSheet.webTake) { toast("Erst das offene Fenster abschließen – der Link bleibt in der Zwischenablage."); return; } onTake(); } }, "Übernehmen"),
     el("button", { class: "btn sm ghost", title: "Nicht übernehmen", onclick: hideClipOffer }, "✕"));
   document.body.append(bar);
 }
