@@ -19,7 +19,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
      Optional `photos` (Fach-Fotos ohne `blob`; offene mit `imageData`) – fehlt, wenn es keine gibt.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
-   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
+   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
    mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
 3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (Barcode, Hand-Eingabe, Claude-Chat-Brücke).
    Die frühere Texterkennung (Tesseract/OCR) ist bewusst entfernt – zu ungenau; nicht wieder einbauen.
@@ -54,6 +54,8 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 
 Wichtig: Alle Skripte teilen sich den globalen Gültigkeitsbereich (keine Module). Was beim **ersten Rendern** gebraucht wird
 (z. B. `needsCover`), muss in `app.js` stehen – die anderen Dateien laden danach.
+
+Kataloge: alle Abfragen über `catFetch` (Zwischenspeicher 30 Min., DNB einzeln nacheinander, Pause nach 429/403: DNB 10 Min., Google 1 Std. + Hinweis `googleQuotaHint`). Erkannte Bücher suchen gezielt mit `searchFields` (Titel-/Personen-Index, schrittweise lockerer, Verlagsnummer), freie Suche `searchBooks`. K10plus: `k10Query`/`fromK10` (MARC wie DNB, nur Textmaterial). Startroutinen in Zusatzdateien warten auf `S.loaded` **und** `document.readyState !== "loading"`.
 
 Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGone`, `needsCover`, `buildBackup`, `importData`,
 `locationOf`/`placeBook`/`unshelve`/`saveShelves`, `renderAll`, `openDetail(id, edit)`, `findCoverFor`, `coverRun`, `runAutoBackup`.

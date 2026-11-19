@@ -29,11 +29,13 @@ async function tallWall(page) {
 }
 // Lage direkt im Browser messen (das Fach wird beim Neuzeichnen ersetzt)
 const topOf = loc => loc.evaluate(e => e.getBoundingClientRect().top);
+// erst messen, wenn das Fach ruhig steht (Farben aus den Covern werden nachgezeichnet – unter Last dauert das)
+async function stableTop(loc) { let a = await topOf(loc); for (let i = 0; i < 40; i++) { await new Promise(r => setTimeout(r, 100)); const b = await topOf(loc); if (Math.abs(a - b) < 0.5) return b; a = b; } return a; }
 
 test("Einsortieren, Auswählen und Lupe: das Fach bleibt auf seiner Höhe stehen", async ({ page }) => {
   const fach = await tallWall(page);
   expect(await page.evaluate(() => document.querySelector(".wallscroll").scrollTop)).toBeGreaterThan(100);
-  const y0 = await topOf(fach);
+  const y0 = await stableTop(fach);
 
   // Buch wählen (Hinweiszeile erscheint oben) und ins Fach tippen (Hinweiszeile verschwindet wieder)
   await page.evaluate(() => { S.pick = "b5"; renderWall(); });
@@ -47,7 +49,7 @@ test("Einsortieren, Auswählen und Lupe: das Fach bleibt auf seiner Höhe stehen
   // Lupe ein- und ausschalten (Knopf erst sichtbar machen – dabei rollt ggf. die Seite)
   await page.waitForTimeout(200); // Farbe aus dem Cover des neuen Buchs ist nachgezeichnet
   await page.evaluate(() => window.scrollTo(0, 0)); // wie am Handy: nach oben, damit die Knöpfe zu sehen sind
-  const y1 = await topOf(fach);
+  const y1 = await stableTop(fach);
   await page.click(".lensbtn");
   await expect(page.locator(".wall.lensing")).toHaveCount(1);
   expect(Math.abs(await topOf(fach) - y1)).toBeLessThan(3);
@@ -57,7 +59,7 @@ test("Einsortieren, Auswählen und Lupe: das Fach bleibt auf seiner Höhe stehen
   // Auswählen: jedes Antippen zeichnet neu, die Stelle bleibt
   await page.click(".selbtn");
   await fach.locator(".spine[data-id=b1]").scrollIntoViewIfNeeded();
-  const y2 = await topOf(fach);
+  const y2 = await stableTop(fach);
   await fach.locator(".spine[data-id=b1]").click();
   await fach.locator(".spine[data-id=b2]").click();
   await expect(page.locator(".spine.sel")).toHaveCount(2);

@@ -395,7 +395,7 @@ function tlResumeHint() {
     { goLabel: "Titelliste weiter prüfen", cls: "tlresume", ask: "Die angefangene Titelliste verwerfen?\nBereits übernommene Bücher bleiben natürlich." });
 }
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded) { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
   const run = await tlLoad();
   if (run) { S.titleRun = run; tlResumeHint(); }
 })();

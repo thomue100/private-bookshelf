@@ -317,24 +317,60 @@ function fromDNB(r) {
   const heightCm = av ? 0 : heightFromFormat(dnbFirst(r, "300", "c")); // 300 $c: Format, z. B. „21 cm“
   return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo, ...(heightCm ? { heightCm } : {}) };
 }
-async function dnbQuery(cql, max = 15) {
-  const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
+/* ---- Schonende Katalogabfragen: Zwischenspeicher je Suchbegriff (30 Min., gleichzeitige gleiche Anfragen nur einmal),
+   DNB höchstens eine Anfrage zur Zeit mit kurzer Pause, und eine Quelle, die „gesperrt/Kontingent“ meldet (429/403), wird
+   eine Weile ausgelassen (DNB 10 Min., Google 1 Std.) – sonst verlängert die App die Sperre selbst. ---- */
+const CAT = { cache: new Map(), blocked: {}, dnbQ: Promise.resolve(), dnbGap: 150, hinted: false };
+function catFetch(src, key, fn) {
+  if ((CAT.blocked[src] || 0) > Date.now()) return Promise.reject(Object.assign(new Error("pausiert"), { paused: true }));
+  const hit = CAT.cache.get(key);
+  if (hit && hit.until > Date.now()) return hit.p;
+  const run = src === "DNB" ? (CAT.dnbQ = CAT.dnbQ.catch(() => {}).then(() => new Promise(r => setTimeout(r, CAT.dnbGap)))).then(fn) : fn();
+  const p = run.catch(e => {
+    CAT.cache.delete(key);
+    if (/^(429|403)$/.test(String(e?.message))) { CAT.blocked[src] = Date.now() + (src === "Google Books" ? 3600e3 : 600e3); if (src === "Google Books") googleQuotaHint(); }
+    throw e;
+  });
+  CAT.cache.set(key, { p, until: Date.now() + 30 * 60e3 });
+  return p;
+}
+// Google Books ohne eigenen Schlüssel teilt ein kleines Tageskontingent mit allen – dann deutlich auf den eigenen Schlüssel hinweisen
+function googleQuotaHint() {
+  if (CAT.hinted || gKey()) return; CAT.hinted = true;
+  setBanner("Google Books antwortet gerade nicht (das gemeinsame Tageskontingent ist erschöpft). Mit einem eigenen kostenlosen Schlüssel klappt die Suche wieder zuverlässig. ",
+    el("button", { class: "btn sm", onclick: () => { $("#banner").replaceChildren(); aboutBox(); } }, "Schlüssel eintragen"));
+}
+async function sruQuery(base, cql, max, src, parse) {
+  const url = `${base}?version=1.1&operation=searchRetrieve&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
   try {
     const r = await fetch(url, { signal: ctl.signal }); if (!r.ok) throw new Error(r.status);
     const x = new DOMParser().parseFromString(await r.text(), "application/xml");
-    return [...x.getElementsByTagNameNS(MARC, "record")].map(fromDNB).filter(b => b.title);
+    return [...x.getElementsByTagNameNS(MARC, "record")].map(parse).filter(b => b && b.title);
   } finally { clearTimeout(t); }
+}
+function dnbQuery(cql, max = 15) {
+  return catFetch("DNB", `dnb|${max}|${cql}`, () => sruQuery("https://services.dnb.de/sru/dnb", cql, max + "&recordSchema=MARC21-xml", "DNB", fromDNB));
+}
+/* ---- K10plus (Verbundkatalog GBV/SWB, SRU, frei, CORS erlaubt): viele ältere deutsche Bücher ohne ISBN. Nur Textmaterial (Leader 06 a/t). ---- */
+function fromK10(r) {
+  const lead = (r.getElementsByTagNameNS(MARC, "leader")[0]?.textContent || "").padEnd(8, " ");
+  if (!/[at]/.test(lead[6])) return null; // Film, Tonträger, Noten … sind keine Bücher
+  return { ...fromDNB(r), src: "K10plus (Bibliotheksverbund)" };
+}
+function k10Query(cql, max = 10) {
+  return catFetch("K10plus", `k10|${max}|${cql}`, () => sruQuery("https://sru.k10plus.de/opac-de-627", cql, max + "&recordSchema=marcxml", "K10plus", fromK10));
 }
 // Weitere Bildquellen zur ISBN: Open Library, dann das Google-Books-Cover zur ISBN (ohne Schlüssel, hat viele deutsche Ausgaben)
 const gIsbnCover = isbn => `https://books.google.com/books/content?vid=ISBN${isbn}&printsec=frontcover&img=1&zoom=1`;
 const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null, gIsbnCover(isbn)].filter(Boolean); };
 
 async function lookupIsbn(isbn, log) {
-  const [g, ol, dnb] = await Promise.allSettled([
-    catTrack(log, "Google Books", "isbn:" + isbn, getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}${gKey()}`)),
-    catTrack(log, "Open Library", "isbn:" + isbn, getJSON(`https://openlibrary.org/search.json?q=isbn:${isbn}&limit=1&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`)),
+  const [g, ol, dnb, k10] = await Promise.allSettled([
+    catTrack(log, "Google Books", "isbn:" + isbn, gJSON("isbn:" + isbn)),
+    catTrack(log, "Open Library", "isbn:" + isbn, olJSON(`q=isbn:${isbn}`)),
     catTrack(log, "DNB", "num=" + isbn, dnbQuery(`num=${isbn}`, 3)),
+    catTrack(log, "K10plus", "isb=" + isbn, k10Query(`pica.isb=${isbn}`, 3)),
   ]);
   let rec = {};
   if (g.status === "fulfilled" && g.value.items?.length) rec = fromGoogle(g.value.items[0]);
@@ -343,14 +379,18 @@ async function lookupIsbn(isbn, log) {
     // Für Verlag/Jahr/Seiten ist die DNB verlässlicher (genau diese Ausgabe)
     rec = rec.title ? merge({ ...rec, publisher: d.publisher || rec.publisher, year: d.year || rec.year, pages: d.pages || rec.pages }, d) : d;
   }
+  if (k10.status === "fulfilled" && k10.value.length) { // K10plus: gleiche Genauigkeit wie die DNB, springt ein, wenn die DNB pausiert
+    const k = k10.value.find(x => x.isbn === isbn) || k10.value[0];
+    rec = rec.title ? merge(rec, k) : k;
+  }
   if (ol.status === "fulfilled" && ol.value.docs?.length) {
     const o = fromOLSearch(ol.value.docs[0]); o.isbn = isbn;
     rec = merge(rec, o);
     if (!rec.summary) rec.summary = await olDescription(o.olKey);
   }
-  if (!rec.title && g.status === "rejected" && ol.status === "rejected" && dnb.status === "rejected") throw new Error("offline");
+  if (!rec.title && [g, ol, dnb, k10].every(x => x.status === "rejected")) throw new Error("offline");
   rec.isbn = isbn;
-  rec.src = [g.status === "fulfilled" && g.value.items?.length ? "Google Books" : null, dnb.status === "fulfilled" && dnb.value.length ? "Deutsche Nationalbibliothek" : null, ol.status === "fulfilled" && ol.value.docs?.length ? "Open Library" : null].filter(Boolean).join(", ");
+  rec.src = [g.status === "fulfilled" && g.value.items?.length ? "Google Books" : null, dnb.status === "fulfilled" && dnb.value.length ? "Deutsche Nationalbibliothek" : null, ol.status === "fulfilled" && ol.value.docs?.length ? "Open Library" : null, k10.status === "fulfilled" && k10.value.length ? "K10plus" : null].filter(Boolean).join(", ");
   rec.altCovers = [rec.coverUrl, ...olCovers(isbn)].filter((v, i, a) => v && a.indexOf(v) === i);
   rec.coverUrl = rec.altCovers[0];
   return rec.title ? rec : null;
@@ -381,8 +421,58 @@ function fromLobid(m) {
 async function lobidQuery(words, size = 15, all = true) {
   const t = words.replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
   if (!t.length) return [];
-  const j = await getJSON(`https://lobid.org/resources/search?q=${encodeURIComponent(t.join(all ? " AND " : " "))}&format=json&size=${size}`);
+  return lobidRaw(t.join(all ? " AND " : " "), size);
+}
+async function lobidRaw(q, size = 15) {
+  const j = await catFetch("lobid", `lobid|${size}|${q}`, () => getJSON(`https://lobid.org/resources/search?q=${encodeURIComponent(q)}&format=json&size=${size}`));
   return (j.member || []).map(fromLobid).filter(b => b.title);
+}
+const gJSON = (q, extra = "") => catFetch("Google Books", `g|${q}|${extra}`, () => getJSON(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}${extra}${gKey()}`));
+const olJSON = query => catFetch("Open Library", `ol|${query}`, () => getJSON(`https://openlibrary.org/search.json?${query}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`));
+
+/* ---- Gezielte Suche nach Titel + Autor (für erkannte Rücken, Titellisten, Cover): Titel- und Personen-Index statt „alle Wörter“.
+   Bei null Treffern schrittweise lockern: Haupttitel + Nachname → Kernwörter + Nachname → nur Titel; dazu, wo der Katalog es kann,
+   die Verlagsnummer (rororo, dtv …). Untertitel werden nie erzwungen. ---- */
+const ARTICLE = /^(der|die|das|ein|eine|einer|the|a|an|le|la|les|il|lo|el)\s+/i;
+const FIELD_STOP = new Set(["der", "die", "das", "und", "oder", "the", "and", "von", "vom", "zum", "zur", "mit", "für", "auf", "aus", "ein", "eine", "einer", "des", "dem", "den", "im", "in", "of", "to", "a", "an"]);
+const catNorm = s => String(s || "").replace(/[„“"»«'’()[\]!?.,:;–—\-/&+*#]/g, " ").replace(/\s+/g, " ").trim();
+const mainTitle = t => String(t || "").split(/\s[:–—-]\s|:\s|\.\s/)[0].trim();
+const lastNameOf = a => { a = String(a || "").split(/[;&]| und | and |\//)[0].trim(); if (/^[^,]+,/.test(a)) return a.split(",")[0].trim(); const w = a.split(/\s+/).filter(Boolean); return w.length ? w[w.length - 1].replace(/[.()]/g, "") : ""; };
+// die n längsten Wörter des Haupttitels, in ihrer ursprünglichen Reihenfolge
+function coreWords(t, n = 3) {
+  const w = catNorm(mainTitle(t)).replace(ARTICLE, "").split(" ").filter(x => x.length > 2 && !FIELD_STOP.has(x.toLowerCase()) && !/^\d+$/.test(x));
+  const keep = new Set([...w].sort((a, b) => b.length - a.length).slice(0, n));
+  return w.filter(x => keep.has(x));
+}
+async function fieldWave({ t, a, vol }, log) {
+  const tv = vol ? `${t} ${vol}` : t, words = catNorm(t).split(" ").filter(Boolean);
+  const res = await Promise.allSettled([
+    catTrack(log, "DNB", "tit+per", dnbQuery(`tit all "${tv}"` + (a ? ` and per all "${a}"` : ""), 20)),
+    catTrack(log, "K10plus", "tit+per", k10Query(`pica.tit="${tv}"` + (a ? ` and pica.per="${a}"` : ""), 10)),
+    catTrack(log, "lobid", "title+agent", lobidRaw(`title:(${words.join(" AND ")})` + (a ? ` AND contribution.agent.label:(${a})` : ""), 15)),
+    catTrack(log, "Google Books", "intitle+inauthor", gJSON(`intitle:${t}` + (vol ? ` ${vol}` : "") + (a ? ` inauthor:${a}` : ""), "&maxResults=10&printType=books")).then(j => (j.items || []).map(fromGoogle)),
+    catTrack(log, "Open Library", "title+author", olJSON(`title=${encodeURIComponent(t)}` + (a ? `&author=${encodeURIComponent(a)}` : ""))).then(j => (j.docs || []).map(fromOLSearch)),
+  ]);
+  return { ok: res.some(r => r.status === "fulfilled"), list: res.flatMap(r => r.status === "fulfilled" ? r.value : []) };
+}
+async function searchFields({ title, author, vol, publisher, orderNo }, log) {
+  const last = catNorm(lastNameOf(author)), t1 = catNorm(mainTitle(title)).replace(ARTICLE, ""), core = coreWords(title).join(" ");
+  const steps = [];
+  if (t1) steps.push({ t: t1, a: last, vol });
+  if (core && core.split(" ").length < t1.split(" ").length) steps.push({ t: core, a: last, vol }); // nur, wenn es wirklich weniger Wörter sind
+  if (t1 && last) steps.push({ t: t1, a: "", vol });
+  let ok = false;
+  for (const st of steps) { const w = await fieldWave(st, log); ok = ok || w.ok; if (w.list.length) return w.list; }
+  const on = String(orderNo || "").replace(/\D/g, "");
+  if (on.length >= 4 && publisher) { // Verlagsnummer, z. B. „rororo 13427“ (steht bei DNB und K10plus in der Reihenangabe)
+    const p = catNorm(publisher).split(" ")[0];
+    const res = await Promise.allSettled([catTrack(log, "DNB", "verlagsnummer", dnbQuery(`woe all "${p} ${on}"`, 10)), catTrack(log, "K10plus", "verlagsnummer", k10Query(`pica.all="${p} ${on}"`, 10))]);
+    ok = ok || res.some(r => r.status === "fulfilled");
+    const list = res.flatMap(r => r.status === "fulfilled" ? r.value : []);
+    if (list.length) return list;
+  }
+  if (steps.length && !ok) throw new Error("offline");
+  return [];
 }
 // Suchbegriff aufbereiten: „Band 27“, „Bd. 27“, „Nr. 27“ → nur die Zahl (die Kataloge kennen das Wort „Band“ meist nicht)
 function parseQuery(q) {
@@ -399,11 +489,12 @@ async function searchWave(text, opts = {}) {
   const enc = encodeURIComponent(text);
   const res = await Promise.allSettled([
     Promise.allSettled((opts.dnb || [`woe all "${text}"`]).map(c => catTrack(opts.log, "DNB", c, dnbQuery(c, opts.dnbMax || 20)))).then(rs => { if (rs.every(x => x.status === "rejected")) throw rs[0].reason; return rs.flatMap(x => x.status === "fulfilled" ? x.value : []); }),
-    catTrack(opts.log, "Google Books", text, getJSON(`https://www.googleapis.com/books/v1/volumes?q=${enc}&maxResults=10&printType=books${gKey()}`)).then(j => (j.items || []).map(fromGoogle)),
+    catTrack(opts.log, "Google Books", text, gJSON(text, "&maxResults=10&printType=books")).then(j => (j.items || []).map(fromGoogle)),
     catTrack(opts.log, "lobid", text, lobidQuery(text, 15, opts.all !== false)),
-    catTrack(opts.log, "Open Library", text, getJSON(`https://openlibrary.org/search.json?q=${enc}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,subject,language,isbn,cover_i`)).then(j => (j.docs || []).map(fromOLSearch)),
+    catTrack(opts.log, "Open Library", text, olJSON(`q=${enc}`)).then(j => (j.docs || []).map(fromOLSearch)),
+    catTrack(opts.log, "K10plus", text, k10Query(`pica.all="${catNorm(text)}"`, 10)),
   ]);
-  return { ok: res.some(r => r.status === "fulfilled"), lists: res.map(r => r.status === "fulfilled" ? r.value : []) };
+  return { ok: res.some(r => r.status === "fulfilled"), lists: res.map(r => r.status === "fulfilled" ? r.value : []) }; // [DNB, Google, lobid, OL, K10plus]
 }
 async function searchBooks(q, log) {
   const P = parseQuery(q);

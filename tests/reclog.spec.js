@@ -93,8 +93,8 @@ test("Cover-Foto, Barcode und Titelsuche werden ebenfalls protokolliert", async 
   await page.evaluate(() => closeSheet());
   await page.evaluate(i => handleIsbn(i), I);
   await expect(page.locator(".sheet h2")).toHaveText("Prüfen & speichern");
-  await expect.poll(async () => (await lastRun(page))?.searches?.[0]?.abfragen?.length).toBe(3);
+  await expect.poll(async () => (await lastRun(page))?.searches?.[0]?.abfragen?.length).toBe(4);
   r = await lastRun(page);
   expect(r).toMatchObject({ kind: "barcode", isbn: I });
-  expect(r.searches[0].abfragen.map(q => q.src).sort()).toEqual(["DNB", "Google Books", "Open Library"]);
+  expect(r.searches[0].abfragen.map(q => q.src).sort()).toEqual(["DNB", "Google Books", "K10plus", "Open Library"]);
 });

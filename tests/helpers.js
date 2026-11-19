@@ -28,7 +28,7 @@ const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const sf = (code, v) => v ? `<subfield code="${code}">${esc(v)}</subfield>` : "";
 const df = (tag, subs) => `<datafield tag="${tag}" ind1=" " ind2=" ">${subs}</datafield>`;
 export function dnbXml(recs) {
-  const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim">${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}${r.extent || r.format ? df("300", sf("a", r.extent) + sf("c", r.format)) : ""}</record>`).join("");
+  const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim"><leader>     ${r.leader || "nam"}  22        4500</leader>${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}${r.extent || r.format ? df("300", sf("a", r.extent) + sf("c", r.format)) : ""}</record>`).join("");
   return `<?xml version="1.0"?><searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><numberOfRecords>${recs.length}</numberOfRecords><records>${body}</records></searchRetrieveResponse>`;
 }
 /**
@@ -62,7 +62,8 @@ export function claudeShelf(scan, { log = [], answer } = {}) {
   };
 }
 export const test = base.extend({
-  catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [] }); },
+  // catalog.k10 = (cql) => [Datensätze wie bei dnb] (K10plus/GBV per SRU; leader "ngm" = Film, wird von der App ausgefiltert)
+  catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [], k10: () => [] }); },
   page: async ({ page, context, catalog }, use) => {
     await context.route(url => !url.href.startsWith("http://localhost"), r => r.abort());
     await context.route("https://www.googleapis.com/books/**", r => {
@@ -71,6 +72,10 @@ export const test = base.extend({
     });
     await context.route("https://services.dnb.de/**", r => {
       const recs = catalog.dnb(new URL(r.request().url()).searchParams.get("query") || "");
+      return r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/xml" }, body: recs.length ? dnbXml(recs) : EMPTY_DNB });
+    });
+    await context.route("https://sru.k10plus.de/**", r => {
+      const recs = catalog.k10(new URL(r.request().url()).searchParams.get("query") || "");
       return r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/xml" }, body: recs.length ? dnbXml(recs) : EMPTY_DNB });
     });
     await context.route("https://lobid.org/**", r => json(r, { totalItems: 0, member: catalog.lobid(new URL(r.request().url()).searchParams.get("q") || "") }));

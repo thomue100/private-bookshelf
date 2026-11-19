@@ -139,12 +139,14 @@ async function matchItem(it, log) {
   let cands = [];
   try {
     if (i13) { const r = await lookupIsbn(i13, log); if (r) cands.push({ ...r, isbn: i13 }); }
-    const last = (it.author || "").split(/[,;&]| und /)[0].trim().split(/\s+/).pop() || "";
+    const last = lastNameOf(it.author);
     const vol = itemVol(it);
-    const q1 = [it.title, vol, last].filter(Boolean).join(" ");
-    if (q1.trim()) cands.push(...await searchBooks(q1, log));
-    if (vol && it.title && !cands.some(c => candVol(c) === vol)) cands.push(...await searchBooks([it.title, last].filter(Boolean).join(" "), log));
-    if (cands.length < 2 && it.title && (last || vol)) cands.push(...await searchBooks(it.title, log));
+    if (it.title) {
+      // gezielt nach Titel und Autor (Titel- und Personen-Index), bei null Treffern schrittweise lockerer (searchFields in app.js)
+      cands.push(...await searchFields({ title: it.title, author: it.author, vol, publisher: it.publisher, orderNo: it.order_no }, log));
+      if (vol && !cands.some(c => candVol(c) === vol)) cands.push(...await searchFields({ title: it.title, author: it.author }, log)); // Band steht nicht im Katalogtitel
+      if (!cands.length) cands.push(...await searchBooks([it.title, vol, last].filter(Boolean).join(" "), log)); // letzter Versuch: freie Suche
+    }
   } catch (e) { if (!cands.length) throw e; }
   const seen = new Set();
   cands = cands.filter(c => { const k = c.isbn || normTxt(c.title + c.author + c.year); if (seen.has(k)) return false; seen.add(k); return true; })

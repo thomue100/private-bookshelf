@@ -131,7 +131,7 @@ function receiveAnswer(text) {
 
 /* ---------- Start ---------- */
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded) { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
   if (await takeShared()) return;
   const pend = pendingPhoto();
   const chain = typeof chainRestore === "function" && chainRestore(); // „der Reihe nach prüfen“ lief noch
