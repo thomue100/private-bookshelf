@@ -8,6 +8,7 @@ const S = {
   tFilter: "all", tq: "", tSort: { key: "addedAt", dir: -1 },
   urls: new Map(), // id -> objectURL des Covers
   photos: [], // gespeicherte Fach-Fotos (siehe shelfphotos.js)
+  stack: [],  // Stapel-Erfassung, nur auf diesem Gerät (siehe stackscan.js)
 };
 const STATUS = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" };
 const STATUS_COLOR = { unread: "var(--s-unread)", reading: "var(--s-reading)", read: "var(--s-read)" };
@@ -40,14 +41,16 @@ function setBanner(t, btn) { $("#banner").replaceChildren(el("div", { class: "ba
 const DB = (() => {
   let dbp;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open("buecherregal", 3);
-    // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; 2 → 3: Speicher für Fach-Fotos. Vorhandene Daten bleiben unverändert.
+    const r = indexedDB.open("buecherregal", 4);
+    // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; 2 → 3: Speicher für Fach-Fotos; 3 → 4: Stapel (stackscan.js).
+    // Vorhandene Daten bleiben unverändert.
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains("books")) d.createObjectStore("books", { keyPath: "id" });
       if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "key" });
       if (!d.objectStoreNames.contains("blobs")) d.createObjectStore("blobs", { keyPath: "id" }).createIndex("bookId", "bookId");
       if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("stack")) d.createObjectStore("stack", { keyPath: "id" });
     };
     r.onsuccess = () => { const db = r.result; db.onversionchange = () => db.close(); res(db); }; // neuere App-Version in anderem Fenster nicht blockieren
     r.onerror = () => rej(r.error);
@@ -71,6 +74,9 @@ const DB = (() => {
     delBlob: id => tx("blobs", "readwrite", s => s.delete(id)),
     allPhotos: () => tx("photos", "readonly", s => s.getAll()),
     putPhoto: p => tx("photos", "readwrite", s => s.put(p)),
+    allStack: () => tx("stack", "readonly", s => s.getAll()),
+    putStack: e => tx("stack", "readwrite", s => s.put(e)),
+    delStack: id => tx("stack", "readwrite", s => s.delete(id)),
   };
 })();
 
@@ -80,6 +86,7 @@ async function loadAll() {
     S.deleted = (await DB.getMeta("deleted")) || {};
     S.shelves = (await DB.getMeta("shelves")) || { walls: [], updatedAt: "" };
     S.photos = await DB.allPhotos().catch(() => []);
+    S.stack = await DB.allStack().catch(() => []); // Stapel-Erfassung (nur auf diesem Gerät)
   } catch (e) {
     setBanner("Der Browser erlaubt hier keinen Speicher (z. B. im privaten Modus). Bitte im normalen Modus öffnen.");
   }
@@ -519,10 +526,9 @@ function liveScan() {
     if (!navigator.mediaDevices?.getUserMedia) { toast("Live-Kamera ist hier nicht verfügbar – nimm ein Foto."); return resolve(undefined); }
     const video = el("video", { playsinline: true, muted: true, autoplay: true }); video.muted = true;
     const info = el("p", { text: "Halte den Barcode auf der Rückseite in den Rahmen." });
-    let stream, stopped = false, timer, zx;
+    let stream, stopped = false, stopLoop = () => {};
     const finish = v => {
-      if (stopped) return; stopped = true; clearInterval(timer);
-      try { zx && zx.reset(); } catch {}
+      if (stopped) return; stopped = true; stopLoop();
       stream && stream.getTracks().forEach(t => t.stop());
       ov.remove(); resolve(v);
     };
@@ -540,26 +546,35 @@ function liveScan() {
     if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
     video.srcObject = stream; await video.play().catch(() => {});
     const hit = isbn => { if (navigator.vibrate) navigator.vibrate(80); finish(isbn); };
-    let det = null;
-    if ("BarcodeDetector" in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes("ean_13")) det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); } catch {} }
-    if (det) {
-      timer = setInterval(async () => {
-        if (stopped || video.readyState < 2) return;
-        try { for (const r of await det.detect(video)) { const i = toIsbn13(r.rawValue); if (i) return hit(i); else info.textContent = "Das ist kein ISBN-Barcode (" + r.rawValue + ")."; } } catch {}
-      }, 180);
-    } else if (window.ZXing) {
-      const Z = window.ZXing; const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
-      const c = document.createElement("canvas"); const ctx = c.getContext("2d", { willReadFrequently: true });
-      timer = setInterval(() => {
-        if (stopped || video.readyState < 2) return;
-        // mittleren Streifen auswerten (schneller, wie der Rahmen)
-        const w = video.videoWidth, h = video.videoHeight, sh = Math.round(h * .45);
-        c.width = Math.min(1280, w); c.height = Math.round(sh * c.width / w);
-        ctx.drawImage(video, 0, Math.round((h - sh) / 2), w, sh, 0, 0, c.width, c.height);
-        try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i) hit(i); } catch {}
-      }, 250);
-    } else { info.textContent = "Barcode-Erkennung lädt nicht – bitte Foto verwenden."; }
+    const stop = await barcodeLoop(video, hit, t => { info.textContent = t; });
+    if (stopped) stop(); else stopLoop = stop;
   });
+}
+/* Liest laufend Barcodes aus dem Video (BarcodeDetector, sonst ZXing) – für „Barcode scannen“ und den Stapel-Modus.
+   onIsbn bekommt die ISBN-13, onInfo Hinweise. Gibt eine Funktion zum Anhalten zurück. */
+async function barcodeLoop(video, onIsbn, onInfo = () => {}) {
+  let timer = null, stopped = false;
+  const stop = () => { stopped = true; clearInterval(timer); };
+  let det = null;
+  if ("BarcodeDetector" in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes("ean_13")) det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); } catch {} }
+  if (det) {
+    timer = setInterval(async () => {
+      if (stopped || video.readyState < 2) return;
+      try { for (const r of await det.detect(video)) { const i = toIsbn13(r.rawValue); if (i) { if (!stopped) onIsbn(i); return; } onInfo("Das ist kein ISBN-Barcode (" + r.rawValue + ")."); } } catch {}
+    }, 180);
+  } else if (window.ZXing) {
+    const Z = window.ZXing; const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
+    const c = document.createElement("canvas"); const ctx = c.getContext("2d", { willReadFrequently: true });
+    timer = setInterval(() => {
+      if (stopped || video.readyState < 2) return;
+      // mittleren Streifen auswerten (schneller, wie der Rahmen)
+      const w = video.videoWidth, h = video.videoHeight, sh = Math.round(h * .45);
+      c.width = Math.min(1280, w); c.height = Math.round(sh * c.width / w);
+      ctx.drawImage(video, 0, Math.round((h - sh) / 2), w, sh, 0, 0, c.width, c.height);
+      try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i && !stopped) onIsbn(i); } catch {}
+    }, 250);
+  } else onInfo("Barcode-Erkennung lädt nicht – bitte Foto verwenden.");
+  return stop;
 }
 
 
@@ -964,6 +979,10 @@ function openAdd(asWish) {
     el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg C · Fach-Foto (viele Bücher auf einmal)" }),
       el("p", { text: "Ein ganzes Regalfach fotografieren: Die App erkennt alle Buchrücken, sucht die Buchdaten und stellt die Bücher in der richtigen Reihenfolge ins echte Regal." }),
       el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"))),
+    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg D · 📚 Stapel erfassen (viele Bücher nacheinander)" }),
+      el("p", { text: "Die Kamera bleibt offen: Barcode scannen, auf Wunsch Cover und Rücken fotografieren, nächstes Buch. Bücher ohne Barcode: Cover fotografieren. Am Ende prüfst du alles auf einmal." }),
+      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openStackCapture() }, "📚 Stapel erfassen"),
+        (S.stack || []).length ? el("button", { class: "btn", onclick: () => openStackReview() }, `Stapel prüfen (${S.stack.length})`) : null)),
     el("div", { class: "sec" }, el("label", { class: "lbl", text: "Suchen nach Titel / Autor" }), el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn", onclick: qGo }, "Suchen"))),
     el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN – oder Link aus dem Web" }), isbnRow,
       el("div", { class: "saved", style: "margin-top:6px", text: "Buch in einem Shop oder Katalog gefunden (ZVAB, booklooker, Amazon, DNB …)? Einfach den Link der Seite einfügen – die App holt sich die ISBN selbst." })),

@@ -8,8 +8,9 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 ## Grundsätze (nicht verhandelbar)
 
 1. **Vorhandene Daten müssen weiter funktionieren.** Die Nutzerin/der Nutzer hat bereits eine Buchdatenbank.
-   - IndexedDB `buecherregal` Version 3 mit Stores `books` (keyPath `id`), `meta` (keyPath `key`), `blobs` (keyPath `id`, Index `bookId`),
-     `photos` (keyPath `id`, gespeicherte Fach-Fotos, seit Version 3).
+   - IndexedDB `buecherregal` Version 4 mit Stores `books` (keyPath `id`), `meta` (keyPath `key`), `blobs` (keyPath `id`, Index `bookId`),
+     `photos` (keyPath `id`, gespeicherte Fach-Fotos, seit Version 3), `stack` (keyPath `id`, Stapel-Erfassung, seit Version 4 –
+     nur lokal, nicht in Sicherung und Abgleich).
      Schema nur **additiv** erweitern (neuer Store/Index → Version erhöhen, `onupgradeneeded` darf nichts löschen oder umbauen).
    - Neue Buchfelder sind **optional**. Alter Datensatz ohne das Feld muss überall funktionieren (Anzeige, Tabelle, CSV, Filter, Sicherung).
      Felder nie umbenennen oder umdeuten; alte Felder beim Lesen übersetzen (Beispiel: `startedAt`/`finishedAt` → `readsOf(b)`).
@@ -42,6 +43,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |
 | `app/webtake.js` | Bücher aus dem Web übernehmen: `isbnsIn`, `bookFromWeb` (ISBN/Link/Text → ISBN, Datensatz oder Suchbegriff), `takeFromWeb`, Feld `webTakeField`, Zwischenablage-Angebot nach „Im Internet suchen“; „Teilen“ von Buchseiten landet hier |
 | `app/perspective.js` | Perspektive entzerren: `homography`, `validQuad`, `quadsFromAnswer` (`cover_quad`/`spine_quad` aus der Cover-Erkennung), `warpQuad`, Ecken-Editor `quadEditor` („✂ Zuschneiden“) |
+| `app/stackscan.js` | „📚 Stapel erfassen“: Kamera bleibt offen (`openStackCapture`, Barcode über `barcodeLoop` aus `app.js`), Einträge im Store `stack` (`putStackEntry`/`patchStackEntry`/`dropStackEntry`), Hintergrundsuche `stackWork`, Erkennung ohne Barcode per Sammelauftrag (`kind:"stack"` in `aiBatches`, Ergebnis über `stackRecognized`) oder Claude-Chat-Brücke, Prüfliste `openStackReview`, `importStack` |
 | `app/sw.js` | Service Worker (offline) |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |

@@ -613,3 +613,30 @@ body.wandbig .wrap{max-width:none}
 .qh.drag{cursor:grabbing;transform:scale(1.15)}
 @media (pointer:coarse){.qh{width:40px;height:40px;margin:-20px 0 0 -20px}}
 .qlens{position:absolute;display:none;width:132px;height:132px;border-radius:50%;border:3px solid #fff;box-shadow:0 6px 20px rgba(0,0,0,.45);pointer-events:none;z-index:2}
+/* Stapel erfassen (stackscan.js) */
+.scan.stack .bottom .covertools{justify-content:center;margin:0}
+.scan.stack .btn.ok{background:#2a9d5c;border-color:#2a9d5c;color:#fff}
+.scan.stack .btn{color:#1f1b18}
+.scan.stack .btn.primary,.scan.stack .btn.ok{color:#fff}
+.scan.stack .stkdel{color:#fff;opacity:.85;background:transparent;border-color:transparent}
+.stktop{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;color:#fff;background:linear-gradient(rgba(0,0,0,.6),transparent)}
+.stkcount{font-weight:700;font-size:15px;white-space:nowrap}
+.stktop .presetbar{flex:1;min-width:0}
+.stktop > .btn{margin-left:auto}
+.stkflash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+.stkflash.on{animation:stkfl .35s ease-out}
+@keyframes stkfl{from{opacity:.85}to{opacity:0}}
+.stklist{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.stkrow{display:grid;grid-template-columns:22px 52px minmax(0,1fr);gap:10px;align-items:start;border:1px solid var(--line);border-left:5px solid #2a9d5c;border-radius:12px;padding:10px;background:var(--paper)}
+.stkrow.unsure,.stkrow.new{border-left-color:var(--warn);background:var(--warn-soft)}
+.stkrow.wait{border-left-color:var(--line)}
+.stkrow.off{opacity:.6}
+.stkrow input[type=checkbox]{width:18px;height:18px;margin-top:4px;accent-color:var(--accent)}
+.stkthumb{width:52px;height:74px;border-radius:4px;overflow:hidden;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:22px}
+.stkthumb img{width:100%;height:100%;object-fit:cover}
+.stkstate{font-size:12px;font-weight:600;margin-bottom:4px}
+.stkrow.sure .stkstate{color:#2a7d4c}
+.stkfields{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media (max-width:480px){.stkfields{grid-template-columns:1fr}}
+.stkrow .covertools{margin-top:6px}
+.stkdup{color:var(--accent)}

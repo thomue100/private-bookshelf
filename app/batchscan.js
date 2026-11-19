@@ -38,7 +38,7 @@ async function checkBatches({ loud = false } = {}) {
   const list = batchList();
   if (batchBusy || !list.length || !aiKey()) return;
   batchBusy = true;
-  let got = 0, failed = 0, offline = false;
+  let got = 0, gotStack = 0, failed = 0, offline = false;
   try {
     for (const b of list) {
       let r;
@@ -54,6 +54,12 @@ async function checkBatches({ loud = false } = {}) {
       const ok = new Set();
       for (const line of (await rr.text()).split("\n")) {
         if (!line.trim()) continue;
+        if (b.kind === "stack") { // Cover-Erkennung für den Stapel-Modus (stackscan.js)
+          let res, d = null;
+          try { res = JSON.parse(line); if (res.result?.type === "succeeded") d = parseJSONLoose((res.result.message.content || []).filter(c => c.type === "text").map(c => c.text).join("")); } catch {}
+          if (res && d && await stackRecognized(res.custom_id, d)) gotStack++;
+          continue;
+        }
         let res, data = null;
         try { res = JSON.parse(line); if (res.result?.type === "succeeded") data = scanFromMessage(res.result.message); } catch {}
         const p = res && S.photos.find(x => x.id === res.custom_id && !x.deletedAt);
@@ -61,7 +67,7 @@ async function checkBatches({ loud = false } = {}) {
         if (data && !p.scan) { await patchPhoto(p.id, { scan: data, scanAt: new Date().toISOString() }); got++; ok.add(p.id); }
         else if (data) ok.add(p.id);
       }
-      failed += b.ids.filter(id => !ok.has(id) && S.photos.some(x => x.id === id && !x.deletedAt && !x.scan)).length;
+      if (b.kind !== "stack") failed += b.ids.filter(id => !ok.has(id) && S.photos.some(x => x.id === id && !x.deletedAt && !x.scan)).length;
       b.drop = true; // nicht erkannte Fotos sind damit wieder frei für „Alle erkennen“
     }
   } finally {
@@ -70,7 +76,8 @@ async function checkBatches({ loud = false } = {}) {
   }
   if (got) toast(`🤖 ${got} Fach-Foto${got === 1 ? "" : "s"} erkannt – bitte prüfen und einsortieren.`, 5000);
   if (failed) toast(`${failed} Foto${failed === 1 ? " konnte" : "s konnten"} nicht erkannt werden – bitte nochmal „Alle erkennen“.`, 6000);
-  if (loud && !got && !failed) toast(offline ? "Keine Verbindung – später nochmal nachsehen." : "Claude arbeitet noch – bitte etwas später nachsehen.");
+  if (gotStack) toast(`📚 ${gotStack} ${gotStack === 1 ? "Buch" : "Bücher"} aus dem Stapel erkannt – bitte prüfen.`, 5000);
+  if (loud && !got && !gotStack && !failed) toast(offline ? "Keine Verbindung – später nochmal nachsehen." : "Claude arbeitet noch – bitte etwas später nachsehen.");
   if (openSheet?.redraw) openSheet.redraw();
   if (got && location.hash === "#wand" && !openSheet) renderAll();
 }

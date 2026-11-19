@@ -416,12 +416,13 @@ Read the text as printed; complete the author's full name only if you are sure. 
 Also add the corners of the front cover and – if the spine is visible, e.g. when the book was photographed at an angle – of the spine:
 "cover_quad":[[x,y],[x,y],[x,y],[x,y]],"spine_quad":[[x,y],[x,y],[x,y],[x,y]] as fractions of the image width/height (0–1, x from the left, y from the top),
 clockwise starting at the top-left corner as the book stands upright. Use null for spine_quad if no spine is visible.`;
+// Anfrage für die Cover-Erkennung (einzeln und im Sammelauftrag des Stapel-Modus)
+const coverParams = b64 => ({ model: aiModel(), max_tokens: 1000, messages: [{ role: "user", content: [
+  { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } }, { type: "text", text: COVER_PROMPT }] }] });
+async function coverB64(file) { const img = await loadImage(file); return blobToBase64(await canvasBlob(toCanvas(img, 1200), .86)); }
 async function aiRecognizeCover(file) {
-  const img = await loadImage(file); const jpeg = await canvasBlob(toCanvas(img, 1200), .86);
   const key = aiKey(); if (!key) throw new Error("Kein KI-Schlüssel.");
-  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: aiModel(), max_tokens: 1000, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToBase64(jpeg) } }, { type: "text", text: COVER_PROMPT }] }] }) });
+  const r = await fetch(AI_API + "/v1/messages", { method: "POST", headers: aiHeaders(), body: JSON.stringify(coverParams(await coverB64(file))) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error?.message || "Fehler " + r.status);
   return parseJSONLoose((j.content || []).filter(c => c.type === "text").map(c => c.text).join(""));
