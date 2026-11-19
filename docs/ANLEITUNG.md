@@ -46,6 +46,26 @@ Alternative: Netlify (https://app.netlify.com/drop) – Ordner hineinziehen, kos
   5. **„… Bücher übernehmen“** legt alle angehakten Bücher an, mit deinen Fotos als Cover und Rücken.
   - Buchdaten lädt die App schon während des Fotografierens im Hintergrund. Jedes Foto wird sofort gespeichert: Schließt das Handy die App, geht nichts verloren. Unter „Buch hinzufügen“ steht dann „Stapel prüfen (…)“.
   - Der Stapel bleibt auf diesem Gerät. Er gehört nicht zur Sicherung und nicht zum Abgleich. Erst die übernommenen Bücher sind ganz normal dabei.
+- **📋 Titelliste einfügen** (viele Bücher auf einmal, z. B. aus einer alten Excel-Tabelle, einer Notiz oder einer Mail): In „Buch hinzufügen“ auf **„📋 Titelliste einfügen“** tippen. Dann die Liste ins Feld einfügen, „📋 Aus Zwischenablage“ antippen oder eine Datei wählen (.txt, .csv; am PC auch hineinziehen).
+  - **Eine Zeile = ein Buch.** Nummern und Aufzählungszeichen am Anfang stören nicht. Die App versteht zum Beispiel:
+    ```
+    Momo – Michael Ende
+    Michael Ende: Die unendliche Geschichte
+    Preußler, Otfried: Krabat
+    Krabat von Otfried Preußler
+    Tschick (Wolfgang Herrndorf)
+    Weihnachtsgeschichten am Kamin Bd. 27
+    Der Name der Rose (dtv, 1998)
+    978-3-423-12345-6
+    ```
+    Steht eine ISBN in der Zeile, lädt die App genau diese Ausgabe. Kann sie eine Zeile nicht sicher zerlegen, sucht sie mit der ganzen Zeile.
+  - **Aus Excel:** Die Spalten markieren (gern mit Überschrift wie „Titel“, „Autor“, „ISBN“, „Jahr“, „Reihe“, „Band“, „Schlagworte“), kopieren und einfügen. Eine Excel-Datei selbst kann die App nicht öffnen, als CSV gespeichert geht es aber. Auch das CSV aus der Verwaltung („⬇ CSV für Excel“) lässt sich wieder einlesen. Übernommen werden daraus Titel, Autor, ISBN, Verlag, Jahr, Reihe, Band und Schlagworte. Lesestatus und Notizen kommen nicht mit, für ein komplettes Zurückholen ist die Sicherung da.
+  - **Vorschau:** Vor der Suche siehst du, was die App erkannt hat. Felder lassen sich ändern, × entfernt eine Zeile. Bei Tabellen legst du je Spalte fest, was darin steht, falls die App falsch geraten hat.
+  - **Suche:** Die App sucht jedes Buch in DNB, Bibliotheksverbund, Google Books und Open Library, schonend nacheinander. „Anhalten“ geht jederzeit. Schließt das Handy die App, steht beim nächsten Öffnen unten **„Titelliste weiter prüfen“** (oder „verwerfen“), und es geht dort weiter. Mit „Später weiter“ in der Prüfliste geht das genauso.
+  - **Prüfliste** wie beim Fach-Foto: Ohne Markierung heißt sicher gefunden, gelb heißt bitte prüfen. Über jedem Buch steht deine Originalzeile. Du kannst einen anderen Treffer wählen, „Nur meine Angaben aus der Liste übernehmen“, Titel, Autor oder Band ändern und „🔎 Neu suchen“, „✓ Passt so“ oder „überspringen“. Unter „Im Internet suchen / Link einfügen“ stehen die Suchseiten; einen Link von ZVAB, booklooker usw. oder eine ISBN fügst du dort ein, und das wird der Treffer.
+  - Bücher, die du schon hast, sind nicht angehakt (Haken setzen = weiteres Exemplar). Bücher von deiner Wunschliste werden als gekauft übernommen.
+  - **Für alle:** Bestand oder Wunschliste (im Wunschlisten-Modus vorausgewählt), Lesestatus, Schlagworte (vorgeschlagen „Liste-Import“, mit × entfernbar; Schlagworte aus der Liste kommen dazu) und auf Wunsch ein Ziel-Fach. Die Bücher kommen dann in Listenreihenfolge ans Ende des Fachs.
+  - Ohne Internet werden deine Angaben übernommen (gelb). Fehlendes ergänzt später „🔎 Leere Felder online ergänzen“. Einen KI-Schlüssel braucht es dafür nicht.
 - **Rückenfoto gleich mit erfassen:** In „Prüfen & speichern“ steht unter dem Cover das Feld **„📷 Rücken“**. Am Handy öffnet „📷 Foto“ direkt die Kamera; am PC ein Bild wählen, in die gestrichelte Fläche ziehen oder die Fläche anklicken und Strg+V drücken. (Strg+V an anderer Stelle setzt wie bisher das Cover.) Querformat-Fotos werden aufgerichtet, die Dicke wird aus dem Foto berechnet. „entfernen“ nimmt das Foto wieder weg. Das Buch steht dann im echten Regal gleich mit seinem echten Rücken.
 - **Ein Foto für Cover und Rücken:** Fotografiere das Buch schräg, sodass Vorderseite und Rücken zu sehen sind (Weg B). Mit KI-Schlüssel findet Claude die Ecken von Cover und Rücken. Die App macht daraus ein gerades Cover und ein gerades Rückenfoto, der Hintergrund fällt weg. Das klappt genauso über die Claude-Chat-Brücke.
 - **✂ Zuschneiden** (unter einem eigenen Cover-Foto, auch beim Bearbeiten): Die vier Ecken auf die Ecken des Buchs ziehen. Beim Ziehen zeigt eine Lupe die Ecke vergrößert. Mit dem Reiter **„📗 Rücken“** markierst du auch den Rücken. Das funktioniert ohne KI und bei jedem Cover-Foto. Stimmen die Ecken der KI nicht ganz, korrigierst du sie hier. Zugeschnitten wird immer aus dem Originalfoto.
