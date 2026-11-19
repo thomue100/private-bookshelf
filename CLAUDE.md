@@ -41,6 +41,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/shelfphotos.js` | Gespeicherte Fach-Fotos: `savePhoto`, Übersicht `openPhotoInbox`, Weitermachen nach Neustart (`scanPending`), Empfang über „Teilen“ (Service Worker → Cache `share-inbox` → `?share=`) |
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |
 | `app/webtake.js` | Bücher aus dem Web übernehmen: `isbnsIn`, `bookFromWeb` (ISBN/Link/Text → ISBN, Datensatz oder Suchbegriff), `takeFromWeb`, Feld `webTakeField`, Zwischenablage-Angebot nach „Im Internet suchen“; „Teilen“ von Buchseiten landet hier |
+| `app/perspective.js` | Perspektive entzerren: `homography`, `validQuad`, `quadsFromAnswer` (`cover_quad`/`spine_quad` aus der Cover-Erkennung), `warpQuad`, Ecken-Editor `quadEditor` („✂ Zuschneiden“) |
 | `app/sw.js` | Service Worker (offline) |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |

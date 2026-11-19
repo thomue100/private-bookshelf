@@ -412,7 +412,10 @@ async function continueShelfScan(sh, { file, canvas, data, fachKey, photo }) {
 /* ================= Einzelnes Cover per KI / Claude-Chat ================= */
 const COVER_PROMPT = `The photo shows a book (front cover, back cover or title page). Identify the book.
 Return ONLY a JSON object: {"title":"","subtitle":"","author":"","publisher":"","year":"","isbn":"","language":"","confidence":"high|medium|low"}
-Read the text as printed; complete the author's full name only if you are sure. Only give an ISBN if it is printed on the photo.`;
+Read the text as printed; complete the author's full name only if you are sure. Only give an ISBN if it is printed on the photo.
+Also add the corners of the front cover and – if the spine is visible, e.g. when the book was photographed at an angle – of the spine:
+"cover_quad":[[x,y],[x,y],[x,y],[x,y]],"spine_quad":[[x,y],[x,y],[x,y],[x,y]] as fractions of the image width/height (0–1, x from the left, y from the top),
+clockwise starting at the top-left corner as the book stands upright. Use null for spine_quad if no spine is visible.`;
 async function aiRecognizeCover(file) {
   const img = await loadImage(file); const jpeg = await canvasBlob(toCanvas(img, 1200), .86);
   const key = aiKey(); if (!key) throw new Error("Kein KI-Schlüssel.");
@@ -432,6 +435,7 @@ async function coverViaChat(file) {
     onResult: d => coverResult(d, file) });
 }
 function coverResult(d, file) {
+  const q = quadsFromAnswer(d); if (q && file) file.quads = q; // Ecken von Cover/Rücken (fehlen bei alten Antworten) reisen mit dem Foto bis „Prüfen & speichern“
   const i = toIsbn13(d.isbn);
   if (i) { handleIsbnWithCover(i, file); return; }
   const last = (d.author || "").split(/[,;&]| und /)[0].trim().split(/\s+/).pop() || "";

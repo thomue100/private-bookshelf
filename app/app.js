@@ -1149,6 +1149,7 @@ function openReview(rec, coverFile, noteText) {
   const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Buchhöhe aus dem Katalog (DNB/lobid)
   let coverMode = coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
   let photo = coverFile || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
+  let orig = coverFile || null, quads = coverFile?.quads || null, spineFromQuad = false; // Originalfoto + Ecken (KI oder von Hand) zum Zuschneiden
   const webCovers = rec.altCovers || (rec.coverUrl ? [rec.coverUrl] : []);
   let webIdx = 0;
   const coverBox = el("div", {});
@@ -1161,16 +1162,18 @@ function openReview(rec, coverFile, noteText) {
     if (src) c.addEventListener("click", () => lightbox(src));
     coverBox.replaceChildren(c);
     coverChoice.replaceChildren(...[
+      orig && coverMode === "photo" ? el("button", { class: "btn sm", type: "button", title: "Ecken des Buchs setzen: Hintergrund weg, schräg Fotografiertes wird gerade – auch den Rücken", onclick: cropDialog }, "✂ Zuschneiden") : null,
       photo && webCovers.length ? el("button", { class: "btn sm", type: "button", onclick: () => { coverMode = coverMode === "photo" ? "web" : "photo"; drawCover(); } }, coverMode === "photo" ? "Online-Cover nehmen" : "Mein Foto nehmen") : null].filter(Boolean));
   };
-  const setPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
+  const showPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
+  const setPhoto = f => { orig = f; quads = f.quads || null; showPhoto(f); if (quads) applyQuads(quads); };
   drawCover();
   S.pasteHandler = setPhoto; // Strg+V geht ans Cover – außer die Rücken-Fläche ist gerade fokussiert (dropZone)
   // --- Rückenfoto gleich beim Erfassen
   const spBase = draft.spine ? { ...draft.spine } : null;
   const spBox = el("div", { class: "spphoto" });
-  const setSpine = async f => {
-    try { draft.spine = await spineWithPhoto(draft, f, spBase); drawSpine(); toast("Rückenfoto übernommen.", 1800); }
+  const setSpine = async (f, quiet) => {
+    try { draft.spine = await spineWithPhoto(draft, f, spBase); spineFromQuad = false; drawSpine(); if (quiet !== true) toast("Rückenfoto übernommen.", 1800); }
     catch { toast("Bild konnte nicht gelesen werden."); }
   };
   const spZone = isMobile() ? null : dropZone("Rücken hierher ziehen – oder hier klicken und Strg+V", setSpine);
@@ -1184,6 +1187,22 @@ function openReview(rec, coverFile, noteText) {
       spZone);
   };
   drawSpine();
+  // --- Zuschneiden / Entzerren: Cover und Rücken aus einem (schräg aufgenommenen) Foto (perspective.js)
+  async function applyQuads(q, auto = true) {
+    const src = orig;
+    try {
+      if (q.cover) { const b = await warpQuad(src, q.cover, 1200); if (orig === src) showPhoto(b); }
+      if (q.spine && orig === src) { await setSpine(await warpQuad(src, q.spine, SPINE_MAX), true); spineFromQuad = true; }
+      else if (!q.spine && spineFromQuad) { draft.spine = spBase ? { ...spBase } : null; spineFromQuad = false; drawSpine(); }
+      if (auto) toast(q.spine ? "Cover und Rücken aus dem Foto zugeschnitten – mit „✂ Zuschneiden“ anpassen." : "Cover zugeschnitten – mit „✂ Zuschneiden“ anpassen.", 3500);
+    } catch { toast("Zuschneiden hat nicht geklappt – das ganze Foto bleibt."); }
+  }
+  async function cropDialog() {
+    const r = await quadEditor(orig, { cover: quads?.cover, spine: quads?.spine, withSpine: true });
+    if (!r) return;
+    quads = r; await applyQuads(r, false);
+  }
+  if (quads) applyQuads(quads);
   const notes = [];
   if (noteText) notes.push(el("div", { class: "note", text: noteText }));
   else if (rec.src) notes.push(el("div", { class: "note info", text: `Gefunden über ${rec.src}. Kurz drüberschauen – fehlende Felder sind gelb markiert.` }));
@@ -1419,8 +1438,28 @@ function drawDetailEdit(sh, b, keep) {
   const coverBox = el("div", {});
   const curSrc = () => draft.coverBlob ? (st.previewUrl || (st.previewUrl = URL.createObjectURL(draft.coverBlob))) : (draft.coverUrl || null);
   const drawCover = () => { const src = curSrc(); const c = coverEl(draft, { src }); if (src) c.addEventListener("click", () => lightbox(src)); coverBox.replaceChildren(c); };
-  const setPhoto = async f => { try { draft.coverBlob = await coverBlobFromFile(f); draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawCover(); } catch { toast("Bild konnte nicht gelesen werden."); } };
+  const setPhoto = async (f, keepOrig) => {
+    try {
+      draft.coverBlob = await coverBlobFromFile(f);
+      if (keepOrig !== true) { st.coverOrig = f; st.quads = null; }
+      st.coverFrom = draft.coverBlob; // das Originalfoto gehört zu genau diesem Cover
+      draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty();
+      personal._flush && personal._flush(); drawDetailEdit(sh, b, { draft, st });
+    } catch { toast("Bild konnte nicht gelesen werden."); }
+  };
   S.pasteHandler = setPhoto;
+  // Zuschneiden/Entzerren aus dem zuletzt gewählten Foto (sonst aus dem vorhandenen Cover); auch den Rücken
+  const cropCover = async () => {
+    const own = st.coverOrig && st.coverFrom === draft.coverBlob;
+    const src = own ? st.coverOrig : draft.coverBlob; if (!src) return;
+    if (!own) st.quads = null;
+    const r = await quadEditor(src, { cover: st.quads?.cover, spine: st.quads?.spine, withSpine: true }); if (!r) return;
+    st.quads = r; st.coverOrig = src; // nochmal zuschneiden geht vom selben Ausgangsbild aus
+    try {
+      if (r.spine) { draft.spine = await spineWithPhoto(draft, await warpQuad(src, r.spine, SPINE_MAX)); }
+      await setPhoto(await warpQuad(src, r.cover, 1200), true);
+    } catch { toast("Zuschneiden hat nicht geklappt."); }
+  };
   const onlineCover = async btn => {
     btn.disabled = true; btn.textContent = "Suche …";
     try {
@@ -1441,6 +1480,7 @@ function drawDetailEdit(sh, b, keep) {
     el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(false); if (f) setPhoto(f); } }, m ? "Galerie" : "🖼 Bild wählen"),
     el("button", { class: "btn sm", type: "button", onclick: e => onlineCover(e.currentTarget) }, "🌐 Online-Cover"),
     el("button", { class: "btn sm", type: "button", onclick: async () => { const pick = await coverPickDialog(draft, [], { skipLabel: "Keins davon", google: true, title: "Cover per Bildersuche" }); if (!pick) return; if (pick.ownFile) { setPhoto(pick.ownFile); return; } draft.coverBlob = pick.blob; draft.coverUrl = pick.url || ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawCover(); } }, "🔍 Bildersuche"),
+    draft.coverBlob ? el("button", { class: "btn sm", type: "button", onclick: cropCover }, "✂ Zuschneiden") : null,
     (draft.coverBlob || draft.coverUrl) ? el("button", { class: "btn sm ghost danger", type: "button", onclick: () => { draft.coverBlob = null; draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawDetailEdit(sh, b, { draft, st }); } }, "Entfernen") : null);
   const coverDrop = m ? null : dropZone("Bild hierher ziehen oder Strg+V", setPhoto);
   if (coverDrop) coverDrop.style.cssText = "padding:8px;font-size:12px;margin-top:8px";
