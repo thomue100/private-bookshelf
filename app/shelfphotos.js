@@ -4,7 +4,7 @@
    Außerdem: Weitermachen nach einem Neustart (Android beendet Apps im Hintergrund gern) und Empfang über „Teilen → Bücherregal“. */
 "use strict";
 
-const PHOTO_MAX = 2000; // längste Seite in Pixeln – genug für Erkennung und Buchrücken-Ausschnitte
+const PHOTO_MAX = 3000; // längste Seite in Pixeln – die KI bekommt 1568 px, die Buchrücken werden aus dieser vollen Fassung geschnitten (schärfer)
 
 async function savePhoto(file, fachKey) {
   const img = await loadImage(file);

@@ -325,6 +325,7 @@ test("Bücherliste einklappen und Großansicht: die Wand wird größer, die Eins
   await seedBooks(page);
   await newWall(page, "Ein 4er-Würfel (1112)");
   const wallW = () => page.evaluate(() => Math.round(document.querySelector(".wall").getBoundingClientRect().width));
+  await expect(page.locator(".wall .fach").first()).toBeVisible();
   const w0 = await wallW();
   await expect(page.locator(".wside .witem").first()).toBeVisible();
   // einklappen: nur noch die Leiste, mehr Platz für das Regal
@@ -376,7 +377,7 @@ test("Rückentitel maximieren: ausgewählte Bücher, passt in den Rücken, zurü
   // die Auswahl bleibt bestehen – derselbe Knopf stellt wieder auf normal
   await expect(page.locator(".spine.sel")).toHaveCount(2);
   await page.click("text=🔡 Rückentitel normal");
-  expect(await font("b0")).toBe(before.b0);
+  await expect.poll(() => font("b0")).toBe(before.b0);
   expect(await page.evaluate(() => S.books.filter(b => b.spine && "maxText" in b.spine).length)).toBe(0);
 });
 

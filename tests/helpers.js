@@ -22,13 +22,13 @@ export function googleItem(title, author, isbn, img, publisher = "Verlag", year 
  * Erweiterter Test: blockiert das Internet und stellt `catalog` bereit, um Google-Books-Antworten festzulegen:
  *   catalog.google = (q) => [items]   // q z. B. "isbn:978..." oder "Titel Autor"
  */
-// catalog.dnb = (cql) => [{ title, part, author, publisher, year, isbn, series, seriesNo }]  (wird zu MARC21-XML)
+// catalog.dnb = (cql) => [{ title, part, author, publisher, year, isbn, series, seriesNo, extent, format }]  (wird zu MARC21-XML; extent/format = 300 $a/$c)
 // catalog.lobid = (q) => [lobid-Datensätze]
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const sf = (code, v) => v ? `<subfield code="${code}">${esc(v)}</subfield>` : "";
 const df = (tag, subs) => `<datafield tag="${tag}" ind1=" " ind2=" ">${subs}</datafield>`;
 export function dnbXml(recs) {
-  const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim">${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}</record>`).join("");
+  const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim">${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}${r.extent || r.format ? df("300", sf("a", r.extent) + sf("c", r.format)) : ""}</record>`).join("");
   return `<?xml version="1.0"?><searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><numberOfRecords>${recs.length}</numberOfRecords><records>${body}</records></searchRetrieveResponse>`;
 }
 export const test = base.extend({

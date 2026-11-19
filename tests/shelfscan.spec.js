@@ -203,3 +203,38 @@ test("Claude-Chat-Brücke holt die Antwort selbst aus der Zwischenablage, alte A
   await expect(page.locator(".bridge")).toContainText("noch keine passende Antwort");
   expect(await page.evaluate(() => S.books.length)).toBe(7);
 });
+
+test("Großes Fach-Foto: Rücken werden aus der vollen Auflösung geschnitten – deutlich größer, richtiges Seitenverhältnis, begrenzt", async ({ page, catalog }) => {
+  catalogFor(catalog);
+  await page.context().route("https://api.anthropic.com/**", r => r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ content: [{ type: "text", text: JSON.stringify(SCAN) }] }) }));
+  await openApp(page);
+  await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
+  // Testfoto 4000 × 3200 (wie ein Handyfoto), gleiches Seitenverhältnis wie shelf.jpg
+  const b64 = await page.evaluate(async () => {
+    const c = document.createElement("canvas"); c.width = 4000; c.height = 3200; const x = c.getContext("2d");
+    for (let i = 0; i < 40; i++) { x.fillStyle = `hsl(${i * 37} 60% 45%)`; x.fillRect(i * 100, 0, 100, 3200); }
+    return (await new Promise(r => c.toBlob(r, "image/jpeg", .8)).then(b => blobToDataURL(b))).split(",")[1];
+  });
+  await wallWith4er(page);
+  await page.click("text=📷 Fach-Foto einlesen");
+  await page.selectOption(".sheet select", { index: 1 });
+  const chooser = page.waitForEvent("filechooser");
+  await page.click(".sheet >> text=🖼 Foto wählen");
+  await (await chooser).setFiles({ name: "fach.jpg", mimeType: "image/jpeg", buffer: Buffer.from(b64, "base64") });
+  await importReview(page);
+  const r = await page.evaluate(async () => {
+    const size = async t => { const i = await loadImage(S.books.find(b => b.title === t).spine.imageBlob); return [i.naturalWidth, i.naturalHeight]; };
+    return { momo: await size("Momo"), steppenwolf: await size("Der Steppenwolf"), photo: [S.photos[0].w, S.photos[0].h] };
+  });
+  expect(r.photo).toEqual([3000, 2400]); // gespeichertes Fach-Foto in voller Fassung (höchstens 3000 px)
+  // Momo: bbox 0,06 × 0,6625 des Fotos. Früher aus 1568 × 1254 geschnitten → 94 × 831 px
+  const [w, h] = r.momo;
+  expect(h).toBeGreaterThan(831 * 1.5);
+  expect(h).toBeLessThanOrEqual(1600);
+  expect(Math.abs(w / h - (0.06 * 3000) / (0.6625 * 2400))).toBeLessThan(0.01);
+  // liegendes Buch wird aufgerichtet: hoch statt breit
+  expect(r.steppenwolf[1]).toBeGreaterThan(r.steppenwolf[0] * 5);
+  // Ein Rücken über die volle Höhe wird auf 1600 px begrenzt, Seitenverhältnis bleibt
+  const cap = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 3000; c.height = 2400; const s = cropSpine(c, { bbox: { x0: 0.1, x1: 0.2, y0: 0, y1: 1 } }, null, SPINE_MAX); return [s.width, s.height]; });
+  expect(cap).toEqual([200, 1600]);
+});

@@ -412,13 +412,17 @@ async function continueShelfScan(sh, { file, canvas, data, fachKey, photo }) {
 /* ================= Einzelnes Cover per KI / Claude-Chat ================= */
 const COVER_PROMPT = `The photo shows a book (front cover, back cover or title page). Identify the book.
 Return ONLY a JSON object: {"title":"","subtitle":"","author":"","publisher":"","year":"","isbn":"","language":"","confidence":"high|medium|low"}
-Read the text as printed; complete the author's full name only if you are sure. Only give an ISBN if it is printed on the photo.`;
+Read the text as printed; complete the author's full name only if you are sure. Only give an ISBN if it is printed on the photo.
+Also add the corners of the front cover and – if the spine is visible, e.g. when the book was photographed at an angle – of the spine:
+"cover_quad":[[x,y],[x,y],[x,y],[x,y]],"spine_quad":[[x,y],[x,y],[x,y],[x,y]] as fractions of the image width/height (0–1, x from the left, y from the top),
+clockwise starting at the top-left corner as the book stands upright. Use null for spine_quad if no spine is visible.`;
+// Anfrage für die Cover-Erkennung (einzeln und im Sammelauftrag des Stapel-Modus)
+const coverParams = b64 => ({ model: aiModel(), max_tokens: 1000, messages: [{ role: "user", content: [
+  { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } }, { type: "text", text: COVER_PROMPT }] }] });
+async function coverB64(file) { const img = await loadImage(file); return blobToBase64(await canvasBlob(toCanvas(img, 1200), .86)); }
 async function aiRecognizeCover(file) {
-  const img = await loadImage(file); const jpeg = await canvasBlob(toCanvas(img, 1200), .86);
   const key = aiKey(); if (!key) throw new Error("Kein KI-Schlüssel.");
-  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: aiModel(), max_tokens: 1000, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToBase64(jpeg) } }, { type: "text", text: COVER_PROMPT }] }] }) });
+  const r = await fetch(AI_API + "/v1/messages", { method: "POST", headers: aiHeaders(), body: JSON.stringify(coverParams(await coverB64(file))) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error?.message || "Fehler " + r.status);
   return parseJSONLoose((j.content || []).filter(c => c.type === "text").map(c => c.text).join(""));
@@ -432,6 +436,7 @@ async function coverViaChat(file) {
     onResult: d => coverResult(d, file) });
 }
 function coverResult(d, file) {
+  const q = quadsFromAnswer(d); if (q && file) file.quads = q; // Ecken von Cover/Rücken (fehlen bei alten Antworten) reisen mit dem Foto bis „Prüfen & speichern“
   const i = toIsbn13(d.isbn);
   if (i) { handleIsbnWithCover(i, file); return; }
   const last = (d.author || "").split(/[,;&]| und /)[0].trim().split(/\s+/).pop() || "";
@@ -443,15 +448,24 @@ async function handleIsbnWithCover(isbn, file) {
   openReview(rec || { isbn }, file, rec ? null : "Zu dieser ISBN wurde online nichts gefunden – bitte ergänzen.");
 }
 
-function cropSpine(canvas, it, comp) {
+const SPINE_MAX = 1600; // längste Seite eines gespeicherten Buchrücken-Bilds (Speicher und Sicherung bleiben klein)
+/* Schneidet einen Rücken aus (bbox ist relativ, passt also zu jeder Auflösung). max verkleinert das Ergebnis bei Bedarf. */
+function cropSpine(canvas, it, comp, max = Infinity) {
   const b = it.bbox; if (!b) return null;
   const W = canvas.width, H = canvas.height;
   const x0 = Math.max(0, Math.floor(b.x0 * W)), x1 = Math.min(W, Math.ceil(b.x1 * W)), y0 = Math.max(0, Math.floor(b.y0 * H)), y1 = Math.min(H, Math.ceil(b.y1 * H));
   if (x1 - x0 < 3 || y1 - y0 < 3) return null;
-  let c = document.createElement("canvas"); c.width = x1 - x0; c.height = y1 - y0;
-  c.getContext("2d").drawImage(canvas, x0, y0, c.width, c.height, 0, 0, c.width, c.height);
+  const s = Math.min(1, max / Math.max(x1 - x0, y1 - y0));
+  let c = document.createElement("canvas"); c.width = Math.max(1, Math.round((x1 - x0) * s)); c.height = Math.max(1, Math.round((y1 - y0) * s));
+  const g = c.getContext("2d"); g.imageSmoothingQuality = "high";
+  g.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, 0, 0, c.width, c.height);
   if (it.position === "lying_in_row" || it.position === "lying_on_top") c = rotateCanvas(c, -90); // liegend → als stehenden Rücken speichern
   return c;
+}
+/* Das Fach-Foto in voller Auflösung – die KI bekommt nur eine auf 1568 px verkleinerte Fassung, die Rücken wären daraus unscharf. */
+async function fullScanCanvas(st) {
+  if (!st.full) { try { st.full = toCanvas(await loadImage(st.file), Infinity); } catch { st.full = st.canvas; } }
+  return st.full;
 }
 function spineFromScan(it, comp, cropCanvas) {
   const cw = Math.max(0.05, (comp?.x1 ?? 1) - (comp?.x0 ?? 0)), chh = Math.max(0.05, (comp?.y1 ?? 1) - (comp?.y0 ?? 0));
@@ -575,18 +589,19 @@ function scanReview(sh, st) {
   sh.body.parentElement.scrollTop = 0;
 }
 async function importScan(st, opt) {
-  const sh = openSheet; const { canvas, data, items } = st;
+  const sh = openSheet; const { data, items } = st;
   const comp = data.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 };
   const chosen = items.filter(x => x.include);
   if (!chosen.length) return;
   const msg = busyView("Bücher werden übernommen", null, `0 / ${chosen.length}`);
   const placed = { front: [], top: [], back: [] };
   let created = 0, reused = 0, n = 0; const used = new Set(); const newIds = [];
+  const src = opt.crop ? await fullScanCanvas(st) : null; // Rücken aus dem Originalfoto schneiden (schärfer)
   for (const it of chosen) {
     const c = it.cands[it.choice];
-    const look = spineFromScan(it, comp, opt.crop ? cropSpine(canvas, it, comp) : null);
+    const look = spineFromScan(it, comp, src ? cropSpine(src, it, comp, SPINE_MAX) : null);
     let spine = { ...look.sp };
-    if (look.cropCanvas) { spine.imageBlob = await canvasBlob(look.cropCanvas, .86); }
+    if (look.cropCanvas) { spine.imageBlob = await canvasBlob(look.cropCanvas, .85); }
     let id;
     let dup = scanDup(it);
     const copyOf = dup && used.has(dup.id) ? dup.id : null; // zweites Exemplar im selben Foto → eigener Eintrag
@@ -617,6 +632,7 @@ async function importScan(st, opt) {
         b.seriesNo = iv;
       }
       b.spine = spine;
+      const hsp = c && spineWithHeight(b, c); if (hsp) b.spine = hsp; // Katalog-Höhe nur, wenn das Foto keine liefert
       if ((opt.tags || []).length) b.tags = normTags(opt.tags);
       if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
       await putBook(b); id = b.id; created++; newIds.push(id);
@@ -635,6 +651,7 @@ async function importScan(st, opt) {
     await saveShelves();
   }
   if (st.photo) { clearPending(); await patchPhoto(st.photo.id, { doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
+  if (st.full && st.full !== st.canvas) { st.full.width = st.full.height = 0; st.full = null; } // großes Bild freigeben
   sh.guard = null;
   closeSheet();
   renderAll();

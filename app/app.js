@@ -8,6 +8,7 @@ const S = {
   tFilter: "all", tq: "", tSort: { key: "addedAt", dir: -1 },
   urls: new Map(), // id -> objectURL des Covers
   photos: [], // gespeicherte Fach-Fotos (siehe shelfphotos.js)
+  stack: [],  // Stapel-Erfassung, nur auf diesem Gerät (siehe stackscan.js)
 };
 const STATUS = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" };
 const STATUS_COLOR = { unread: "var(--s-unread)", reading: "var(--s-reading)", read: "var(--s-read)" };
@@ -40,14 +41,16 @@ function setBanner(t, btn) { $("#banner").replaceChildren(el("div", { class: "ba
 const DB = (() => {
   let dbp;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open("buecherregal", 3);
-    // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; 2 → 3: Speicher für Fach-Fotos. Vorhandene Daten bleiben unverändert.
+    const r = indexedDB.open("buecherregal", 4);
+    // Version 1 → 2: zusätzlicher Speicher für Bilder & Dateien; 2 → 3: Speicher für Fach-Fotos; 3 → 4: Stapel (stackscan.js).
+    // Vorhandene Daten bleiben unverändert.
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains("books")) d.createObjectStore("books", { keyPath: "id" });
       if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "key" });
       if (!d.objectStoreNames.contains("blobs")) d.createObjectStore("blobs", { keyPath: "id" }).createIndex("bookId", "bookId");
       if (!d.objectStoreNames.contains("photos")) d.createObjectStore("photos", { keyPath: "id" });
+      if (!d.objectStoreNames.contains("stack")) d.createObjectStore("stack", { keyPath: "id" });
     };
     r.onsuccess = () => { const db = r.result; db.onversionchange = () => db.close(); res(db); }; // neuere App-Version in anderem Fenster nicht blockieren
     r.onerror = () => rej(r.error);
@@ -71,6 +74,9 @@ const DB = (() => {
     delBlob: id => tx("blobs", "readwrite", s => s.delete(id)),
     allPhotos: () => tx("photos", "readonly", s => s.getAll()),
     putPhoto: p => tx("photos", "readwrite", s => s.put(p)),
+    allStack: () => tx("stack", "readonly", s => s.getAll()),
+    putStack: e => tx("stack", "readwrite", s => s.put(e)),
+    delStack: id => tx("stack", "readwrite", s => s.delete(id)),
   };
 })();
 
@@ -80,6 +86,7 @@ async function loadAll() {
     S.deleted = (await DB.getMeta("deleted")) || {};
     S.shelves = (await DB.getMeta("shelves")) || { walls: [], updatedAt: "" };
     S.photos = await DB.allPhotos().catch(() => []);
+    S.stack = await DB.allStack().catch(() => []); // Stapel-Erfassung (nur auf diesem Gerät)
   } catch (e) {
     setBanner("Der Browser erlaubt hier keinen Speicher (z. B. im privaten Modus). Bitte im normalen Modus öffnen.");
   }
@@ -238,6 +245,20 @@ function dnbSub(d, code) { const s = [...d.getElementsByTagNameNS(MARC, "subfiel
 function dnbFirst(r, tag, code) { for (const d of dnbFields(r, tag)) { const v = dnbSub(d, code); if (v) return v; } return ""; }
 const trimPunct = s => (s || "").replace(/[\s\/:;,.=]+$/, "").replace(/^[\s\/:;,.=]+/, "").trim();
 function flipName(n) { n = trimPunct(n); const m = n.match(/^([^,]+),\s*(.+)$/); return m ? `${m[2]} ${m[1]}` : n; }
+/* Buchhöhe aus der Formatangabe der Kataloge („21 cm“, „24 x 17 cm“, „21 x 13,5 cm“): die erste Zahl ist die Höhe.
+   Nur 8–33 cm (wie die Fächer), sonst 0. */
+function heightFromFormat(s) {
+  const m = String(s || "").match(/(?:^|[^\d,.])(\d{1,2}(?:[,.]\d{1,2})?)\s*(?:[x×]\s*\d{1,2}(?:[,.]\d{1,2})?\s*)?cm\b/i);
+  if (!m) return 0;
+  const h = parseFloat(m[1].replace(",", "."));
+  return h >= 8 && h <= 33 ? Math.round(h * 10) / 10 : 0;
+}
+/* Höhe aus einem Katalog-Datensatz übernehmen – nur wenn das Buch noch keine hat (gemessen, Fach-Foto, Editor bleiben).
+   Gibt das neue spine-Objekt zurück oder null. */
+function spineWithHeight(b, rec) {
+  if (!+rec?.heightCm || +b.spine?.heightCm) return null;
+  return { ...(b.spine || {}), heightCm: +rec.heightCm };
+}
 function fromDNB(r) {
   const names = [], editors = [];
   for (const tag of ["100", "700"]) for (const d of dnbFields(r, tag)) {
@@ -276,7 +297,8 @@ function fromDNB(r) {
   let series = serF ? trimPunct(dnbSub(serF, "a")) : "", seriesNo = serF ? trimPunct(dnbSub(serF, "v")) : "", orderNo = "";
   // „Weihnachtsgeschichten am Kamin 27.“ – der Band zählt mehr als die Verlagsreihe („Rororo 25795“, eine Bestellnummer)
   if (/^\d{1,3}$/.test(part) && !/^\d{1,3}$/.test(seriesNo)) { orderNo = seriesNo; series = nosort(dnbFirst(r, "245", "a")); seriesNo = String(+part); }
-  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo };
+  const heightCm = av ? 0 : heightFromFormat(dnbFirst(r, "300", "c")); // 300 $c: Format, z. B. „21 cm“
+  return { title, author, year, publisher, pages, genre: "", language: LANG[lang] || lang || "", summary: "", isbn, coverUrl: "", src: "Deutsche Nationalbibliothek", ebook, av, edition, series, seriesNo, part, orderNo, ...(heightCm ? { heightCm } : {}) };
 }
 async function dnbQuery(cql, max = 15) {
   const url = `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&recordSchema=MARC21-xml&maximumRecords=${max}&query=${encodeURIComponent(cql)}`;
@@ -331,7 +353,9 @@ function fromLobid(m) {
   const series = trimPunct(lm ? lm[1] : lbl), seriesNo = trimPunct(rel.numbering || (lm ? lm[2] : ""));
   const ebook = /online|elektron|e-book/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" "));
   const av = /audio|tonträger|hörbuch|hörspiel|\bCD\b|DVD/i.test(JSON.stringify(m.medium || "") + " " + (m.type || []).join(" ") + " " + (m.extent || "") + " " + m.title);
+  const heightCm = av ? 0 : heightFromFormat(m.extent); // „317 S. ; 21 cm“
   return {
+    ...(heightCm ? { heightCm } : {}),
     title, author, year: String(pub.startDate || "").slice(0, 4), publisher: (pub.publishedBy || [])[0] || "",
     pages: (String(m.extent || "").match(/(\d+)\s*(Seiten|S\.)/) || [, ""])[1], genre: "", language: ((m.language || [])[0] || {}).label || "",
     summary: "", isbn, coverUrl: "", src: "Bibliotheksverbund (lobid)", ebook, av, edition: (m.edition || [])[0] || "", series, seriesNo, part: /^\d{1,3}$/.test(seriesNo) ? seriesNo : "",
@@ -502,10 +526,9 @@ function liveScan() {
     if (!navigator.mediaDevices?.getUserMedia) { toast("Live-Kamera ist hier nicht verfügbar – nimm ein Foto."); return resolve(undefined); }
     const video = el("video", { playsinline: true, muted: true, autoplay: true }); video.muted = true;
     const info = el("p", { text: "Halte den Barcode auf der Rückseite in den Rahmen." });
-    let stream, stopped = false, timer, zx;
+    let stream, stopped = false, stopLoop = () => {};
     const finish = v => {
-      if (stopped) return; stopped = true; clearInterval(timer);
-      try { zx && zx.reset(); } catch {}
+      if (stopped) return; stopped = true; stopLoop();
       stream && stream.getTracks().forEach(t => t.stop());
       ov.remove(); resolve(v);
     };
@@ -523,26 +546,35 @@ function liveScan() {
     if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
     video.srcObject = stream; await video.play().catch(() => {});
     const hit = isbn => { if (navigator.vibrate) navigator.vibrate(80); finish(isbn); };
-    let det = null;
-    if ("BarcodeDetector" in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes("ean_13")) det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); } catch {} }
-    if (det) {
-      timer = setInterval(async () => {
-        if (stopped || video.readyState < 2) return;
-        try { for (const r of await det.detect(video)) { const i = toIsbn13(r.rawValue); if (i) return hit(i); else info.textContent = "Das ist kein ISBN-Barcode (" + r.rawValue + ")."; } } catch {}
-      }, 180);
-    } else if (window.ZXing) {
-      const Z = window.ZXing; const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
-      const c = document.createElement("canvas"); const ctx = c.getContext("2d", { willReadFrequently: true });
-      timer = setInterval(() => {
-        if (stopped || video.readyState < 2) return;
-        // mittleren Streifen auswerten (schneller, wie der Rahmen)
-        const w = video.videoWidth, h = video.videoHeight, sh = Math.round(h * .45);
-        c.width = Math.min(1280, w); c.height = Math.round(sh * c.width / w);
-        ctx.drawImage(video, 0, Math.round((h - sh) / 2), w, sh, 0, 0, c.width, c.height);
-        try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i) hit(i); } catch {}
-      }, 250);
-    } else { info.textContent = "Barcode-Erkennung lädt nicht – bitte Foto verwenden."; }
+    const stop = await barcodeLoop(video, hit, t => { info.textContent = t; });
+    if (stopped) stop(); else stopLoop = stop;
   });
+}
+/* Liest laufend Barcodes aus dem Video (BarcodeDetector, sonst ZXing) – für „Barcode scannen“ und den Stapel-Modus.
+   onIsbn bekommt die ISBN-13, onInfo Hinweise. Gibt eine Funktion zum Anhalten zurück. */
+async function barcodeLoop(video, onIsbn, onInfo = () => {}) {
+  let timer = null, stopped = false;
+  const stop = () => { stopped = true; clearInterval(timer); };
+  let det = null;
+  if ("BarcodeDetector" in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes("ean_13")) det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); } catch {} }
+  if (det) {
+    timer = setInterval(async () => {
+      if (stopped || video.readyState < 2) return;
+      try { for (const r of await det.detect(video)) { const i = toIsbn13(r.rawValue); if (i) { if (!stopped) onIsbn(i); return; } onInfo("Das ist kein ISBN-Barcode (" + r.rawValue + ")."); } } catch {}
+    }, 180);
+  } else if (window.ZXing) {
+    const Z = window.ZXing; const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
+    const c = document.createElement("canvas"); const ctx = c.getContext("2d", { willReadFrequently: true });
+    timer = setInterval(() => {
+      if (stopped || video.readyState < 2) return;
+      // mittleren Streifen auswerten (schneller, wie der Rahmen)
+      const w = video.videoWidth, h = video.videoHeight, sh = Math.round(h * .45);
+      c.width = Math.min(1280, w); c.height = Math.round(sh * c.width / w);
+      ctx.drawImage(video, 0, Math.round((h - sh) / 2), w, sh, 0, 0, c.width, c.height);
+      try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i && !stopped) onIsbn(i); } catch {}
+    }, 250);
+  } else onInfo("Barcode-Erkennung lädt nicht – bitte Foto verwenden.");
+  return stop;
 }
 
 
@@ -934,6 +966,7 @@ function openAdd(asWish) {
   const qGo = () => { if (qIn.value.trim()) showSearch(qIn.value.trim(), null); };
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") qGo(); });
   fillNode(sh.body,
+    presetBarEl(), // Vorgaben für Stapel und „Speichern & nächstes“
     el("div", { class: "ways" },
       el("div", { class: "way" }, el("h3", { text: "Weg A · Barcode" }),
         el("p", { text: "Kamera über den ISBN-Barcode auf der Rückseite halten – Titel, Autor, Klappentext und Cover werden aus dem Internet geladen." }),
@@ -947,6 +980,10 @@ function openAdd(asWish) {
     el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg C · Fach-Foto (viele Bücher auf einmal)" }),
       el("p", { text: "Ein ganzes Regalfach fotografieren: Die App erkennt alle Buchrücken, sucht die Buchdaten und stellt die Bücher in der richtigen Reihenfolge ins echte Regal." }),
       el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"))),
+    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg D · 📚 Stapel erfassen (viele Bücher nacheinander)" }),
+      el("p", { text: "Die Kamera bleibt offen: Barcode scannen, auf Wunsch Cover und Rücken fotografieren, nächstes Buch. Bücher ohne Barcode: Cover fotografieren. Am Ende prüfst du alles auf einmal." }),
+      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openStackCapture() }, "📚 Stapel erfassen"),
+        (S.stack || []).length ? el("button", { class: "btn", onclick: () => openStackReview() }, `Stapel prüfen (${S.stack.length})`) : null)),
     el("div", { class: "sec" }, el("label", { class: "lbl", text: "Suchen nach Titel / Autor" }), el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn", onclick: qGo }, "Suchen"))),
     el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN – oder Link aus dem Web" }), isbnRow,
       el("div", { class: "saved", style: "margin-top:6px", text: "Buch in einem Shop oder Katalog gefunden (ZVAB, booklooker, Amazon, DNB …)? Einfach den Link der Seite einfügen – die App holt sich die ISBN selbst." })),
@@ -1129,8 +1166,13 @@ function openReview(rec, coverFile, noteText) {
   sh.h2.textContent = "Prüfen & speichern";
   const draft = { status: "unread", rating: 0, notes: "", wish: !!S.addAsWish };
   for (const f of FIELDS) draft[f.k] = rec[f.k] || "";
+  const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Buchhöhe aus dem Katalog (DNB/lobid)
+  // Vorgaben (stackscan.js): Status, Schlagworte, Bestand/Wunschliste vorbelegen – pro Buch änderbar; das Fach gilt beim Speichern
+  const pre = capturePreset();
+  if (pre) { Object.assign(draft, statusPatch(draft, pre.status)); draft.wish = pre.wish; if (pre.tags.length) draft.tags = [...pre.tags]; }
   let coverMode = coverFile ? "photo" : (rec.coverUrl ? "web" : "none");
   let photo = coverFile || null, photoUrl = photo ? URL.createObjectURL(photo) : null;
+  let orig = coverFile || null, quads = coverFile?.quads || null, spineFromQuad = false; // Originalfoto + Ecken (KI oder von Hand) zum Zuschneiden
   const webCovers = rec.altCovers || (rec.coverUrl ? [rec.coverUrl] : []);
   let webIdx = 0;
   const coverBox = el("div", {});
@@ -1143,11 +1185,47 @@ function openReview(rec, coverFile, noteText) {
     if (src) c.addEventListener("click", () => lightbox(src));
     coverBox.replaceChildren(c);
     coverChoice.replaceChildren(...[
+      orig && coverMode === "photo" ? el("button", { class: "btn sm", type: "button", title: "Ecken des Buchs setzen: Hintergrund weg, schräg Fotografiertes wird gerade – auch den Rücken", onclick: cropDialog }, "✂ Zuschneiden") : null,
       photo && webCovers.length ? el("button", { class: "btn sm", type: "button", onclick: () => { coverMode = coverMode === "photo" ? "web" : "photo"; drawCover(); } }, coverMode === "photo" ? "Online-Cover nehmen" : "Mein Foto nehmen") : null].filter(Boolean));
   };
-  const setPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
+  const showPhoto = f => { photo = f; photoUrl = URL.createObjectURL(f); coverMode = "photo"; drawCover(); };
+  const setPhoto = f => { orig = f; quads = f.quads || null; showPhoto(f); if (quads) applyQuads(quads); };
   drawCover();
-  S.pasteHandler = setPhoto;
+  S.pasteHandler = setPhoto; // Strg+V geht ans Cover – außer die Rücken-Fläche ist gerade fokussiert (dropZone)
+  // --- Rückenfoto gleich beim Erfassen
+  const spBase = draft.spine ? { ...draft.spine } : null;
+  const spBox = el("div", { class: "spphoto" });
+  const setSpine = async (f, quiet) => {
+    try { draft.spine = await spineWithPhoto(draft, f, spBase); spineFromQuad = false; drawSpine(); if (quiet !== true) toast("Rückenfoto übernommen.", 1800); }
+    catch { toast("Bild konnte nicht gelesen werden."); }
+  };
+  const spZone = isMobile() ? null : dropZone("Rücken hierher ziehen – oder hier klicken und Strg+V", setSpine);
+  if (spZone) spZone.style.cssText = "padding:8px;font-size:12px;margin-top:6px";
+  const drawSpine = () => {
+    const has = !!draft.spine?.imageBlob;
+    fillNode(spBox, el("label", { class: "lbl", text: "📷 Rücken" }),
+      has ? el("div", { class: "spmini" }, spineMini(draft, "review", 5)) : el("div", { class: "saved", text: "Optional – fürs echte Regal." }),
+      el("div", { class: "covertools" }, ...spinePhotoButtons(setSpine, isMobile() ? "📷 Foto" : "🖼 Bild wählen"),
+        has ? el("button", { class: "btn sm ghost danger", type: "button", onclick: () => { draft.spine = spBase ? { ...spBase } : null; drawSpine(); } }, "entfernen") : null),
+      spZone);
+  };
+  drawSpine();
+  // --- Zuschneiden / Entzerren: Cover und Rücken aus einem (schräg aufgenommenen) Foto (perspective.js)
+  async function applyQuads(q, auto = true) {
+    const src = orig;
+    try {
+      if (q.cover) { const b = await warpQuad(src, q.cover, 1200); if (orig === src) showPhoto(b); }
+      if (q.spine && orig === src) { await setSpine(await warpQuad(src, q.spine, SPINE_MAX), true); spineFromQuad = true; }
+      else if (!q.spine && spineFromQuad) { draft.spine = spBase ? { ...spBase } : null; spineFromQuad = false; drawSpine(); }
+      if (auto) toast(q.spine ? "Cover und Rücken aus dem Foto zugeschnitten – mit „✂ Zuschneiden“ anpassen." : "Cover zugeschnitten – mit „✂ Zuschneiden“ anpassen.", 3500);
+    } catch { toast("Zuschneiden hat nicht geklappt – das ganze Foto bleibt."); }
+  }
+  async function cropDialog() {
+    const r = await quadEditor(orig, { cover: quads?.cover, spine: quads?.spine, withSpine: true });
+    if (!r) return;
+    quads = r; await applyQuads(r, false);
+  }
+  if (quads) applyQuads(quads);
   const notes = [];
   if (noteText) notes.push(el("div", { class: "note", text: noteText }));
   else if (rec.src) notes.push(el("div", { class: "note info", text: `Gefunden über ${rec.src}. Kurz drüberschauen – fehlende Felder sind gelb markiert.` }));
@@ -1181,16 +1259,20 @@ function openReview(rec, coverFile, noteText) {
         if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; // sonst: kein Cover
       }
       if (!b.wish) delete b.wish;
+      if (!b.spine) delete b.spine;
       await putBook(b);
-      toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : `„${b.title}“ ist im Regal.`);
+      const fach = !b.wish && capturePreset()?.fach;
+      if (fach) await placePresetBooks([b.id]); // Vorgabe-Fach: ans Ende stellen
+      toast(b.wish ? `„${b.title}“ steht auf der Wunschliste.` : fach ? `„${b.title}“ steht jetzt in ${fach.label}.` : `„${b.title}“ ist im Regal.`);
       if (next) openAdd(); else closeSheet();
     } catch (e) { console.error(e); toast("Speichern fehlgeschlagen."); saveBtn.disabled = false; saveBtn.textContent = label(); }
   };
   saveBtn.addEventListener("click", () => doSave(false));
-  fillNode(sh.body, 
+  fillNode(sh.body,
+    presetBarEl({ onChange: () => toast("Vorgaben gespeichert – Status, Schlagworte und Besitz gelten ab dem nächsten Buch, das Fach schon für dieses.", 4000) }),
     ...notes,
     whereSeg,
-    el("div", { class: "dtop" }, el("div", {}, coverBox, coverChoice, coverTools(setPhoto)), el("div", {}, personal)),
+    el("div", { class: "dtop" }, el("div", {}, coverBox, coverChoice, coverTools(setPhoto), spBox), el("div", {}, personal)),
     el("div", { class: "sec" }, el("h3", { text: "Buchdaten" }), form,
       el("label", { class: "lbl", style: "margin-top:12px", text: "Schlagworte" }), tagEditor(draft, () => {}),
       webSearchLinks([draft.title, draft.author].filter(Boolean).join(" "), draft.isbn, draft.title, draft.author)),
@@ -1382,8 +1464,28 @@ function drawDetailEdit(sh, b, keep) {
   const coverBox = el("div", {});
   const curSrc = () => draft.coverBlob ? (st.previewUrl || (st.previewUrl = URL.createObjectURL(draft.coverBlob))) : (draft.coverUrl || null);
   const drawCover = () => { const src = curSrc(); const c = coverEl(draft, { src }); if (src) c.addEventListener("click", () => lightbox(src)); coverBox.replaceChildren(c); };
-  const setPhoto = async f => { try { draft.coverBlob = await coverBlobFromFile(f); draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawCover(); } catch { toast("Bild konnte nicht gelesen werden."); } };
+  const setPhoto = async (f, keepOrig) => {
+    try {
+      draft.coverBlob = await coverBlobFromFile(f);
+      if (keepOrig !== true) { st.coverOrig = f; st.quads = null; }
+      st.coverFrom = draft.coverBlob; // das Originalfoto gehört zu genau diesem Cover
+      draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty();
+      personal._flush && personal._flush(); drawDetailEdit(sh, b, { draft, st });
+    } catch { toast("Bild konnte nicht gelesen werden."); }
+  };
   S.pasteHandler = setPhoto;
+  // Zuschneiden/Entzerren aus dem zuletzt gewählten Foto (sonst aus dem vorhandenen Cover); auch den Rücken
+  const cropCover = async () => {
+    const own = st.coverOrig && st.coverFrom === draft.coverBlob;
+    const src = own ? st.coverOrig : draft.coverBlob; if (!src) return;
+    if (!own) st.quads = null;
+    const r = await quadEditor(src, { cover: st.quads?.cover, spine: st.quads?.spine, withSpine: true }); if (!r) return;
+    st.quads = r; st.coverOrig = src; // nochmal zuschneiden geht vom selben Ausgangsbild aus
+    try {
+      if (r.spine) { draft.spine = await spineWithPhoto(draft, await warpQuad(src, r.spine, SPINE_MAX)); }
+      await setPhoto(await warpQuad(src, r.cover, 1200), true);
+    } catch { toast("Zuschneiden hat nicht geklappt."); }
+  };
   const onlineCover = async btn => {
     btn.disabled = true; btn.textContent = "Suche …";
     try {
@@ -1404,6 +1506,7 @@ function drawDetailEdit(sh, b, keep) {
     el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(false); if (f) setPhoto(f); } }, m ? "Galerie" : "🖼 Bild wählen"),
     el("button", { class: "btn sm", type: "button", onclick: e => onlineCover(e.currentTarget) }, "🌐 Online-Cover"),
     el("button", { class: "btn sm", type: "button", onclick: async () => { const pick = await coverPickDialog(draft, [], { skipLabel: "Keins davon", google: true, title: "Cover per Bildersuche" }); if (!pick) return; if (pick.ownFile) { setPhoto(pick.ownFile); return; } draft.coverBlob = pick.blob; draft.coverUrl = pick.url || ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawCover(); } }, "🔍 Bildersuche"),
+    draft.coverBlob ? el("button", { class: "btn sm", type: "button", onclick: cropCover }, "✂ Zuschneiden") : null,
     (draft.coverBlob || draft.coverUrl) ? el("button", { class: "btn sm ghost danger", type: "button", onclick: () => { draft.coverBlob = null; draft.coverUrl = ""; st.previewUrl = null; st.coverChanged = true; markDirty(); drawDetailEdit(sh, b, { draft, st }); } }, "Entfernen") : null);
   const coverDrop = m ? null : dropZone("Bild hierher ziehen oder Strg+V", setPhoto);
   if (coverDrop) coverDrop.style.cssText = "padding:8px;font-size:12px;margin-top:8px";
@@ -1423,6 +1526,7 @@ function drawDetailEdit(sh, b, keep) {
     const got = [];
     for (const f of FIELDS) if (!String(draft[f.k] ?? "").trim() && rec[f.k]) { draft[f.k] = rec[f.k]; got.push(f.l); }
     if (!draft.coverBlob && !draft.coverUrl && rec.coverUrl) { draft.coverUrl = rec.coverUrl; st.coverChanged = true; got.push("Cover"); }
+    const hsp = spineWithHeight(draft, rec); if (hsp) { draft.spine = hsp; got.push(`Höhe (${String(hsp.heightCm).replace(".", ",")} cm)`); }
     if (got.length) { markDirty(); toast("Ergänzt (noch nicht gespeichert): " + got.join(", "), 4000); drawDetailEdit(sh, b, { draft, st }); }
     else { toast("Nichts Neues gefunden."); fillBtn.disabled = false; fillBtn.textContent = "🔎 Leere Felder online ergänzen"; }
   });
@@ -1435,6 +1539,7 @@ function drawDetailEdit(sh, b, keep) {
     let rec = null; try { rec = await lookupIsbn(i); } catch { toast("Keine Internetverbindung."); return; }
     if (!rec) { toast("Zu dieser ISBN wurde online nichts gefunden."); return; }
     for (const f of FIELDS) if (rec[f.k]) draft[f.k] = rec[f.k];
+    const hsp = spineWithHeight(draft, rec); if (hsp) draft.spine = hsp; // Höhe nur, wenn noch keine eingetragen ist
     markDirty(); toast("Übernommen – prüfen und speichern.", 3000); drawDetailEdit(sh, b, { draft, st });
   });
 
@@ -1471,12 +1576,18 @@ function drawDetailEdit(sh, b, keep) {
   goneCb.addEventListener("change", () => { syncGone(); markDirty(); });
   goneBody.style.display = goneState.on ? "" : "none";
   const spPrev = el("div", { class: "spmini" });
-  const drawSpPrev = () => { const sc = 6, c = spineCm(draft); fillNode(spPrev, el("div", { class: "spine", style: `width:${c.w * sc}px;height:${c.h * sc}px` }, spineFace(draft, c.w * sc, c.h * sc, null, "draft-" + b.id))); };
+  const spInfo = el("p", { class: "saved", style: "margin:0 0 8px" });
+  const drawSpPrev = () => { fillNode(spPrev, spineMini(draft, "draft-" + b.id)); spInfo.textContent = draft.spine?.imageBlob ? "Mit eigenem Foto." : draft.spine ? "Individuell gestaltet." : "Automatisch: Farbe aus dem Cover, Dicke aus der Seitenzahl."; };
   drawSpPrev();
+  const setSpinePhoto = async f => {
+    try { draft.spine = await spineWithPhoto(draft, f); markDirty(); drawSpPrev(); toast("Rückenfoto übernommen – mit Speichern sichern.", 2400); }
+    catch { toast("Bild konnte nicht gelesen werden."); }
+  };
   const spineSec = el("div", { class: "sec" }, el("h3", { text: "Buchrücken (echtes Regal)" }),
     el("div", { style: "display:flex;gap:14px;align-items:flex-end" }, spPrev,
-      el("div", {}, el("p", { class: "saved", style: "margin:0 0 8px", text: draft.spine ? "Individuell gestaltet." : "Automatisch: Farbe aus dem Cover, Dicke aus der Seitenzahl." }),
-        el("button", { class: "btn sm", type: "button", onclick: () => spineEditor(draft, sp => { draft.spine = sp; markDirty(); drawSpPrev(); }) }, "🎨 Gestalten"))));
+      el("div", {}, spInfo,
+        el("div", { class: "covertools" }, ...spinePhotoButtons(setSpinePhoto),
+          el("button", { class: "btn sm", type: "button", onclick: () => spineEditor(draft, sp => { draft.spine = sp; markDirty(); drawSpPrev(); }) }, "🎨 Gestalten")))));
   const wishCb = el("input", { type: "checkbox", checked: isWish(draft) || null, style: "width:18px;height:18px;accent-color:var(--accent)" });
   wishCb.addEventListener("change", () => { draft.wish = wishCb.checked; if (draft.wish && goneCb.checked) { goneCb.checked = false; syncGone(); } markDirty(); });
   const goneSec = el("div", { class: "sec" }, el("h3", { text: "Besitz" }),
@@ -1521,12 +1632,47 @@ async function fillMissing(id, btn) {
     if (!rec) { toast("Online nichts Passendes gefunden."); return; }
     const patch = {};
     for (const f of FIELDS) if (!String(b[f.k] ?? "").trim() && rec[f.k]) patch[f.k] = rec[f.k];
+    const hsp = spineWithHeight(b, rec); if (hsp) patch.spine = hsp;
     if (needsCover(b) && rec.coverUrl) { const blob = await fetchCoverBlob(rec.coverUrl); if (blob) { patch.coverUrl = rec.coverUrl; patch.coverBlob = blob; S.badCover.delete(b.id); } else if (await imgOk(rec.coverUrl)) { patch.coverUrl = rec.coverUrl; S.badCover.delete(b.id); } }
     if (!Object.keys(patch).length) { toast("Nichts Neues gefunden."); return; }
     await patchBook(id, patch);
-    toast("Ergänzt: " + Object.keys(patch).filter(k => k !== "coverBlob").map(k => k === "coverUrl" ? "Cover" : FIELDS.find(f => f.k === k).l).join(", "));
+    toast("Ergänzt: " + Object.keys(patch).filter(k => k !== "coverBlob").map(k => k === "coverUrl" ? "Cover" : k === "spine" ? "Höhe" : FIELDS.find(f => f.k === k).l).join(", "));
   } catch { toast("Keine Internetverbindung."); }
   finally { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "🔎"; } }
+}
+/* Sammellauf: Buchhöhen aus der DNB für Bücher mit ISBN und ohne Höhe – nacheinander, mit Pause, abbrechbar. */
+async function heightRun() {
+  const ids = S.books.filter(b => !isWish(b) && toIsbn13(b.isbn) && !+b.spine?.heightCm).map(b => b.id);
+  if (!ids.length) { toast("Alle Bücher mit ISBN haben schon eine Höhe."); return; }
+  const sh = sheet("📏 Buchhöhen aus der DNB");
+  const bar = el("div", { class: "progress" }, el("div", {}));
+  const status = el("div", { class: "saved" });
+  const log = el("div", { class: "covlog" });
+  let stop = false, set = 0, none = 0;
+  const stopBtn = el("button", { class: "btn", onclick: () => { stop = true; stopBtn.disabled = true; stopBtn.textContent = "Wird beendet …"; } }, "Anhalten");
+  fillNode(sh.body,
+    el("p", { style: "margin-top:0", text: `${ids.length} ${ids.length === 1 ? "Buch" : "Bücher"} mit ISBN ohne Höhe. Die App fragt die Deutsche Nationalbibliothek nacheinander – selbst gemessene Höhen bleiben unverändert.` }),
+    bar, status, log, el("div", { class: "actions" }, stopBtn, el("span")));
+  sh.guard = async () => { stop = true; return true; };
+  const row = (b, txt, cls) => log.prepend(el("div", { class: "covrow " + (cls || "") }, el("span", { text: txt }), el("b", { text: b.title || "Ohne Titel" })));
+  for (let i = 0; i < ids.length && !stop; i++) {
+    const b = S.books.find(x => x.id === ids[i]); if (!b || +b.spine?.heightCm) continue;
+    bar.firstChild.style.width = Math.round(i / ids.length * 100) + "%";
+    status.textContent = `${i + 1} / ${ids.length}: „${b.title}“`;
+    const isbn = toIsbn13(b.isbn);
+    let recs; try { recs = await dnbQuery(`num=${isbn}`, 3); } catch { row(b, "⚠ offline", "warn"); break; }
+    const rec = recs.find(r => r.isbn === isbn) || recs[0];
+    const cur = S.books.find(x => x.id === b.id); // kann sich inzwischen geändert haben
+    const sp = cur && spineWithHeight(cur, rec);
+    if (sp) { await patchBook(b.id, { spine: sp }); set++; row(b, `✓ ${String(sp.heightCm).replace(".", ",")} cm`, "ok"); }
+    else { none++; row(b, "– keine Angabe", "none"); }
+    if (!stop && i < ids.length - 1) await new Promise(r => setTimeout(r, S.heightPause ?? 400)); // schonend
+  }
+  bar.firstChild.style.width = "100%";
+  sh.guard = null;
+  status.textContent = `Fertig: ${set} Höhen nachgetragen, ${none} ohne Angabe.` + (stop ? " (angehalten)" : "");
+  sh.body.querySelector(".actions").replaceWith(el("div", { class: "actions" }, el("span"), el("button", { class: "btn primary", onclick: closeSheet }, "Schließen")));
+  renderAll();
 }
 
 /* ================= Echtes Regal (Montana-Würfel) ================= */
@@ -2348,6 +2494,23 @@ async function prepSpineImage(file) {
   if (img.naturalWidth > img.naturalHeight) { blob = await rotateBlob(blob, -90); img = await loadImage(blob); } // Rücken ist immer höher als breit
   const c = toCanvas(img, 900); return { blob: await canvasBlob(c, .86), ratio: c.width / c.height };
 }
+/* Rückenfoto übernehmen (Editor, Prüfen & speichern, Bearbeiten): aufrichten, verkleinern und – nur wenn noch keine Dicke
+   gesetzt ist – die Dicke aus Seitenverhältnis und Höhe berechnen. Gibt ein neues spine-Objekt zurück, b bleibt unverändert. */
+async function spineWithPhoto(b, file, sp = b.spine) {
+  const { blob, ratio } = await prepSpineImage(file);
+  const out = { ...(sp || {}), imageBlob: blob };
+  if (!+out.thickCm) out.thickCm = Math.round(spineCm({ ...b, spine: out }).h * ratio * 10) / 10;
+  return out;
+}
+/* Knöpfe für ein Rückenfoto ohne Umweg über den Editor. Am Handy öffnet „📷 Rückenfoto“ direkt die Kamera. */
+function spinePhotoButtons(onFile, label = "📷 Rückenfoto") {
+  const m = isMobile();
+  return [
+    el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(m); if (f) onFile(f); } }, label),
+    m ? el("button", { class: "btn sm", type: "button", onclick: async () => { const f = await pickImage(false); if (f) onFile(f); } }, "Galerie") : null];
+}
+/* Kleine Vorschau eines Buchrückens (stehend). */
+function spineMini(b, key, sc = 6) { const c = spineCm(b); return el("div", { class: "spine", style: `width:${c.w * sc}px;height:${c.h * sc}px` }, spineFace(b, c.w * sc, c.h * sc, null, key)); }
 function spineEditor(b, onSave) {
   const d = { mode: "hoch", dir: "up", querPos: "unten", font: "serif", size: 100, ...(b.spine || {}) };
   const est = (() => { const p = +b.pages || 0; return { w: p ? Math.min(7, Math.max(0.8, p * 0.0058 + 0.35)) : 2.2, h: 18 + (hue(b.id || b.title) % 60) / 10 }; })();
@@ -2394,9 +2557,8 @@ function spineEditor(b, onSave) {
   const imgBtns = el("div", { class: "covertools" });
   const setImage = async f => {
     try {
-      const { blob, ratio } = await prepSpineImage(f); d.imageBlob = blob;
-      if (!d.thickCm) { d.thickCm = Math.round((+d.heightCm || est.h) * ratio * 10) / 10; thick.value = d.thickCm; }
-      drawImgBtns(); drawPrev(); toast("Bild übernommen – die Dicke wurde aus dem Bild berechnet.", 2600);
+      const had = +d.thickCm; Object.assign(d, await spineWithPhoto(b, f, d)); thick.value = d.thickCm || "";
+      drawImgBtns(); drawPrev(); toast(had ? "Bild übernommen." : "Bild übernommen – die Dicke wurde aus dem Bild berechnet.", 2600);
     } catch { toast("Bild konnte nicht gelesen werden."); }
   };
   const drawImgBtns = () => {
@@ -3130,6 +3292,7 @@ function exportCsv(only) {
 }
 $("#exportCsv").addEventListener("click", exportCsv);
 $("#coverRun").addEventListener("click", () => coverRun());
+$("#heightRun").addEventListener("click", () => heightRun());
 $("#dupRun").addEventListener("click", () => openDuplicates());
 async function remindBackup() {
   if (!S.books.length) return;

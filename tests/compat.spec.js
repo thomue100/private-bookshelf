@@ -15,11 +15,11 @@ test("Datenbank im alten Format (Version 1) wird beim Öffnen übernommen", asyn
   }));
   await openApp(page);
   expect(await page.evaluate(() => S.books.map(b => b.title))).toEqual(["Krabat"]);
-  expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === "buecherregal").version)).toBe(3);
+  expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === "buecherregal").version)).toBe(4);
   await expect(page.locator("#shelf .card")).toHaveCount(1);
 });
 
-test("Datenbank Version 2 (Bücher, Bilder, Regal) wird um Fach-Fotos erweitert, alles bleibt erhalten", async ({ page }) => {
+test("Datenbank Version 2 (Bücher, Bilder, Regal) wird um Fach-Fotos und Stapel erweitert, alles bleibt erhalten", async ({ page }) => {
   await page.goto("/manifest.webmanifest");
   await page.evaluate(() => new Promise(res => {
     const r = indexedDB.open("buecherregal", 2);
@@ -37,7 +37,7 @@ test("Datenbank Version 2 (Bücher, Bilder, Regal) wird um Fach-Fotos erweitert,
     titles: S.books.map(b => b.title), wall: S.shelves.walls[0]?.name, photos: S.photos.length,
     blob: (await DB.getBlob("img1"))?.blob.size, version: (await indexedDB.databases()).find(d => d.name === "buecherregal").version,
   }));
-  expect(r).toEqual({ titles: ["Momo"], wall: "Flur", photos: 0, blob: 3, version: 3 });
+  expect(r).toEqual({ titles: ["Momo"], wall: "Flur", photos: 0, blob: 3, version: 4 });
   // Sicherung ohne Fach-Fotos sieht aus wie bisher (kein neues Feld)
   expect(Object.keys(await page.evaluate(() => buildBackup()))).toEqual(["app", "version", "exportedAt", "books", "deleted", "shelves"]);
 });
