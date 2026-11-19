@@ -1,13 +1,13 @@
 // Stufe 0 – Erkennungsprotokoll: KI-Anfrage (Modell, Bildgröße, rohe Antwort, stop_reason, Dauer), Katalogabfragen je Quelle
 // mit Ergebnis/Fehlerart, Kandidaten mit Punkten, gewählter Treffer und warum. Schlüssel stehen nie darin.
-import { test, expect, openApp, fixture, googleItem, isbn13 } from "./helpers.js";
+import { test, expect, openApp, fixture, googleItem, isbn13, claudeShelf } from "./helpers.js";
 
 const item = (title, author, x0, x1) => ({ kind: "book", position: "standing", title, author, publisher: "", isbn: "", spine_text_vertical: title, text_direction: "up", bbox: { x0, x1, y0: 0.3, y1: 0.95 }, confidence: "high" });
 const SCAN = { compartment: { x0: 0, y0: 0, x1: 1, y1: 1 }, items: [item("Momo", "Michael Ende", 0.05, 0.12), item("Unbekanntes Werk", "Niemand", 0.13, 0.2)] };
 const json = (r, body, status = 200) => r.fulfill({ status, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(body) });
 
-async function scanWithApi(page, answer) {
-  await page.context().route("https://api.anthropic.com/**", r => json(r, answer));
+async function scanWithApi(page, handler) {
+  await page.context().route("https://api.anthropic.com/**", handler);
   await openApp(page);
   await page.evaluate(() => { localStorage.setItem("aiKey", "sk-ant-geheim-123"); localStorage.setItem("gbooksKey", "GOOGLE-GEHEIM"); });
   await page.evaluate(() => openShelfScan());
@@ -21,14 +21,17 @@ test("Fach-Foto: Protokoll mit Modell, Bildgröße, roher Antwort, Katalogabfrag
   catalog.google = q => q.toLowerCase().includes("momo") ? [googleItem("Momo", "Michael Ende", isbn13("978352220210"))] : [];
   await page.route("https://lobid.org/**", r => r.fulfill({ status: 429, body: "{}" }));        // Kontingent erschöpft
   await page.route("https://openlibrary.org/**", r => r.abort("failed"));                         // nicht erreichbar
-  await scanWithApi(page, { model: "claude-sonnet-5-5", stop_reason: "end_turn", usage: { input_tokens: 1500, output_tokens: 400 }, content: [{ type: "text", text: JSON.stringify(SCAN) }] });
+  await scanWithApi(page, claudeShelf(SCAN));
   await expect(page.locator(".scanrow")).toHaveCount(2, { timeout: 30_000 });
   await expect.poll(async () => (await lastRun(page))?.books?.length).toBe(2);
   const r = await lastRun(page);
   expect(r).toMatchObject({ kind: "fach-foto", model: "claude-sonnet-5-5", gesendet: { w: 1000, h: 800 } });
-  expect(r.ai[0]).toMatchObject({ step: "fach", model: "claude-sonnet-5-5", stop_reason: "end_turn", status: 200, usage: { output_tokens: 400 } });
+  // zwei Runden: Übersicht (günstiges Modell, verkleinertes Foto), dann die Rücken einzeln (eingestelltes Modell)
+  expect(r.ai[0]).toMatchObject({ step: "übersicht", model: "claude-haiku-5-5", max_tokens: 16000, stop_reason: "end_turn", status: 200, usage: { output_tokens: 200 } });
   expect(r.ai[0].imgs[0]).toMatchObject({ w: 1000, h: 800 });
-  expect(r.ai[0].raw).toContain("Unbekanntes Werk");
+  expect(r.ai[1]).toMatchObject({ step: "rücken", model: "claude-sonnet-5-5", stop_reason: "end_turn" });
+  expect(r.ai[1].imgs).toHaveLength(2);
+  expect(r.ai[1].raw).toContain("Unbekanntes Werk");
   expect(r.ai[0].ms).toBeGreaterThanOrEqual(0);
   const momo = r.books[0];
   expect(momo.gelesen).toMatchObject({ title: "Momo", author: "Michael Ende", position: "standing" });
@@ -60,11 +63,11 @@ test("Fach-Foto: Protokoll mit Modell, Bildgröße, roher Antwort, Katalogabfrag
 });
 
 test("Abgeschnittene KI-Antwort (max_tokens) wird klar gemeldet und protokolliert", async ({ page }) => {
-  await scanWithApi(page, { model: "claude-sonnet-5-5", stop_reason: "max_tokens", content: [{ type: "text", text: '{"compartment":{},"items":[{"kind":"book","title":"Mo' }] });
+  await scanWithApi(page, r => json(r, { model: "claude-haiku-5-5", stop_reason: "max_tokens", content: [{ type: "text", text: '{"compartment":{},"items":[{"kind":"book","title":"Mo' }] }));
   await expect(page.locator(".sheet .note")).toContainText("abgeschnitten");
-  await expect.poll(async () => (await lastRun(page))?.ai?.length).toBe(1);
+  await expect.poll(async () => (await lastRun(page))?.ai?.length).toBe(2); // einmal mit mehr Platz nachgefordert
   const r = await lastRun(page);
-  expect(r.ai[0]).toMatchObject({ stop_reason: "max_tokens" });
+  expect(r.ai.map(a => [a.stop_reason, a.max_tokens])).toEqual([["max_tokens", 16000], ["max_tokens", 32000]]);
   expect(r.ai[0].err).toContain("abgeschnitten");
 });
 

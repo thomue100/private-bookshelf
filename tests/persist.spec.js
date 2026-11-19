@@ -1,6 +1,6 @@
 // Stufe 1 – Listen gehen nie mehr verloren: Prüfliste am Fach-Foto gemerkt, Entwurf „Prüfen & speichern“ nach Neustart,
 // Hintergrund/✕/Zurück-Taste mit Nachfrage, keine stillen Ersetzungen durch Hintergrund-Aktionen.
-import { test, expect, openApp, fixture, googleItem, isbn13 } from "./helpers.js";
+import { test, expect, openApp, fixture, googleItem, isbn13, claudeShelf } from "./helpers.js";
 
 const item = (title, author, x0, x1) => ({ kind: "book", position: "standing", title, author, publisher: "", isbn: "", spine_text_vertical: title, text_direction: "up", bbox: { x0, x1, y0: 0.3, y1: 0.95 }, confidence: "high" });
 const SCAN = { compartment: { x0: 0, y0: 0, x1: 1, y1: 1 }, items: [item("Momo", "Michael Ende", 0.05, 0.12), item("Krabat", "Otfried Preußler", 0.13, 0.2), item("Tschick", "Wolfgang Herrndorf", 0.21, 0.28)] };
@@ -9,7 +9,7 @@ function catalogFor(catalog) {
   catalog.google = q => { q = q.toLowerCase(); for (const [t, a] of [["momo", "Michael Ende"], ["krabat", "Otfried Preußler"], ["tschick", "Wolfgang Herrndorf"]]) if (q.includes(t)) return [googleItem(t[0].toUpperCase() + t.slice(1), a, isbn13("97834230" + String(t.length).padStart(4, "0")))]; return []; };
 }
 async function scanPhoto(page) {
-  await page.context().route("https://api.anthropic.com/**", r => json(r, { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(SCAN) }] }));
+  await page.context().route("https://api.anthropic.com/**", claudeShelf(SCAN));
   await openApp(page);
   await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
   await page.evaluate(() => openShelfScan());

@@ -54,12 +54,23 @@ function quadsFromAnswer(d) {
 async function warpQuad(source, quad, maxPx = 1600) {
   const img = source instanceof Blob ? await loadImage(source) : source;
   const src = toCanvas(img, 3000); // genug Auflösung, ohne den Speicher am Handy zu sprengen
-  const W = src.width, H = src.height, P = quad.map(([x, y]) => [x * W, y * H]);
+  const out = warpCanvas(src, quad, maxPx);
+  src.width = src.height = 0;
+  return canvasBlob(out, .88);
+}
+/* Entzerren direkt aus einer Canvas (z. B. viele Buchrücken aus demselben Fach-Foto) → Canvas.
+   Gelesen wird nur der Bereich um das Viereck, nicht das ganze Foto. */
+function warpCanvas(src, quad, maxPx = 1600) {
+  const W0 = src.width, H0 = src.height, P0 = quad.map(([x, y]) => [x * W0, y * H0]);
+  const bx = Math.max(0, Math.floor(Math.min(...P0.map(p => p[0]))) - 2), by = Math.max(0, Math.floor(Math.min(...P0.map(p => p[1]))) - 2);
+  const W = Math.min(W0, Math.ceil(Math.max(...P0.map(p => p[0]))) + 2) - bx, H = Math.min(H0, Math.ceil(Math.max(...P0.map(p => p[1]))) + 2) - by;
+  if (W < 2 || H < 2) throw new Error("Ecken ungültig");
+  const P = P0.map(([x, y]) => [x - bx, y - by]);
   let w = Math.max(qdist(P[0], P[1]), qdist(P[3], P[2])), h = Math.max(qdist(P[0], P[3]), qdist(P[1], P[2]));
   const s = Math.min(1, maxPx / Math.max(w, h)); w = Math.max(2, Math.round(w * s)); h = Math.max(2, Math.round(h * s));
   const hm = homography([[0, 0], [w, 0], [w, h], [0, h]], P);
   if (!hm) throw new Error("Ecken ungültig");
-  const sd = src.getContext("2d").getImageData(0, 0, W, H).data;
+  const sd = src.getContext("2d").getImageData(bx, by, W, H).data;
   const out = document.createElement("canvas"); out.width = w; out.height = h;
   const od = out.getContext("2d").createImageData(w, h), o = od.data;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -73,8 +84,7 @@ async function warpQuad(source, quad, maxPx = 1600) {
     o[j + 3] = 255;
   }
   out.getContext("2d").putImageData(od, 0, 0);
-  src.width = src.height = 0;
-  return canvasBlob(out, .88);
+  return out;
 }
 
 /* ---------- Ecken-Editor ----------

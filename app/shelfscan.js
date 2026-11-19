@@ -218,6 +218,8 @@ function assessScan(items, W = SCAN_WORDS.photo) {
     const r = [];
     if (it.kind !== "other") {
       if (it.confidence === "low") r.push(W.low);
+      if (it.spine_problem) r.push(it.spine_problem);
+      if (it.read_error) r.push("Rücken konnte nicht gelesen werden (" + it.read_error + ")");
       const c = it.cands[it.choice], iv = itemVol(it);
       if (!c) r.push(it.offline ? W.offline
         : !it.cands.length ? W.none
@@ -249,7 +251,7 @@ function fachOptions() {
 function scanModes(later) {
   return [
     later ? ["later", "💾 Nur speichern – später erkennen", "Foto wird in der App gespeichert. Erkennen und einsortieren kannst du später – auch am PC (über den Abgleich oder eine Sicherung). Ideal, um viele Fächer schnell hintereinander zu fotografieren.", true] : null,
-    ["api", "🤖 KI direkt (API-Schlüssel)", aiKey() ? "Automatisch, am bequemsten. Kosten pro Foto über dein API-Konto." : "Kein Schlüssel eingetragen.", !!aiKey()],
+    ["api", "🤖 KI direkt (API-Schlüssel)", aiKey() ? `Automatisch, am bequemsten: erst die Lage, dann jeder Rücken einzeln in voller Auflösung. Kosten ${shelfCostText()} über dein API-Konto.` : "Kein Schlüssel eingetragen.", !!aiKey()],
     ["chat", "💬 Über deinen Claude-Chat", "Mit deinem Claude-Abo: Foto + Auftrag an Claude geben, Antwort hier einfügen. Keine Zusatzkosten.", true],
   ].filter(Boolean);
 }
@@ -437,7 +439,7 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
     return;
   }
   let data;
-  try { data = await aiScanShelf(jpeg, t => status.textContent = t, run); }
+  try { data = await aiScanShelf2(file, t => status.textContent = t, run); } // zweistufig: Lage, dann jeden Rücken scharf lesen (spineread.js)
   catch (e) {
     fillNode(sh.body, el("div", { class: "note", text: "Erkennung fehlgeschlagen: " + (e.message || e) + " – das Foto bleibt gespeichert." }),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: () => openShelfScan(null, { photo }) }, "← Zurück"),
@@ -467,8 +469,7 @@ async function matchScanItems(data, onStatus, run) {
 }
 // Ganzes Fach-Foto erkennen und Treffer suchen – ohne Oberfläche (für die Auswertung mit echten Fotos)
 async function recognizeShelf(file, { onStatus, run } = {}) {
-  const img = await loadImage(file); const canvas = toCanvas(img, 1568); const jpeg = await canvasBlob(canvas, .88);
-  const data = await aiScanShelf(jpeg, onStatus, run);
+  const data = await aiScanShelf2(file, onStatus, run);
   return { data, items: await matchScanItems(data, onStatus, run) };
 }
 async function continueShelfScan(sh, { file, canvas, data, fachKey, photo, run }) {
@@ -602,7 +603,8 @@ function scanReview(sh, st) {
     fillNode(unsureNote, n ? el("div", { class: "note warnnote" },
       el("b", { text: `⚠ ${n} ${n === 1 ? "Buch ist" : "Bücher sind"} unsicher erkannt` }), " (gelb markiert). Bitte prüfen: richtigen Katalogtreffer wählen, " +
       "oder Titel/Band korrigieren und „🔎 Neu suchen“ – oder „✓ Passt so“, wenn alles stimmt.",
-      el("label", { class: "prow", style: "margin-top:6px" }, onlyUnsure, el("span", { text: "Nur unsichere zeigen" }))) : null);
+      el("label", { class: "prow", style: "margin-top:6px" }, onlyUnsure, el("span", { text: "Nur unsichere zeigen" })),
+      st.file && st.photo ? el("div", { class: "covertools", style: "margin-top:6px" }, el("button", { class: "btn sm", type: "button", title: aiKey() ? "Die unsicheren Rücken noch einmal einzeln in voller Auflösung lesen" : "Collage der unsicheren Rücken über deinen Claude-Chat lesen lassen", onclick: () => rereadUnsure(sh, st) }, "🔍 Unsichere Rücken genauer lesen")) : null) : null);
   };
   const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); persist(); };
   const POS = { standing: "steht", lying_in_row: "liegt in der Reihe", lying_on_top: "liegt oben auf", behind: "hintere Reihe" };
@@ -676,6 +678,7 @@ function scanReview(sh, st) {
   fillNode(sh.body,
     st.intro ? el("div", { class: "note info", text: st.intro }) : el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
     unsureNote,
+    canvas && (items.filter(x => x.kind !== "other").length > 20 || items.filter(isUnsure).length > items.length * 0.4) ? el("div", { class: "note info", text: "📷 Tipp: Bei so vielen (oder schwer lesbaren) Rücken wird es schärfer, wenn du das Fach in zwei Hälften fotografierst – links und rechts." }) : null,
     canvas ? ov : null,
     st.options || el("div", { class: "scanopts" },
       el("label", { class: "prow" }, optCrop, el("span", {}, el("b", { text: "Buchrücken-Bilder aus dem Foto übernehmen" }), el("div", { class: "saved", text: "Sonst Farbe, Text und Maße wie erkannt." }))),
@@ -733,7 +736,7 @@ async function importScan(st, opt) {
   const src = opt.crop ? await fullScanCanvas(st) : null; // Rücken aus dem Originalfoto schneiden (schärfer)
   for (const it of chosen) {
     const c = it.cands[it.choice];
-    const look = spineFromScan(it, comp, src ? cropSpine(src, it, comp, SPINE_MAX) : null);
+    const look = spineFromScan(it, comp, src ? (it.quad ? spineCanvas(src, it, { turn: false, max: SPINE_MAX }) : cropSpine(src, it, comp, SPINE_MAX)) : null); // entzerrt, wenn die Übersicht Ecken lieferte
     let spine = { ...look.sp };
     if (look.cropCanvas) { spine.imageBlob = await canvasBlob(look.cropCanvas, .85); }
     let id;

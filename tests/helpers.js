@@ -31,6 +31,36 @@ export function dnbXml(recs) {
   const body = recs.map(r => `<record xmlns="http://www.loc.gov/MARC21/slim">${r.isbn ? df("020", sf("a", r.isbn)) : ""}${r.author ? df("100", sf("a", r.author) + sf("4", "aut")) : ""}${df("245", sf("a", r.title) + sf("n", r.part))}${df("264", sf("b", r.publisher) + sf("c", r.year))}${r.series ? df("490", sf("a", r.series) + sf("v", r.seriesNo)) : ""}${r.extent || r.format ? df("300", sf("a", r.extent) + sf("c", r.format)) : ""}</record>`).join("");
   return `<?xml version="1.0"?><searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><numberOfRecords>${recs.length}</numberOfRecords><records>${body}</records></searchRetrieveResponse>`;
 }
+/**
+ * Nachgebildete Anthropic-API für das zweistufige Fach-Foto (spineread.js) aus einer Bücherliste im Erkennungsformat
+ * ({compartment, items:[{kind, title, author, bbox, position, …}]}):
+ *   - Übersicht (Schema mit „items“): Lage, Position, Rahmen – ohne Titel
+ *   - Rücken lesen (Schema mit „spines“): je „Rücken Nr. n“ das n-te Buch (Felder title/author/…; books_in_image aus it.books_in_image)
+ * Alle Anfragen landen in log (Anfrage-Körper). Antwort pro Anfrage über answer(body) überschreibbar (Rückgabe ≠ undefined).
+ */
+export function shelfAnswer(scan, body) {
+  const props = body?.output_config?.format?.schema?.properties || {};
+  const books = scan.items.filter(it => it.kind !== "other");
+  if (props.items) return { compartment: scan.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 }, items: scan.items.map((it, i) => ({
+    n: i + 1, kind: it.kind === "other" ? "other" : "book", label: it.label || "", position: it.position || "standing", bbox: it.bbox, quad: it.quadFlat || null,
+    text_direction: it.text_direction || "up", spine_color: it.spine_color || "", text_color: it.text_color || "", hint: "" })) };
+  if (props.spines) {
+    const ns = body.messages[0].content.filter(c => c.type === "text").map(c => (c.text.match(/^Rücken Nr\. (\d+):/) || [])[1]).filter(Boolean).map(Number);
+    return { spines: ns.map(n => { const it = books[n - 1] || {}; return { n, books_in_image: it.books_in_image ?? 1, title: it.title || "", subtitle: it.subtitle || "", author: it.author || "",
+      publisher: it.publisher || "", series: it.series || "", volume: it.volume || it.series_no || "", order_no: it.order_no || "", isbn: it.isbn || "", spine_text: it.spine_text_vertical || it.title || "", confidence: it.confidence || "high" }; }) };
+  }
+  return undefined;
+}
+export function claudeShelf(scan, { log = [], answer } = {}) {
+  return async route => {
+    const body = JSON.parse(route.request().postData() || "{}");
+    log.push(body);
+    const out = (answer && answer(body)) ?? shelfAnswer(scan, body) ?? scan;
+    const text = typeof out === "string" ? out : JSON.stringify(out);
+    return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" },
+      body: JSON.stringify({ model: body.model, stop_reason: "end_turn", usage: { input_tokens: 1000, output_tokens: 200 }, content: [{ type: "text", text }] }) });
+  };
+}
 export const test = base.extend({
   catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [] }); },
   page: async ({ page, context, catalog }, use) => {

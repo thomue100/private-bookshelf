@@ -3,6 +3,9 @@
    (Message Batches, halber Preis, meist unter einer Stunde) → die App fragt regelmäßig nach und legt jede Erkennung als `scan`
    am Fach-Foto ab → „Der Reihe nach prüfen“ führt Fach für Fach durch die Prüfliste, Cover werden am Ende gesammelt nachgetragen.
    Klappt der Sammelauftrag nicht, geht es einzeln nacheinander (normaler Preis).
+   Zwei Runden (spineread.js): erst alle Übersichten (Lage der Rücken, kind "ov"), dann alle Rücken in voller Auflösung (kind "read").
+   Zwischen den Runden stehen die Übersichten im Auftragseintrag; scheitert das Absenden der zweiten Runde, bleibt er als "ovdone"
+   stehen und wird beim nächsten Nachsehen erneut geschickt. Aufträge älterer Versionen (ohne kind) werden wie bisher ausgewertet.
    Laufende Sammelaufträge stehen nur auf diesem Gerät (localStorage „aiBatches“) – wie der KI-Schlüssel. */
 "use strict";
 
@@ -19,17 +22,56 @@ async function startBatchScan(photos, onStatus) {
   let sent = 0;
   for (let i = 0; i < photos.length; i += BATCH_CHUNK) {
     const part = photos.slice(i, i + BATCH_CHUNK), requests = [];
-    for (const p of part) { onStatus(`Bereite Foto ${i + requests.length + 1} von ${photos.length} vor …`); requests.push({ custom_id: p.id, params: scanParams(await scanB64(p)) }); }
+    const cid = {};
+    for (const p of part) { onStatus(`Bereite Foto ${i + requests.length + 1} von ${photos.length} vor …`); const id = "o" + requests.length; cid[id] = p.id; requests.push({ custom_id: id, params: ovParams(await scanB64(p)) }); }
     onStatus("Sende an Claude …");
-    let r;
-    try { r = await fetch(AI_API + "/v1/messages/batches", { method: "POST", headers: aiHeaders(), body: JSON.stringify({ requests }) }); }
-    catch { throw Object.assign(new Error("Keine Verbindung zur KI (Internet prüfen)."), { sent }); }
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.id) throw Object.assign(aiError(r.status, j), { sent });
-    setBatchList([...batchList(), { id: j.id, ids: part.map(p => p.id), at: new Date().toISOString() }]);
+    let j;
+    try { j = await postBatch(requests); } catch (e) { throw Object.assign(e, { sent }); }
+    setBatchList([...batchList(), { id: j.id, kind: "ov", ids: part.map(p => p.id), cid, at: new Date().toISOString() }]);
     sent += part.length;
   }
   return sent;
+}
+
+async function postBatch(requests) {
+  let r;
+  try { r = await fetch(AI_API + "/v1/messages/batches", { method: "POST", headers: aiHeaders(), body: JSON.stringify({ requests }) }); }
+  catch { throw new Error("Keine Verbindung zur KI (Internet prüfen)."); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.id) throw aiError(r.status, j);
+  return j;
+}
+/* Runde 2: zu jeder Übersicht die Rücken aus dem Originalfoto schneiden und als Sammelauftrag lesen lassen (je 8 Fotos ein Auftrag) */
+async function submitReadBatches(ovs) {
+  const entries = [], pids = Object.keys(ovs);
+  for (let i = 0; i < pids.length; i += 8) {
+    const part = pids.slice(i, i + 8), requests = [], cid = {};
+    for (const pid of part) {
+      const p = S.photos.find(x => x.id === pid && x.blob); if (!p) continue;
+      const img = await loadImage(p.blob), src = toCanvas(img, SRC_MAX_PX);
+      const books = ovs[pid].items.filter(it => it.kind === "book");
+      for (let g = 0; g < books.length; g += READ_GROUP) {
+        const imgs = [];
+        for (let k = g; k < Math.min(books.length, g + READ_GROUP); k++) { const c = spineCanvas(src, books[k]); if (c) imgs.push({ n: k + 1, b64: await canvasB64(c) }); }
+        if (!imgs.length) continue;
+        const id = "r" + requests.length; cid[id] = { p: pid, ns: imgs.map(x => x.n) };
+        requests.push({ custom_id: id, params: readParams(imgs) });
+      }
+      src.width = src.height = 0;
+    }
+    const ov = Object.fromEntries(part.map(pid => [pid, ovs[pid]]));
+    if (!requests.length) { entries.push({ kind: "read", id: "", ids: part, cid, ov, empty: true }); continue; }
+    const j = await postBatch(requests);
+    entries.push({ id: j.id, kind: "read", ids: part, cid, ov, at: new Date().toISOString() });
+  }
+  return entries;
+}
+// Ergebnis eines fertigen Fotos (Runde 2) ablegen
+async function finishReadPhoto(pid, data) {
+  for (const it of data.items) if (it.kind === "book" && it.confidence === "low" && !it.title && !it.read_error) it.read_error = "im Sammelauftrag nicht gelesen";
+  const p = S.photos.find(x => x.id === pid && !x.deletedAt);
+  if (p && !p.scan) { await patchPhoto(pid, { scan: data, scanAt: new Date().toISOString() }); return true; }
+  return false;
 }
 
 /* ---------- Ergebnisse abholen ---------- */
@@ -39,8 +81,14 @@ async function checkBatches({ loud = false } = {}) {
   if (batchBusy || !list.length || !aiKey()) return;
   batchBusy = true;
   let got = 0, gotStack = 0, failed = 0, offline = false;
+  const add = [];
   try {
     for (const b of list) {
+      if (b.kind === "ovdone" || (b.kind === "read" && b.empty)) { // Runde 2 noch nicht abgeschickt bzw. nichts zu lesen
+        if (b.empty) { for (const pid of b.ids) if (await finishReadPhoto(pid, b.ov[pid])) got++; b.drop = true; continue; }
+        try { add.push(...await submitReadBatches(b.ov)); b.drop = true; } catch { offline = true; }
+        continue;
+      }
       let r;
       try { r = await fetch(`${AI_API}/v1/messages/batches/${b.id}`, { headers: aiHeaders() }); } catch { offline = true; break; }
       const j = await r.json().catch(() => ({}));
@@ -51,9 +99,35 @@ async function checkBatches({ loud = false } = {}) {
       let rr;
       try { rr = await fetch(j.results_url, { headers: aiHeaders() }); } catch { offline = true; break; }
       if (!rr.ok) continue;
-      const ok = new Set();
-      for (const line of (await rr.text()).split("\n")) {
-        if (!line.trim()) continue;
+      const ok = new Set(), lines = (await rr.text()).split("\n").filter(l => l.trim());
+      if (b.kind === "ov") { // Runde 1 fertig: Übersichten sammeln, Runde 2 abschicken
+        const ovs = {};
+        for (const line of lines) {
+          let res, ov = null, err = "";
+          try { res = JSON.parse(line); if (res.result?.type === "succeeded") ov = ovToScan(ovFromMessage(res.result.message)); else err = res.result?.type || "unbekannt"; } catch (e) { err = e.message || "nicht lesbar"; }
+          const m = res?.result?.message;
+          recAi(recRun("fach-foto", { mode: "sammelauftrag" }), { step: "übersicht (Sammelauftrag)", model: m?.model, stop_reason: m?.stop_reason, usage: m?.usage, raw: m ? aiText(m) : "", err: ov ? undefined : err });
+          const pid = res && (b.cid?.[res.custom_id] || res.custom_id);
+          if (ov && pid && S.photos.some(x => x.id === pid && !x.deletedAt && !x.scan)) ovs[pid] = ov;
+        }
+        failed += b.ids.filter(id => !ovs[id] && S.photos.some(x => x.id === id && !x.deletedAt && !x.scan)).length;
+        if (Object.keys(ovs).length) { try { add.push(...await submitReadBatches(ovs)); } catch { add.push({ kind: "ovdone", id: "", ids: Object.keys(ovs), ov: ovs, at: new Date().toISOString() }); } }
+        b.drop = true; continue;
+      }
+      if (b.kind === "read") { // Runde 2 fertig: gelesene Rücken in die Übersichten übernehmen
+        for (const line of lines) {
+          let res, spines = null, err = "";
+          try { res = JSON.parse(line); if (res.result?.type === "succeeded") spines = readFromMessage(res.result.message); else err = res.result?.type || "unbekannt"; } catch (e) { err = e.message || "nicht lesbar"; }
+          const m = res?.result?.message, c = res && b.cid?.[res.custom_id];
+          recAi(recRun("fach-foto", { mode: "sammelauftrag" }), { step: "rücken (Sammelauftrag)", model: m?.model, stop_reason: m?.stop_reason, usage: m?.usage, raw: m ? aiText(m) : "", err: spines ? undefined : err });
+          if (!c || !b.ov[c.p]) continue;
+          const books = b.ov[c.p].items.filter(it => it.kind === "book");
+          for (const n of c.ns) { const r = spines?.find(x => +x.n === n); if (r) applyRead(books[n - 1], r); else if (books[n - 1]) books[n - 1].read_error = err || "nicht gelesen"; }
+        }
+        for (const pid of b.ids) if (b.ov[pid] && await finishReadPhoto(pid, b.ov[pid])) got++;
+        b.drop = true; continue;
+      }
+      for (const line of lines) {
         if (b.kind === "stack") { // Cover-Erkennung für den Stapel-Modus (stackscan.js)
           let res, d = null;
           try { res = JSON.parse(line); if (res.result?.type === "succeeded") d = parseJSONLoose((res.result.message.content || []).filter(c => c.type === "text").map(c => c.text).join("")); } catch {}
@@ -73,7 +147,7 @@ async function checkBatches({ loud = false } = {}) {
       b.drop = true; // nicht erkannte Fotos sind damit wieder frei für „Alle erkennen“
     }
   } finally {
-    setBatchList(list.filter(b => !b.drop));
+    setBatchList([...list.filter(b => !b.drop), ...add]);
     batchBusy = false;
   }
   if (got) toast(`🤖 ${got} Fach-Foto${got === 1 ? "" : "s"} erkannt – bitte prüfen und einsortieren.`, 5000);
@@ -91,8 +165,7 @@ async function directScanAll(photos, onStatus, alive) {
     if (!alive()) break;
     onStatus(`Erkenne Foto ${n + 1} von ${photos.length} … (je Foto meist 20–60 Sekunden)`);
     try {
-      const img = await loadImage(p.blob); const jpeg = await canvasBlob(toCanvas(img, 1568), .88);
-      await patchPhoto(p.id, { scan: await aiScanShelf(jpeg), scanAt: new Date().toISOString() });
+      await patchPhoto(p.id, { scan: await aiScanShelf2(p.blob, null, recRun("fach-foto", { mode: "einzeln" })), scanAt: new Date().toISOString() });
     } catch (e) { bad++; if (/Schlüssel|Modell|Verbindung/.test(e.message || "")) { toast(e.message, 5000); break; } }
     n++;
   }

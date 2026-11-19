@@ -1,6 +1,6 @@
 // Fach-Foto einlesen: Erkennung über die Anthropic-API (nachgebildet) und über die Claude-Chat-Brücke.
 // Das Testbild fixtures/shelf.jpg (1000×800) zeigt 6 stehende Buchrücken und ein liegendes Buch.
-import { test, expect, openApp, fixture, googleItem, isbn13 } from "./helpers.js";
+import { test, expect, openApp, fixture, googleItem, isbn13, claudeShelf } from "./helpers.js";
 
 const BOOKS = [
   ["Momo", "Michael Ende", 40, 100], ["Krabat", "Otfried Preußler", 104, 194], ["Siddhartha", "Hermann Hesse", 198, 248],
@@ -41,12 +41,8 @@ async function importReview(page) {
 
 test("Fach-Foto über die Anthropic-API: 7 Bücher erkannt, angelegt und ins Fach gestellt", async ({ page, catalog }) => {
   catalogFor(catalog);
-  let sentImage = false;
-  await page.context().route("https://api.anthropic.com/**", async r => {
-    const body = JSON.parse(r.request().postData());
-    sentImage = body.messages[0].content.some(c => c.type === "image");
-    await r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ content: [{ type: "text", text: JSON.stringify(SCAN) }] }) });
-  });
+  const log = [];
+  await page.context().route("https://api.anthropic.com/**", claudeShelf(SCAN, { log }));
   await openApp(page);
   await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
   await wallWith4er(page);
@@ -56,7 +52,7 @@ test("Fach-Foto über die Anthropic-API: 7 Bücher erkannt, angelegt und ins Fac
   await page.click(".sheet >> text=🖼 Foto wählen");
   await (await chooser).setFiles(fixture("shelf.jpg"));
   await importReview(page);
-  expect(sentImage).toBe(true);
+  expect(log[0].messages[0].content.some(c => c.type === "image")).toBe(true);
   const r = await page.evaluate(() => ({
     placed: S.books.filter(b => locationOf(b.id)).length,
     top: S.books.filter(b => locationOf(b.id)?.layer === "top").map(b => b.title),
@@ -84,11 +80,8 @@ test("Reihen-Bände, zweites Exemplar, schlecht lesbarer Rücken: Nachfrage stat
     if (q.includes("krabat")) return [googleItem("Krabat", "Otfried Preußler", isbn13("978352217520"))];
     return [];
   };
-  let prompt = "";
-  await page.context().route("https://api.anthropic.com/**", async r => {
-    prompt = JSON.parse(r.request().postData()).messages[0].content.find(c => c.type === "text").text;
-    await r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ content: [{ type: "text", text: JSON.stringify(SERIES_SCAN) }] }) });
-  });
+  const log = [];
+  await page.context().route("https://api.anthropic.com/**", claudeShelf(SERIES_SCAN, { log }));
   await openApp(page);
   await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
   await wallWith4er(page);
@@ -98,7 +91,7 @@ test("Reihen-Bände, zweites Exemplar, schlecht lesbarer Rücken: Nachfrage stat
   await page.click(".sheet >> text=🖼 Foto wählen");
   await (await chooser).setFiles(fixture("shelf.jpg"));
   await expect(page.locator(".scanlist")).toBeVisible({ timeout: 30_000 });
-  expect(prompt).toContain('"volume"'); // die KI wird nach der Band-Nummer gefragt
+  expect(log.find(b => b.output_config?.format?.schema?.properties?.spines).output_config.format.schema.properties.spines.items.properties).toHaveProperty("volume"); // die KI wird nach der Band-Nummer gefragt
 
   const rows = page.locator(".scanrow");
   await expect(rows).toHaveCount(6);
@@ -206,7 +199,7 @@ test("Claude-Chat-Brücke holt die Antwort selbst aus der Zwischenablage, alte A
 
 test("Großes Fach-Foto: Rücken werden aus der vollen Auflösung geschnitten – deutlich größer, richtiges Seitenverhältnis, begrenzt", async ({ page, catalog }) => {
   catalogFor(catalog);
-  await page.context().route("https://api.anthropic.com/**", r => r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ content: [{ type: "text", text: JSON.stringify(SCAN) }] }) }));
+  await page.context().route("https://api.anthropic.com/**", claudeShelf(SCAN));
   await openApp(page);
   await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
   // Testfoto 4000 × 3200 (wie ein Handyfoto), gleiches Seitenverhältnis wie shelf.jpg
