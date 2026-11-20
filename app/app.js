@@ -132,6 +132,13 @@ async function storePhotoLocal(p) { // ohne neuen Zeitstempel – für Abgleich 
 async function putPhoto(p) { p.updatedAt = new Date().toISOString(); await storePhotoLocal(p); dataChanged(); scheduleRender(); return p; }
 async function patchPhoto(id, patch) { const p = S.photos.find(x => x.id === id); if (p) return putPhoto({ ...p, ...patch }); }
 const openPhotos = () => S.photos.filter(p => !p.deletedAt && !p.doneAt).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+// Ein Fach in mehreren Fotos (links → rechts): weitere Fotos tragen partOf (Id des ersten) und part (2, 3 …) – optional, ältere Versionen sehen Einzelfotos
+// immer der aktuelle Stand aus S.photos (nach patchPhoto ist das alte Objekt veraltet)
+const photoRoot = p => { const cur = p && (S.photos.find(x => x.id === p.id) || p); return (cur?.partOf && S.photos.find(x => x.id === cur.partOf && !x.deletedAt)) || cur; };
+function photoGroup(p) {
+  const r = photoRoot(p);
+  return [r, ...S.photos.filter(x => x.id !== r.id && x.partOf === r.id && !x.deletedAt).sort((a, b) => (a.part || 0) - (b.part || 0) || (a.createdAt || "").localeCompare(b.createdAt || ""))];
+}
 // Nach jeder Änderung: lokale Ordner-Sicherung und (falls eingerichtet) Server-Abgleich einplanen
 function dataChanged() { if (typeof scheduleAutoBackup === "function") scheduleAutoBackup(); if (typeof scheduleSync === "function") scheduleSync(); }
 let rT; function scheduleRender() { clearTimeout(rT); rT = setTimeout(renderAll, 30); }
@@ -615,18 +622,66 @@ function zxingReader() {
   hints.set(Z.DecodeHintType.TRY_HARDER, true);
   return hints;
 }
+/* ISBN aus einem gelesenen Barcode: nur EAN-13 mit 978/979 und stimmender Prüfziffer. Ein angehängter Preis-Zusatzcode (2 oder 5 Ziffern)
+   wird abgeschnitten. Andere Strichcodes (Lebensmittel, Preis-EAN, ISBN-10 gibt es als Strichcode nicht) → null. */
+function isbnFromBarcode(raw) {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (d.length === 15 || d.length === 18) d = d.slice(0, 13);
+  return d.length === 13 && /^97[89]/.test(d) && isbn13ok(d) ? d : null;
+}
+const turnCanvas = c => { const r = document.createElement("canvas"); r.width = c.height; r.height = c.width; const x = r.getContext("2d"); x.translate(r.width / 2, r.height / 2); x.rotate(Math.PI / 2); x.drawImage(c, -c.width / 2, -c.height / 2); return r; };
+// Ausschnitte eines Fotos (relativ): ganz, Hälften und überlappende Drittel – kleine Barcodes werden im Ausschnitt größer
+const BARCODE_CROPS = [[0, 0, 1, 1], [0, 0, 1, .55], [0, .45, 1, 1], [0, 0, .55, 1], [.45, 0, 1, 1],
+  ...[0, 1, 2].flatMap(r => [0, 1].map(k => [k * .45, r * .3, k * .45 + .55, r * .3 + .4]))];
+function cropCanvas(img, [x0, y0, x1, y1], max) {
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  const sw = (x1 - x0) * W, sh = (y1 - y0) * H, s = Math.min(1, max / Math.max(sw, sh));
+  const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(sw * s)); c.height = Math.max(1, Math.round(sh * s));
+  c.getContext("2d").drawImage(img, x0 * W, y0 * H, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
 async function decodeFromImage(img) {
   if ("BarcodeDetector" in window) {
-    try { const det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); for (const r of await det.detect(img)) { const i = toIsbn13(r.rawValue); if (i) return i; } } catch {}
+    try {
+      const det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] });
+      for (const crop of BARCODE_CROPS) for (const r of await det.detect(crop === BARCODE_CROPS[0] ? img : cropCanvas(img, crop, 2000))) { const i = isbnFromBarcode(r.rawValue); if (i) return i; }
+    } catch {}
   }
   const Z = window.ZXing; if (!Z) return null;
   const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
-  for (const size of [1400, 900, 2200]) for (const rot of [0, 90]) {
-    let c = toCanvas(img, size);
-    if (rot) { const r = document.createElement("canvas"); r.width = c.height; r.height = c.width; const x = r.getContext("2d"); x.translate(r.width / 2, r.height / 2); x.rotate(Math.PI / 2); x.drawImage(c, -c.width / 2, -c.height / 2); c = r; }
-    try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i) return i; } catch {}
-  }
+  const tryC = c => { try { return isbnFromBarcode(reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))).getText()); } catch { return null; } };
+  for (const size of [1400, 900, 2200]) for (const rot of [0, 90]) { const c = toCanvas(img, size); const i = tryC(rot ? turnCanvas(c) : c); if (i) return i; }
+  for (const crop of BARCODE_CROPS.slice(1)) for (const rot of [0, 90]) { const c = cropCanvas(img, crop, 1400); const i = tryC(rot ? turnCanvas(c) : c); if (i) return i; }
   return null;
+}
+/* Kamera öffnen: hohe Auflösung, Dauer-Fokus und Taschenlampe, wo der Browser es kann. → { stream, track, torch(an) | null } */
+async function openCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 2560 }, height: { ideal: 1440 } }, audio: false });
+  const track = stream.getVideoTracks()[0];
+  let caps = {}; try { caps = track?.getCapabilities?.() || {}; } catch {}
+  if ((caps.focusMode || []).includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+  const torch = caps.torch ? on => track.applyConstraints({ advanced: [{ torch: !!on }] }) : null;
+  return { stream, track, torch };
+}
+function torchButton(cam) {
+  if (!cam?.torch) return null;
+  let on = false;
+  const b = el("button", { class: "btn sm torch", type: "button", title: "Taschenlampe ein/aus" }, "🔦 Licht");
+  b.addEventListener("click", async e => { e.stopPropagation(); on = !on; try { await cam.torch(on); b.classList.toggle("on", on); } catch { on = false; toast("Licht lässt sich hier nicht einschalten."); } });
+  return b;
+}
+/* Rahmen dort zeigen, wo der Barcode im Bild gesehen wurde (box in Video-Pixeln; Video mit object-fit: cover) */
+function seenMarker(video) {
+  const m = el("div", { class: "seen" });
+  let t = null;
+  m.show = box => {
+    const r = video.getBoundingClientRect(), vw = video.videoWidth, vh = video.videoHeight;
+    if (!box || !vw || !vh || !r.width) return;
+    const s = Math.max(r.width / vw, r.height / vh), ox = (r.width - vw * s) / 2, oy = (r.height - vh * s) / 2;
+    Object.assign(m.style, { left: ox + box.x * s + "px", top: oy + box.y * s + "px", width: Math.max(24, box.width * s) + "px", height: Math.max(24, box.height * s) + "px" });
+    m.classList.add("on"); clearTimeout(t); t = setTimeout(() => m.classList.remove("on"), 700);
+  };
+  return m;
 }
 /* Live-Scanner mit der Kamera. Liefert ISBN oder null (abgebrochen). */
 function liveScan() {
@@ -634,53 +689,72 @@ function liveScan() {
     if (!navigator.mediaDevices?.getUserMedia) { toast("Live-Kamera ist hier nicht verfügbar – nimm ein Foto."); return resolve(undefined); }
     const video = el("video", { playsinline: true, muted: true, autoplay: true }); video.muted = true;
     const info = el("p", { text: "Halte den Barcode auf der Rückseite in den Rahmen." });
-    let stream, stopped = false, stopLoop = () => {};
+    const seen = seenMarker(video), tools = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" });
+    let cam = null, stopped = false, stopLoop = () => {};
     const finish = v => {
       if (stopped) return; stopped = true; stopLoop();
-      stream && stream.getTracks().forEach(t => t.stop());
+      cam && cam.stream.getTracks().forEach(t => t.stop());
       ov.remove(); resolve(v);
     };
-    const ov = el("div", { class: "scan" }, video, el("div", { class: "frame" }),
-      el("div", { class: "bottom" }, info,
-        el("div", { style: "display:flex;gap:8px" },
-          el("button", { class: "btn", onclick: () => finish(null) }, "Abbrechen"),
-          el("button", { class: "btn", onclick: () => finish("photo") }, "Lieber ein Foto"))));
+    const ov = el("div", { class: "scan" }, video, el("div", { class: "frame" }), seen,
+      el("div", { class: "bottom" }, info, tools));
+    const drawTools = () => fillNode(tools, torchButton(cam),
+      el("button", { class: "btn", onclick: () => finish(null) }, "Abbrechen"),
+      el("button", { class: "btn", onclick: () => finish("photo") }, "Lieber ein Foto"));
+    drawTools();
     document.body.append(ov);
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-    } catch (e) {
-      ov.remove(); toast(e.name === "NotAllowedError" ? "Kamera-Zugriff wurde nicht erlaubt." : "Kamera nicht verfügbar – nimm ein Foto."); return resolve(undefined);
-    }
-    if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
-    video.srcObject = stream; await video.play().catch(() => {});
+    try { cam = await openCamera(); }
+    catch (e) { ov.remove(); toast(e.name === "NotAllowedError" ? "Kamera-Zugriff wurde nicht erlaubt." : "Kamera nicht verfügbar – nimm ein Foto."); return resolve(undefined); }
+    if (stopped) { cam.stream.getTracks().forEach(t => t.stop()); return; }
+    drawTools();
+    video.srcObject = cam.stream; await video.play().catch(() => {});
     const hit = isbn => { if (navigator.vibrate) navigator.vibrate(80); finish(isbn); };
-    const stop = await barcodeLoop(video, hit, t => { info.textContent = t; });
+    const stop = await barcodeLoop(video, hit, t => { info.textContent = t; }, seen.show);
     if (stopped) stop(); else stopLoop = stop;
   });
 }
 /* Liest laufend Barcodes aus dem Video (BarcodeDetector, sonst ZXing) – für „Barcode scannen“ und den Stapel-Modus.
-   onIsbn bekommt die ISBN-13, onInfo Hinweise. Gibt eine Funktion zum Anhalten zurück. */
-async function barcodeLoop(video, onIsbn, onInfo = () => {}) {
+   onIsbn bekommt die ISBN-13, onInfo Hinweise, onSeen(box) die Lage im Video (Pixel). Gibt eine Funktion zum Anhalten zurück.
+   ZXing: abwechselnd mittlerer Streifen, ganzes Bild und gedreht (Barcode hochkant); ein Wert zählt erst, wenn er zweimal gelesen wurde. */
+async function barcodeLoop(video, onIsbn, onInfo = () => {}, onSeen = () => {}) {
   let timer = null, stopped = false;
   const stop = () => { stopped = true; clearInterval(timer); };
+  const other = raw => onInfo("Das ist kein ISBN-Barcode (" + raw + ") – ein Buch hat ihn meist auf der Rückseite, Nummer beginnt mit 978 oder 979.");
   let det = null;
   if ("BarcodeDetector" in window) { try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes("ean_13")) det = new BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a"] }); } catch {} }
   if (det) {
     timer = setInterval(async () => {
       if (stopped || video.readyState < 2) return;
-      try { for (const r of await det.detect(video)) { const i = toIsbn13(r.rawValue); if (i) { if (!stopped) onIsbn(i); return; } onInfo("Das ist kein ISBN-Barcode (" + r.rawValue + ")."); } } catch {}
+      try {
+        for (const r of await det.detect(video)) {
+          if (r.boundingBox) onSeen(r.boundingBox);
+          const i = isbnFromBarcode(r.rawValue); if (i) { if (!stopped) onIsbn(i); return; }
+          other(r.rawValue);
+        }
+      } catch {}
     }, 180);
   } else if (window.ZXing) {
     const Z = window.ZXing; const reader = new Z.MultiFormatReader(); reader.setHints(zxingReader());
     const c = document.createElement("canvas"); const ctx = c.getContext("2d", { willReadFrequently: true });
+    let mode = 0, last = null, lastAt = 0;
     timer = setInterval(() => {
       if (stopped || video.readyState < 2) return;
-      // mittleren Streifen auswerten (schneller, wie der Rahmen)
-      const w = video.videoWidth, h = video.videoHeight, sh = Math.round(h * .45);
+      const w = video.videoWidth, h = video.videoHeight; mode = (mode + 1) % 3;
+      const strip = mode === 0, sh = strip ? Math.round(h * .45) : h, y0 = Math.round((h - sh) / 2);
       c.width = Math.min(1280, w); c.height = Math.round(sh * c.width / w);
-      ctx.drawImage(video, 0, Math.round((h - sh) / 2), w, sh, 0, 0, c.width, c.height);
-      try { const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))); const i = toIsbn13(res.getText()); if (i && !stopped) onIsbn(i); } catch {}
-    }, 250);
+      ctx.drawImage(video, 0, y0, w, sh, 0, 0, c.width, c.height);
+      const s = c.width / w;
+      try {
+        const res = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(mode === 2 ? turnCanvas(c) : c))));
+        const raw = res.getText(), i = isbnFromBarcode(raw);
+        if (mode !== 2) { const pts = res.getResultPoints() || []; if (pts.length) { const xs = pts.map(p => p.getX() / s), ys = pts.map(p => p.getY() / s + y0); const x = Math.min(...xs), y = Math.min(...ys); onSeen({ x: x - 10, y: y - 30, width: Math.max(...xs) - x + 20, height: Math.max(...ys) - y + 60 }); } }
+        if (!i) { other(raw); return; }
+        const now = Date.now();
+        if (i === last && now - lastAt < 2500) { if (!stopped) onIsbn(i); }
+        else onInfo("Barcode gesehen – kurz ruhig halten …");
+        last = i; lastAt = now;
+      } catch {}
+    }, 200);
   } else onInfo("Barcode-Erkennung lädt nicht – bitte Foto verwenden.");
   return stop;
 }
@@ -1187,7 +1261,7 @@ async function showSearch(query, coverFile, recognized, recRunCover) {
   const qIn = el("input", { class: "field", type: "search", value: query || "", placeholder: "Titel und/oder Autor" });
   const results = el("div", { class: "cands" });
   const run = async () => {
-    const q = qIn.value.trim();
+    const q = qIn.value.trim(), my = ++searchToken; // neuere Suche gewinnt (Claudes Urteil zu einer älteren wird verworfen)
     if (!q) { results.replaceChildren(el("div", { class: "note", text: coverFile ? "Titel und/oder Autor oben eintippen – oder das Cover mit Claude erkennen lassen." : "Titel und/oder Autor oben eintippen." })); return; }
     results.replaceChildren(el("div", { class: "busy", style: "padding:14px" }, el("div", { class: "spin" })));
     links.replaceChildren(webSearchLinks(q) || ""); // auch (gerade) bei „Nichts gefunden“
@@ -1196,17 +1270,32 @@ async function showSearch(query, coverFile, recognized, recRunCover) {
     try { list = await searchBooks(q, log); recSearch(R, q, log, list.length); } catch (e) { recSearch(R, q, log, 0, catErr(e)); results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "In den Katalogen nichts gefunden. Suchbegriff kürzen oder anpassen – oder unten über „Im Internet suchen“ die Buchseite finden und ihren Link einfügen." })); return; }
     const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
-    const card = (r, best) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
+    const card = (r, best, tag) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
       el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: best ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null),
-      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, el("b", { text: bookLabel(r) }),
+      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, tag ? el("div", { class: "judgetag", text: tag }) : null, el("b", { text: bookLabel(r) }),
         el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
         el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.av ? el("span", { class: "mtag", text: "Hörbuch/CD" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
       el("span", { class: "pick", text: best ? "Das ist es" : "Wählen" }));
-    const [top, ...rest] = list;
-    results.replaceChildren(card(top, true),
-      rest.length ? el("details", { class: "morecands" }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
-        el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r))) : null);
+    // v: Claudes Bildvergleich (judge.js) – sicher → Treffer nach oben; Vermutung → Hinweis an der Karte; keiner → Hinweis oben
+    const show = v => {
+      const order = v && v.sure ? [list[v.i], ...list.filter((_, k) => k !== v.i)] : list;
+      const tagOf = r => !v || v.i < 0 || r !== list[v.i] ? null : v.sure ? `🤖 Claude: das ist diese Ausgabe – ${v.reason}` : `🤖 Claude vermutet diese Ausgabe – ${v.reason}`;
+      const [top, ...rest] = order, open = !!(v && !v.sure && v.i > 0);
+      results.replaceChildren(
+        v === undefined ? el("div", { class: "saved judgewait", text: "🤖 Claude vergleicht dein Foto mit den Covern der Treffer …" }) : null,
+        v && v.i < 0 && v.reason ? el("div", { class: "note info", text: `🤖 Claude: keiner der Treffer passt sicher zu deinem Foto – ${v.reason}` }) : null,
+        card(top, true, tagOf(top)),
+        rest.length ? el("details", { class: "morecands", open: open || null }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
+          el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r, false, tagOf(r)))) : null);
+    };
+    const judging = coverFile && typeof judgeCover === "function" && judgeOn() && aiKey();
+    show(judging ? undefined : null);
+    if (judging) {
+      const v = await judgeCover(coverFile, { ...(recognized || {}), title: recognized?.title || q }, list, R).catch(() => null);
+      if (my === searchToken) show(v);
+    }
   };
+  let searchToken = 0;
   const links = el("div", {});
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
   fillNode(sh.body, 

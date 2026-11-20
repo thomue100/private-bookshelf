@@ -14,7 +14,8 @@ function batchList() { try { return JSON.parse(localStorage.getItem("aiBatches")
 function setBatchList(l) { try { if (l.length) localStorage.setItem("aiBatches", JSON.stringify(l)); else localStorage.removeItem("aiBatches"); } catch {} }
 const batchPhotoIds = () => new Set(batchList().flatMap(b => b.ids));
 const unscannedPhotos = () => { const busy = batchPhotoIds(); return openPhotos().filter(p => p.blob && !p.scan && !busy.has(p.id)); };
-const scannedPhotos = () => openPhotos().filter(p => p.blob && p.scan);
+// zum Prüfen bereit: Einzelfotos und Fächer aus mehreren Fotos (erstes Foto), wenn alle Fotos erkannt sind
+const scannedPhotos = () => openPhotos().filter(p => p.blob && p.scan && photoRoot(p) === p && photoGroup(p).every(x => x.blob && x.scan));
 async function scanB64(photo) { const img = await loadImage(photo.blob); return blobToBase64(await canvasBlob(toCanvas(img, 1568), .88)); }
 
 /* ---------- Sammelauftrag senden ---------- */
