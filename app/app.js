@@ -1254,7 +1254,7 @@ async function showSearch(query, coverFile, recognized, recRunCover) {
   const qIn = el("input", { class: "field", type: "search", value: query || "", placeholder: "Titel und/oder Autor" });
   const results = el("div", { class: "cands" });
   const run = async () => {
-    const q = qIn.value.trim();
+    const q = qIn.value.trim(), my = ++searchToken; // neuere Suche gewinnt (Claudes Urteil zu einer älteren wird verworfen)
     if (!q) { results.replaceChildren(el("div", { class: "note", text: coverFile ? "Titel und/oder Autor oben eintippen – oder das Cover mit Claude erkennen lassen." : "Titel und/oder Autor oben eintippen." })); return; }
     results.replaceChildren(el("div", { class: "busy", style: "padding:14px" }, el("div", { class: "spin" })));
     links.replaceChildren(webSearchLinks(q) || ""); // auch (gerade) bei „Nichts gefunden“
@@ -1263,17 +1263,32 @@ async function showSearch(query, coverFile, recognized, recRunCover) {
     try { list = await searchBooks(q, log); recSearch(R, q, log, list.length); } catch (e) { recSearch(R, q, log, 0, catErr(e)); results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "In den Katalogen nichts gefunden. Suchbegriff kürzen oder anpassen – oder unten über „Im Internet suchen“ die Buchseite finden und ihren Link einfügen." })); return; }
     const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
-    const card = (r, best) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
+    const card = (r, best, tag) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
       el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: best ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null),
-      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, el("b", { text: bookLabel(r) }),
+      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, tag ? el("div", { class: "judgetag", text: tag }) : null, el("b", { text: bookLabel(r) }),
         el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
         el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.av ? el("span", { class: "mtag", text: "Hörbuch/CD" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
       el("span", { class: "pick", text: best ? "Das ist es" : "Wählen" }));
-    const [top, ...rest] = list;
-    results.replaceChildren(card(top, true),
-      rest.length ? el("details", { class: "morecands" }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
-        el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r))) : null);
+    // v: Claudes Bildvergleich (judge.js) – sicher → Treffer nach oben; Vermutung → Hinweis an der Karte; keiner → Hinweis oben
+    const show = v => {
+      const order = v && v.sure ? [list[v.i], ...list.filter((_, k) => k !== v.i)] : list;
+      const tagOf = r => !v || v.i < 0 || r !== list[v.i] ? null : v.sure ? `🤖 Claude: das ist diese Ausgabe – ${v.reason}` : `🤖 Claude vermutet diese Ausgabe – ${v.reason}`;
+      const [top, ...rest] = order, open = !!(v && !v.sure && v.i > 0);
+      results.replaceChildren(
+        v === undefined ? el("div", { class: "saved judgewait", text: "🤖 Claude vergleicht dein Foto mit den Covern der Treffer …" }) : null,
+        v && v.i < 0 && v.reason ? el("div", { class: "note info", text: `🤖 Claude: keiner der Treffer passt sicher zu deinem Foto – ${v.reason}` }) : null,
+        card(top, true, tagOf(top)),
+        rest.length ? el("details", { class: "morecands", open: open || null }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
+          el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r, false, tagOf(r)))) : null);
+    };
+    const judging = coverFile && typeof judgeCover === "function" && judgeOn() && aiKey();
+    show(judging ? undefined : null);
+    if (judging) {
+      const v = await judgeCover(coverFile, { ...(recognized || {}), title: recognized?.title || q }, list, R).catch(() => null);
+      if (my === searchToken) show(v);
+    }
   };
+  let searchToken = 0;
   const links = el("div", {});
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") run(); });
   fillNode(sh.body, 

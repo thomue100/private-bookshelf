@@ -104,6 +104,20 @@ async function judgeScan(items, { file, src, run, onStatus, nOf } = {}) {
     await webSearchItems(todo, { run, onStatus });
   } finally { if (own) src.width = src.height = 0; }
 }
+/* Cover-Foto (Suchergebnis in showSearch): Claude vergleicht das Foto – zugeschnitten, wenn die Erkennung die Ecken geliefert hat –
+   mit den Covern der ersten Treffer. → { i (Index in list, -1 = keiner), sure, reason, confidence } oder null (aus, Fehler).
+   „sure“ nur bei „high“ und passendem Band – gerade Übersetzungen und Neuauflagen mit ähnlichem Cover werden sonst verwechselt. */
+async function judgeCover(file, recognized, list, run) {
+  if (!judgeOn() || !aiKey() || !list?.length) return null;
+  let img = null;
+  try { if (file.quads?.cover && typeof warpQuad === "function") img = await warpQuad(file, file.quads.cover, JUDGE_IMG_PX); } catch { img = null; }
+  if (!img) { try { img = toCanvas(await loadImage(file), JUDGE_IMG_PX); } catch { return null; } }
+  const it = { ...recognized, kind: "book", cands: list.slice(0, JUDGE_CANDS), choice: -1 };
+  await judgeItems([it], () => img, { run });
+  if (!it.judge) return null;
+  const i = it.choice >= 0 ? it.choice : it.suggest ?? -1;
+  return { i, sure: it.choice >= 0, reason: it.judge.reason, confidence: it.judge.confidence };
+}
 // Neue Katalogsuche → altes Urteil passt nicht mehr zu den Kandidaten
 function clearJudge(it) { for (const k of ["judge", "suggest", "judgeError", "webFound", "webError"]) delete it[k]; }
 
