@@ -91,22 +91,25 @@ async function openStackCapture() {
   const video = el("video", { playsinline: true, muted: true, autoplay: true }); video.muted = true;
   const count = el("div", { class: "stkcount" }), info = el("p"), btns = el("div", { class: "stkbtns" });
   const flash = el("div", { class: "stkflash" });
-  let stream, track, stopLoop = () => {}, closed = false, cur = null, lastIsbn = null, busy = false;
+  let cam = null, track, stopLoop = () => {}, closed = false, cur = null, lastIsbn = null, busy = false, again = null; // again: ISBN schon im Stapel
+  const seen = seenMarker(video), torchSlot = el("span");
   const presetBar = presetBarEl({ dark: true }); // Vorgaben bleiben sichtbar
-  const ov = el("div", { class: "scan stack" }, video, el("div", { class: "frame" }), flash,
-    el("div", { class: "stktop" }, count, presetBar, el("button", { class: "btn sm", onclick: () => finish() }, "✕")),
+  const ov = el("div", { class: "scan stack" }, video, el("div", { class: "frame" }), seen, flash,
+    el("div", { class: "stktop" }, count, presetBar, torchSlot, el("button", { class: "btn sm", onclick: () => finish() }, "✕")),
     el("div", { class: "bottom" }, info, btns));
   const finish = () => {
     if (closed) return; closed = true; stopLoop();
-    stream && stream.getTracks().forEach(t => t.stop());
+    cam && cam.stream.getTracks().forEach(t => t.stop());
     ov.remove(); stackWork(); openStackReview();
   };
   const draw = () => {
     if (closed) return;
     const e = cur && S.stack.find(x => x.id === cur);
     count.textContent = `📚 ${S.stack.length} im Stapel`;
-    info.textContent = e ? `${e.isbn ? "✓ ISBN " + e.isbn : "✓ Buch ohne Barcode"}${stackTitle(e) ? " – " + stackTitle(e) : ""}. Fotos sind freiwillig.`
+    const own = e?.isbn ? findDuplicate({ isbn: e.isbn }) : null; // schon in der Sammlung? – gleich beim Scannen sagen
+    info.textContent = e ? `${again === e.id ? "⚠ Schon im Stapel (Nr. " + (stackOpen().findIndex(x => x.id === e.id) + 1) + ")" : e.isbn ? "✓ ISBN " + e.isbn : "✓ Buch ohne Barcode"}${stackTitle(e) ? " – " + stackTitle(e) : ""}.${own ? (isWish(own) ? " ⭐ Steht auf deiner Wunschliste." : " Steht schon in deinem Regal.") : ""} Fotos sind freiwillig.`
       : "Barcode in den Rahmen halten. Buch ohne Barcode? Cover fotografieren.";
+    info.classList.toggle("stkwarn", !!(e && (again === e.id || (own && !isWish(own)))));
     const shot = (label, key, onDone) => el("button", { class: "btn" + (e?.[key] ? " ok" : ""), disabled: busy || null, onclick: async () => {
       busy = true; draw(); flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
       try { const blob = await grabFrame(video, track); await onDone(blob); } catch { toast("Foto hat nicht geklappt."); }
@@ -116,7 +119,8 @@ async function openStackCapture() {
       ? el("div", { class: "covertools" },
         shot(e.coverBlob ? "📷 Cover ✓" : "📷 Cover", "coverBlob", b => patchStackEntry(e.id, { coverBlob: b })),
         shot(e.spineBlob ? "📷 Rücken ✓" : "📷 Rücken", "spineBlob", b => patchStackEntry(e.id, { spineBlob: b })),
-        el("button", { class: "btn primary", onclick: () => { cur = null; draw(); } }, "Weiter ▶"))
+        again === e.id ? el("button", { class: "btn", onclick: async () => { const n = await newStackEntry({ isbn: e.isbn, rec: e.rec, sure: e.sure, lookupAt: e.lookupAt }); cur = n.id; again = null; toast("Zweites Exemplar im Stapel."); draw(); } }, "＋ Zweites Exemplar") : null,
+        el("button", { class: "btn primary", onclick: () => { cur = null; again = null; draw(); } }, "Weiter ▶"))
       : el("div", { class: "covertools" },
         shot("📷 Cover (ohne Barcode)", "-", async b => { const n = await newStackEntry({ coverBlob: b }); cur = n.id; lastIsbn = null; }),
         el("button", { class: "btn primary", onclick: finish }, `✓ Fertig – prüfen (${S.stack.length})`)),
@@ -125,19 +129,20 @@ async function openStackCapture() {
   const onIsbn = async isbn => {
     if (closed || isbn === lastIsbn) return; // derselbe Barcode ist noch im Bild
     lastIsbn = isbn; stackBeep();
+    const old = S.stack.find(x => x.isbn === isbn); // nochmal gescannt: nicht still doppelt anlegen
+    if (old) { cur = old.id; again = old.id; if (navigator.vibrate) navigator.vibrate([60, 60, 60]); draw(); return; }
+    again = null;
     const n = await newStackEntry({ isbn }); cur = n.id; draw();
     stackWork().then(draw);
   };
   document.body.append(ov); draw();
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-  } catch (e) {
+  try { cam = await openCamera(); } catch (e) {
     closed = true; ov.remove(); toast(e.name === "NotAllowedError" ? "Kamera-Zugriff wurde nicht erlaubt." : "Kamera nicht verfügbar."); openStackReview(); return;
   }
-  if (closed) { stream.getTracks().forEach(t => t.stop()); return; }
-  track = stream.getVideoTracks()[0];
-  video.srcObject = stream; await video.play().catch(() => {});
-  const stop = await barcodeLoop(video, onIsbn, t => { if (!cur) info.textContent = t; });
+  if (closed) { cam.stream.getTracks().forEach(t => t.stop()); return; }
+  track = cam.track; fillNode(torchSlot, torchButton(cam));
+  video.srcObject = cam.stream; await video.play().catch(() => {});
+  const stop = await barcodeLoop(video, onIsbn, t => { if (!cur) info.textContent = t; }, seen.show);
   if (closed) stop(); else stopLoop = stop;
 }
 

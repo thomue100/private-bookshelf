@@ -691,3 +691,8 @@ body.wandbig .wrap{max-width:none}
 .spinezoombar{display:flex;align-items:center;gap:10px;color:#fff;max-width:100%}
 .spinezoombar b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .spinezoomimg{max-width:100%;max-height:calc(100vh - 90px);object-fit:contain;background:#fff;border-radius:4px}
+/* Barcode: wo gesehen, Taschenlampe, Hinweis im Stapel (Stufe 6) */
+.scan .seen{position:absolute;border:3px solid #3fd16b;border-radius:6px;box-shadow:0 0 0 2px rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
+.scan .seen.on{opacity:1}
+.btn.torch.on{background:#ffd34d;color:#222;border-color:#ffd34d}
+.stack .bottom p.stkwarn{color:#ffd34d;font-weight:600}

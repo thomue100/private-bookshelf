@@ -30,6 +30,9 @@ Alternative: Netlify (https://app.netlify.com/drop) – Ordner hineinziehen, kos
 ## 3. Bücher erfassen
 
 - **Weg A – Barcode:** „Barcode scannen“ → Kamera über den ISBN-Barcode halten. Die Buchdaten kommen von der Deutschen Nationalbibliothek (DNB), Google Books und Open Library.
+  - Ein grüner Rahmen zeigt, wo die App den Barcode gerade sieht. Bei wenig Licht schaltet **„🔦 Licht“** die Taschenlampe ein (wenn Handy und Browser es können). Die Kamera stellt laufend scharf.
+  - Gezählt werden nur Buch-Barcodes (Nummer beginnt mit 978 oder 979, Prüfziffer stimmt). Andere Strichcodes – Preisschild, Lebensmittel – erklärt die App, statt sie zu übernehmen; der kleine Preis-Zusatzcode rechts neben dem ISBN-Barcode wird ignoriert.
+  - Bei einem Foto sucht die App den Barcode auch in Ausschnitten – ein kleiner Barcode in einem großen Foto wird so meist trotzdem gefunden.
 - **Weg B – Cover-Foto:** Vorderseite fotografieren (oder am PC ein Bild wählen, hineinziehen oder mit Strg+V einfügen). Die App liest den Text vom Cover und zeigt passende Bücher zur Auswahl. Dein Foto kann als Cover dienen.
 - Außerdem: Suche nach Titel/Autor, ISBN eintippen bzw. Link aus dem Web einfügen oder komplett von Hand eintragen.
 - **Buch im Web gefunden (ZVAB, booklooker, Amazon, DNB, Google Books …)?** Nichts abtippen:
@@ -41,6 +44,8 @@ Alternative: Netlify (https://app.netlify.com/drop) – Ordner hineinziehen, kos
 - **Weg D – 📚 Stapel erfassen** (viele Bücher nacheinander, z. B. eine Kiste oder ein Stapel vom Flohmarkt): Die Kamera bleibt die ganze Zeit offen.
   1. Barcode in den Rahmen halten. Es piept bzw. vibriert, das Buch ist im Stapel. Danach auf Wunsch **„📷 Cover“** und **„📷 Rücken“** fotografieren. Mit **„Weiter ▶“** geht es zum nächsten Buch. Zeigst du gleich den nächsten Barcode, geht es auch ohne Tippen weiter.
   2. **Bücher ohne Barcode:** „📷 Cover (ohne Barcode)“.
+     - Scannst du ein Buch, das **schon im Stapel** ist, sagt die App „Schon im Stapel (Nr. …)“ und legt es nicht noch einmal an. Ist es wirklich ein zweites Exemplar, tippe **„＋ Zweites Exemplar“**.
+     - Steht das Buch **schon in deinem Regal**, siehst du das gleich beim Scannen (gelb).
   3. **„✓ Fertig – prüfen“** öffnet die Prüfliste. Grün heißt sicher erkannt (über die ISBN), gelb heißt bitte prüfen. Titel und Autor lassen sich direkt ändern. Bücher, die du schon hast, sind nicht angehakt. Steht ein Buch auf der Wunschliste, wird es als gekauft übernommen.
   4. **Bücher ohne Barcode erkennen:** Mit KI-Schlüssel erkennt „🤖 … ohne Barcode erkennen“ alle auf einmal (Sammelauftrag zum halben Preis, meist unter einer Stunde). Ohne Schlüssel geht es je Buch über „💬 Mit Claude-Chat erkennen“, oder du trägst Titel und Autor selbst ein.
   5. **„… Bücher übernehmen“** legt alle angehakten Bücher an, mit deinen Fotos als Cover und Rücken.

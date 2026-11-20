@@ -56,6 +56,8 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 Wichtig: Alle Skripte teilen sich den globalen Gültigkeitsbereich (keine Module). Was beim **ersten Rendern** gebraucht wird
 (z. B. `needsCover`), muss in `app.js` stehen – die anderen Dateien laden danach.
 
+Barcode (`app.js`): Strichcodes immer über `isbnFromBarcode` (nur 978/979 mit Prüfziffer, Zusatzcode weg – nie `toIsbn13` auf Rohwerte), Kamera über `openCamera` (Fokus, `torchButton`), Lage `seenMarker`, Live-Schleife `barcodeLoop(video, onIsbn, onInfo, onSeen)` (ZXing: Streifen/ganz/gedreht, zweimal gelesen), Fotos `decodeFromImage` mit Ausschnitten `BARCODE_CROPS`.
+
 Kataloge: alle Abfragen über `catFetch` (Zwischenspeicher 30 Min., DNB einzeln nacheinander, Pause nach 429/403: DNB 10 Min., Google 1 Std. + Hinweis `googleQuotaHint`). Erkannte Bücher suchen gezielt mit `searchFields` (Titel-/Personen-Index, schrittweise lockerer, Verlagsnummer), freie Suche `searchBooks`. K10plus: `k10Query`/`fromK10` (MARC wie DNB, nur Textmaterial). Startroutinen in Zusatzdateien warten auf `S.loaded` **und** `document.readyState !== "loading"`.
 
 Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGone`, `needsCover`, `buildBackup`, `importData`,
