@@ -202,6 +202,7 @@ const SCAN_WORDS = {
     rival: "Mehrere ähnliche Katalogeinträge – bitte den richtigen auswählen",
     same: ns => `Gleiches Buch wie Nr. ${ns} – ein zweites Exemplar? Sonst Titel oder Band korrigieren und neu suchen`,
     own: "Nur erkannte Angaben übernehmen (ohne Katalogtreffer)",
+    cats: { ok: "sicher", own: "ohne Katalogtreffer", pick: "mehrere Ausgaben", bad: "nicht lesbar / kein Buch?" },
   },
   list: {
     low: "Titel aus der Liste nicht eindeutig – bitte prüfen",
@@ -213,6 +214,7 @@ const SCAN_WORDS = {
     rival: "Mehrere ähnliche Katalogeinträge – bitte den richtigen auswählen",
     same: ns => `Steht mehrfach in der Liste (Nr. ${ns}) – ein zweites Exemplar? Sonst eine Zeile überspringen`,
     own: "Nur meine Angaben aus der Liste übernehmen",
+    cats: { ok: "sicher", own: "ohne Katalogtreffer", pick: "mehrere Ausgaben", bad: "unklar" },
   },
 };
 // Gründe zum Nachfragen je Rücken bzw. Listenzeile (leer = sicher)
@@ -246,6 +248,19 @@ function assessScan(items, W = SCAN_WORDS.photo) {
     }
     it.reasons = r;
   });
+}
+/* Kategorie je Zeile für die Prüfliste: ok 🟢 sicher, own 🔵 gelesen, aber ohne Katalogtreffer, pick 🟡 mehrere mögliche Ausgaben,
+   bad 🔴 nicht lesbar / kein Buch? – "" für übersprungene Zeilen und sonstige Objekte */
+const SCAN_CATS = ["ok", "own", "pick", "bad"];
+const CAT_ICON = { ok: "🟢", own: "🔵", pick: "🟡", bad: "🔴" };
+function scanCat(it) {
+  if (it.kind === "other" || !it.include) return "";
+  if (!isUnsure(it)) return "ok";
+  if (it.confidence === "low" || it.spine_problem || it.read_error || !String(it.title || "").trim()) return "bad";
+  const iv = itemVol(it);
+  if (it.choice < 0 && it.suggest === undefined && (it.offline || !it.cands.length || (iv && !it.cands.some(x => candVol(x) === iv))
+    || (it.judge && it.judge.ci < 0 && it.judge.confidence === "high"))) return "own";
+  return "pick";
 }
 const isUnsure = it => !!(it.include && it.kind !== "other" && it.reasons?.length && !it.confirmed);
 
@@ -600,30 +615,50 @@ function scanReview(sh, st) {
   const optReplace = el("select", { class: "field" }, el("option", { value: "replace" }, "Fach-Inhalt ersetzen (bisherige Bücher → „Noch nicht eingeräumt“)"), el("option", { value: "append", selected: O.replace === "append" || null }, "Hinten an den bisherigen Inhalt anhängen"));
   optReplace.addEventListener("change", () => { O.replace = optReplace.value; persist(); });
   const scanTags = { tags: [...(O.tags || [])] };
+  const importOpts = () => ({ crop: optCrop.checked, status: optStatus.value, replace: optReplace.value === "replace", target, tags: scanTags.tags });
   const list = el("div", { class: "scanlist" });
   const countBtn = el("button", { class: "btn primary" });
   const updCount = () => { const n = items.filter(x => x.include).length; countBtn.textContent = `${n} ${n === 1 ? "Buch" : "Bücher"} übernehmen${target ? " & einsortieren" : ""}`; countBtn.disabled = !n || null; ov.querySelectorAll(".scanbox").forEach(bx => bx.classList.toggle("off", !items[+bx.dataset.n].include)); };
   // Nachfrage: unsichere Rücken gelb markieren, oben zählen, optional nur diese zeigen
   const drawers = [];
   const onlyUnsure = el("input", { type: "checkbox" });
-  onlyUnsure.addEventListener("change", () => list.classList.toggle("onlyunsure", onlyUnsure.checked));
+  onlyUnsure.addEventListener("change", () => { if (onlyUnsure.checked) setFilter(""); list.classList.toggle("onlyunsure", onlyUnsure.checked); });
+  // Kategorien oben gezählt, antippen = nur diese zeigen (nochmal antippen = alle)
+  const CW = W.cats || SCAN_WORDS.photo.cats;
+  const catBar = el("div", { class: "scancats" });
+  const setFilter = f => { list.dataset.filter = f; if (f) { onlyUnsure.checked = false; list.classList.remove("onlyunsure"); } updCats(); };
+  const updCats = () => {
+    const cnt = Object.fromEntries(SCAN_CATS.map(c => [c, items.filter(it => scanCat(it) === c).length]));
+    const f = list.dataset.filter || "";
+    if (f && !cnt[f]) list.dataset.filter = "";
+    fillNode(catBar, ...SCAN_CATS.filter(c => cnt[c]).map(c => el("button", { class: "chip" + (list.dataset.filter === c ? " on" : ""), type: "button", "data-cat": c,
+      title: list.dataset.filter === c ? "Wieder alle zeigen" : "Nur diese zeigen", onclick: () => setFilter(list.dataset.filter === c ? "" : c) }, `${CAT_ICON[c]} ${cnt[c]} ${CW[c]}`)));
+  };
   const unsureNote = el("div");
   const updUnsure = () => {
     const n = items.filter(isUnsure).length;
     if (!n && onlyUnsure.checked) { onlyUnsure.checked = false; list.classList.remove("onlyunsure"); }
+    const own = items.filter(it => scanCat(it) === "own"), ok = items.filter(it => scanCat(it) === "ok" && !it.doneId);
+    // Teil-Übernahme nur beim Fach-Foto: der Rest bleibt am Foto gemerkt (nicht in „der Reihe nach prüfen“ – dort käme dasselbe Foto wieder)
+    const partial = st.photo && !st.onImport && !S.reviewChain && ok.length;
     fillNode(unsureNote, n ? el("div", { class: "note warnnote" },
       el("b", { text: `⚠ ${n} ${n === 1 ? "Buch ist" : "Bücher sind"} unsicher erkannt` }), " (gelb markiert). Bitte prüfen: richtigen Katalogtreffer wählen, " +
       "oder Titel/Band korrigieren und „🔎 Neu suchen“ – oder „✓ Passt so“, wenn alles stimmt.",
       el("label", { class: "prow", style: "margin-top:6px" }, onlyUnsure, el("span", { text: "Nur unsichere zeigen" })),
-      st.file && st.photo ? el("div", { class: "covertools", style: "margin-top:6px" }, el("button", { class: "btn sm", type: "button", title: aiKey() ? "Die unsicheren Rücken noch einmal einzeln in voller Auflösung lesen" : "Collage der unsicheren Rücken über deinen Claude-Chat lesen lassen", onclick: () => rereadUnsure(sh, st) }, "🔍 Unsichere Rücken genauer lesen")) : null) : null);
+      el("div", { class: "covertools", style: "margin-top:6px" },
+        st.file && st.photo ? el("button", { class: "btn sm", type: "button", title: aiKey() ? "Die unsicheren Rücken noch einmal einzeln in voller Auflösung lesen" : "Collage der unsicheren Rücken über deinen Claude-Chat lesen lassen", onclick: () => rereadUnsure(sh, st) }, "🔍 Unsichere Rücken genauer lesen") : null,
+        own.length ? el("button", { class: "btn sm", type: "button", "data-bulk": "own", title: "Titel und Autor stimmen – ohne Katalogtreffer (ohne ISBN) übernehmen", onclick: () => { for (const it of own) it.confirmed = true; refresh(); } }, `🔵 Alle ${own.length} ohne Katalogtreffer so übernehmen`) : null,
+        partial ? el("button", { class: "btn sm", type: "button", "data-bulk": "ok", title: "Die sicheren Bücher jetzt anlegen – die übrigen bleiben am Fach-Foto gemerkt und werden beim Abschluss mit einsortiert", onclick: () => importScan(st, { ...importOpts(), partial: true }) }, `🟢 ${ok.length} sichere übernehmen, Rest später prüfen`) : null)) : null);
   };
-  const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); persist(); };
+  const refresh = () => { assessScan(items, W); drawers.forEach(d => d()); updCount(); updUnsure(); updCats(); persist(); };
   const POS = { standing: "steht", lying_in_row: "liegt in der Reihe", lying_on_top: "liegt oben auf", behind: "hintere Reihe" };
   const rowFor = (it, n) => {
     const cb = el("input", { type: "checkbox", checked: it.include || null });
     cb.addEventListener("change", () => { it.include = cb.checked; row.classList.toggle("off", !it.include); refresh(); });
     const crop = canvas ? cropSpine(canvas, it, comp) : null;
     const thumb = el("div", { class: "scanthumb" + (canvas ? "" : " cov") }); if (crop) { const c2 = crop; c2.style.cssText = "max-width:100%;max-height:100%"; thumb.append(c2); }
+    if (crop && st.file && it.bbox) { thumb.classList.add("zoom"); thumb.title = "Antippen: Rücken groß ansehen"; thumb.addEventListener("click", () => spineZoom(st, it, n)); }
+    const catTag = el("span", { class: "scancat" });
     const drawThumb = () => { if (st.thumb) fillNode(thumb, st.thumb(it)); };
     const tIn = el("input", { class: "field", value: it.title || "", placeholder: "Titel" });
     const aIn = el("input", { class: "field", value: it.author || "", placeholder: "Autor" });
@@ -646,10 +681,35 @@ function scanReview(sh, st) {
       try { it.cands = await matchItem(it); it.choice = autoChoice(it); it.confirmed = false; if (typeof clearJudge === "function") clearJudge(it); } catch { toast("Keine Internetverbindung."); }
       drawPick(); refresh(); re.disabled = false; re.textContent = "🔎 Neu suchen";
     });
+    // Barcode des Buchs scannen: macht ein unsicheres Buch per ISBN eindeutig, ohne die Liste zu verlassen
+    const bc = el("button", { class: "btn sm", type: "button", title: "Barcode auf der Rückseite scannen – dann ist die Ausgabe eindeutig" }, "▦ Barcode");
+    bc.addEventListener("click", async () => {
+      bc.disabled = true;
+      try { if (await scanItemBarcode(it)) { editHint.textContent = ""; drawPick(); refresh(); } } finally { bc.disabled = false; }
+    });
+    // Kandidaten mit Cover zum Antippen (bei unsicheren Zeilen)
+    const cards = el("div", { class: "scancands" });
+    const drawCards = () => {
+      const show = isUnsure(it) && it.cands.length && !it.doneId;
+      fillNode(cards, ...(show ? it.cands.slice(0, 6).map((c, i) => {
+        const url = (c.altCovers && c.altCovers[0]) || c.coverUrl;
+        return el("button", { class: "scancand" + (it.choice === i ? " on" : ""), type: "button", "data-i": i, title: `${c.title} – ${c.author || "?"}${c.isbn ? " · ISBN " + c.isbn : ""}`,
+          onclick: () => { it.choice = i; it.confirmed = true; drawPick(); refresh(); } },
+          url ? el("img", { src: url, alt: "", loading: "lazy", referrerpolicy: "no-referrer", onerror: e => e.target.replaceWith(el("span", { class: "nocov", text: "📖" })) }) : el("span", { class: "nocov", text: "📖" }),
+          el("span", { class: "cl", text: `${it.judge?.ci === i || (it.choice < 0 && it.suggest === i) ? "🤖 " : ""}${[c.publisher, c.year].filter(Boolean).join(" ") || c.title}` }));
+      }) : []));
+    };
+    // schon übernommen (🟢 vorab): nur noch Anzeige, beim Abschluss wird es mit einsortiert
+    const doneInfo = el("div", { class: "saved" });
+    const drawDone = () => {
+      doneInfo.textContent = it.doneId ? "✓ Schon übernommen – wird beim Abschluss mit einsortiert" : "";
+      for (const x of [cb, tIn, aIn, vIn, pick, re, bc]) x.disabled = !!it.doneId || null;
+    };
     const warn = el("div", { class: "scanwarn" });
     const drawWarn = () => {
       const why = it.kind === "other" ? [] : it.reasons || [];
       row.classList.toggle("unsure", isUnsure(it));
+      const cat = scanCat(it); row.dataset.cat = cat; catTag.textContent = CAT_ICON[cat] || ""; catTag.title = CW[cat] || "";
       ov.querySelector(`.scanbox[data-n="${n}"]`)?.classList.toggle("unsure", isUnsure(it));
       const sg = it.choice < 0 && !it.confirmed ? it.cands[it.suggest] : null;
       fillNode(warn, why.length ? [el("div", { class: "scanwhy" }, ...why.map(t => el("div", { text: "⚠ " + t }))),
@@ -657,7 +717,7 @@ function scanReview(sh, st) {
         it.confirmed ? el("div", { class: "saved", text: "✓ Von dir geprüft" })
           : el("button", { class: "btn sm", type: "button", title: "Angaben stimmen – ohne weitere Nachfrage übernehmen", onclick: () => { it.confirmed = true; refresh(); } }, "✓ Passt so")] : []);
     };
-    drawers.push(() => { drawWarn(); drawDup(); drawThumb(); });
+    drawers.push(() => { drawWarn(); drawDup(); drawThumb(); drawCards(); drawDone(); if (it.doneId) dupInfo.textContent = ""; });
     const vol = itemVol(it);
     const meta = [POS[it.position] || "", it.publisher, it.order_no ? "Nr. " + it.order_no : (!vol && it.series_no ? "Nr. " + it.series_no : "")].filter(Boolean).join(" · ");
     // Zusätze der Titelliste (Originalzeile, Websuche, Link einfügen, überspringen)
@@ -666,16 +726,17 @@ function scanReview(sh, st) {
       setInclude: v => { it.include = v; cb.checked = v; row.classList.toggle("off", !v); refresh(); },
     }) : {};
     const row = el("div", { class: "scanrow" + (it.include ? "" : " off") + (it.kind === "other" ? " other" : "") },
-      el("label", { class: "scancb" }, cb, el("b", { text: n + 1 })),
+      el("label", { class: "scancb" }, cb, el("b", { text: n + 1 }), catTag),
       thumb,
       el("div", { class: "scanmain" },
         extra.top || null,
         it.kind === "other" ? el("div", { class: "saved", text: `Kein Buch erkannt: ${it.label || "Objekt"} – wird standardmäßig übersprungen.` }) : null,
         el("div", { class: "scanin" }, tIn, aIn, it.kind === "other" ? null : vIn), editHint,
         el("div", { class: "saved", text: meta }),
-        it.kind === "other" ? null : el("div", { class: "scanpick" }, pick, re),
+        it.kind === "other" ? null : el("div", { class: "scanpick" }, pick, re, bc),
+        it.kind === "other" ? null : cards,
         it.offline ? el("div", { class: "saved", text: "Katalogsuche nicht möglich (offline)." }) : null,
-        dupInfo, warn, extra.bottom || null));
+        doneInfo, dupInfo, warn, extra.bottom || null));
     return row;
   };
   fillNode(list, ...items.map(rowFor));
@@ -686,10 +747,11 @@ function scanReview(sh, st) {
       return;
     }
     if (st.onImport) { st.onImport(); return; }
-    importScan(st, { crop: optCrop.checked, status: optStatus.value, replace: optReplace.value === "replace", target, tags: scanTags.tags });
+    importScan(st, importOpts());
   });
   fillNode(sh.body,
     st.intro ? el("div", { class: "note info", text: st.intro }) : el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
+    catBar,
     unsureNote,
     canvas && (items.filter(x => x.kind !== "other").length > 20 || items.filter(isUnsure).length > items.length * 0.4) ? el("div", { class: "note info", text: "📷 Tipp: Bei so vielen (oder schwer lesbaren) Rücken wird es schärfer, wenn du das Fach in zwei Hälften fotografierst – links und rechts." }) : null,
     canvas ? ov : null,
@@ -738,16 +800,57 @@ async function bookFromItem(it, c, opt) {
   if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
   return b;
 }
+/* Rücken groß ansehen (antippen in der Prüfliste): aus dem Originalfoto, Schrift waagerecht */
+async function spineZoom(st, it, n) {
+  let c = null;
+  try { c = spineCanvas(await fullScanCanvas(st), it, { max: 2000 }); } catch {}
+  if (!c) return;
+  c.className = "spinezoomimg";
+  const close = () => { ov.remove(); document.removeEventListener("keydown", key); };
+  const key = e => { if (e.key === "Escape") close(); };
+  const ov = el("div", { class: "spinezoom", onclick: close }, el("div", { class: "spinezoombar" }, el("b", { text: `Nr. ${n + 1}${it.title ? " · " + it.title : ""}` }), el("button", { class: "btn sm", type: "button", "aria-label": "Schließen" }, "✕")), c);
+  document.addEventListener("keydown", key);
+  document.body.append(ov);
+}
+/* Barcode zu einer Prüflisten-Zeile: Live-Kamera (oder Foto) → ISBN → Katalog. true, wenn die Zeile jetzt eine ISBN hat. */
+async function scanItemBarcode(it) {
+  let isbn = await liveScan();
+  if (isbn === "photo" || isbn === undefined) {
+    const f = await pickImage(true); if (!f) return false;
+    try { isbn = await decodeFromImage(await loadImage(f)); } catch { isbn = null; }
+    if (!isbn) { toast("Im Foto war kein lesbarer Barcode."); return false; }
+  }
+  if (!isbn) return false;
+  let rec = null; try { rec = await lookupIsbn(isbn); } catch {}
+  it.isbn = isbn;
+  if (typeof clearJudge === "function") clearJudge(it);
+  if (rec) { it.cands = [{ ...rec, isbn, _score: scoreCandidate(it, rec) }, ...it.cands.filter(x => x.isbn !== isbn)]; it.choice = 0; it.offline = false; }
+  else { it.choice = -1; toast(`ISBN ${isbn} ist in keinem Katalog – sie wird mit den erkannten Angaben übernommen.`, 4500); }
+  it.confirmed = true;
+  return true;
+}
+/* opt.partial: nur die sicheren (🟢) jetzt anlegen, ohne einzusortieren – die Zeilen bekommen doneId, der Rest bleibt am Fach-Foto gemerkt.
+   Beim Abschluss werden die schon angelegten Bücher (doneId) nur noch einsortiert. */
 async function importScan(st, opt) {
   const sh = openSheet; const { data, items } = st;
   const comp = data.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 };
-  const chosen = items.filter(x => x.include);
+  const partial = !!opt.partial;
+  if (partial) opt = { ...opt, target: null };
+  const chosen = items.filter(x => x.include && (!partial || (!x.doneId && scanCat(x) === "ok")));
   if (!chosen.length) return;
   const msg = busyView("Bücher werden übernommen", null, `0 / ${chosen.length}`);
   const placed = { front: [], top: [], back: [] };
   let created = 0, reused = 0, n = 0; const used = new Set(); const newIds = [];
   const src = opt.crop ? await fullScanCanvas(st) : null; // Rücken aus dem Originalfoto schneiden (schärfer)
   for (const it of chosen) {
+    const earlier = it.doneId && S.books.find(b => b.id === it.doneId);
+    if (earlier) { // schon vorab übernommen
+      used.add(earlier.id);
+      const layer = it.position === "lying_on_top" ? "top" : it.position === "behind" ? "back" : "front";
+      placed[layer].push({ id: earlier.id, lying: it.position === "lying_in_row" });
+      msg.textContent = `${++n} / ${chosen.length}`;
+      continue;
+    }
     const c = it.cands[it.choice];
     const look = spineFromScan(it, comp, src ? (it.quad ? spineCanvas(src, it, { turn: false, max: SPINE_MAX }) : cropSpine(src, it, comp, SPINE_MAX)) : null); // entzerrt, wenn die Übersicht Ecken lieferte
     let spine = { ...look.sp };
@@ -767,6 +870,7 @@ async function importScan(st, opt) {
       await putBook(b); id = b.id; created++; newIds.push(id);
     }
     used.add(id);
+    if (partial) { it.doneId = id; it.confirmed = true; }
     const layer = it.position === "lying_on_top" ? "top" : it.position === "behind" ? "back" : "front";
     placed[layer].push({ id, lying: it.position === "lying_in_row" });
     msg.textContent = `${++n} / ${chosen.length}`;
@@ -778,6 +882,17 @@ async function importScan(st, opt) {
     for (const p of [...placed.top].reverse()) { unshelve(p.id); layerList(m, k, "top").push(p.id); setLying(p.id, false); } // oberstes Buch zuletzt
     if (placed.back.length) S.showBack.delete(m.id + ":" + k);
     await saveShelves();
+  }
+  if (partial) { // Rest bleibt am Fach-Foto gemerkt
+    if (st.photo) await photoReviewSave(st, true);
+    clearPending();
+    closeSheet();
+    renderAll();
+    const left = items.filter(x => x.include && !x.doneId).length;
+    toast(`${created} ${created === 1 ? "Buch" : "Bücher"} übernommen${reused ? `, ${reused} vorhandene erkannt` : ""}. Die übrigen ${left} warten unter „📥 Gespeicherte Fach-Fotos“.`, 5000);
+    const noCov = newIds.filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
+    if (noCov.length && await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
+    return;
   }
   if (st.photo) { clearPending(); clearTimeout(reviewSaveT); await patchPhoto(st.photo.id, { review: null, doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
   if (st.full && st.full !== st.canvas) { st.full.width = st.full.height = 0; st.full = null; } // großes Bild freigeben
