@@ -6,11 +6,24 @@
 
 const PHOTO_MAX = 3000; // längste Seite in Pixeln – die KI bekommt 1568 px, die Buchrücken werden aus dieser vollen Fassung geschnitten (schärfer)
 
-async function savePhoto(file, fachKey) {
+// extra (optional): { partOf, part } – weiteres Foto desselben Fachs (rechts neben dem vorigen)
+async function savePhoto(file, fachKey, extra = {}) {
   const img = await loadImage(file);
   const c = toCanvas(img, PHOTO_MAX);
   const blob = await canvasBlob(c, .88);
-  return putPhoto({ id: uid(), createdAt: new Date().toISOString(), fachKey: fachKey || "", blob, w: c.width, h: c.height });
+  return putPhoto({ id: uid(), createdAt: new Date().toISOString(), fachKey: fachKey || "", blob, w: c.width, h: c.height, ...extra });
+}
+/* Fotos zu einem Fach zusammenfassen: die Fotos der Gruppe von b kommen rechts an die Gruppe von a. Gemerkte Prüflisten passen dann nicht mehr. */
+async function joinPhotos(a, b) {
+  const ga = photoGroup(a), gb = photoGroup(b), root = ga[0];
+  let n = ga.length;
+  for (const p of gb) await patchPhoto(p.id, { partOf: root.id, part: ++n, fachKey: root.fachKey || p.fachKey || "", review: null });
+  if (root.review) await patchPhoto(root.id, { review: null });
+}
+async function splitPhotos(p) {
+  const g = photoGroup(p);
+  for (const x of g.slice(1)) await patchPhoto(x.id, { partOf: null, part: null, review: null });
+  if (g[0].review) await patchPhoto(g[0].id, { review: null });
 }
 async function deletePhoto(p) {
   // Grabstein ohne Bild – so erfährt auch das andere Gerät von der Löschung
@@ -41,35 +54,50 @@ function photoStatus(p) {
   if (!p.scan && batchPhotoIds().has(p.id)) return "wird gerade von Claude erkannt";
   return p.scan ? "erkannt – bitte prüfen" : "noch nicht erkannt";
 }
-function photoCard(p, redraw) {
+// Status einer Gruppe (Fach in mehreren Fotos): erst prüfen, wenn alle Fotos erkannt sind
+function groupStatus(g) {
+  if (g.length < 2 || g[0].doneAt) return photoStatus(g[0]);
+  const todo = g.filter(p => !p.scan).length;
+  return todo ? `${g.length - todo} von ${g.length} Fotos erkannt` : "erkannt – bitte prüfen";
+}
+// next: nächstes offenes Foto (für „mit dem nächsten zusammenfassen“)
+function photoCard(p, redraw, next) {
   const when = new Date(p.createdAt || p.updatedAt).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
-  return el("div", { class: "phcard" + (p.doneAt ? " done" : "") },
-    p.blob ? el("img", { src: photoUrl(p), alt: "Fach-Foto", loading: "lazy", onclick: () => lightbox(photoUrl(p)) }) : el("div", { class: "phmissing", text: "📷" }),
+  const g = photoGroup(p), multi = g.length > 1;
+  const thumb = x => x.blob ? el("img", { src: photoUrl(x), alt: "Fach-Foto", loading: "lazy", onclick: () => lightbox(photoUrl(x)) }) : el("div", { class: "phmissing", text: "📷" });
+  return el("div", { class: "phcard" + (p.doneAt ? " done" : "") + (multi ? " multi" : "") },
+    multi ? el("div", { class: "phstrip" }, ...g.map(thumb)) : thumb(p),
     el("div", { class: "phinfo" },
       el("b", { text: fachName(p.fachKey) }),
-      el("div", { class: "saved", text: when + " · " + photoStatus(p) }),
+      multi ? el("div", { class: "saved phmulti", text: `🔗 ${g.length} Fotos von einem Fach (links → rechts)` }) : null,
+      el("div", { class: "saved", text: when + " · " + groupStatus(g) }),
       el("div", { class: "covertools" },
-        el("button", { class: "btn sm" + (p.doneAt ? "" : " primary"), disabled: p.blob ? null : true, onclick: () => openShelfScan(null, { photo: p }) },
-          p.doneAt ? "Nochmal bearbeiten" : p.scan ? "Prüfen & einsortieren" : "Erkennen & einsortieren"),
-        el("button", { class: "btn sm ghost danger", "aria-label": "Foto löschen", onclick: async () => { if (await confirmBox("Dieses Fach-Foto löschen?\n(Bereits übernommene Bücher bleiben erhalten.)")) { await deletePhoto(p); redraw(); } } }, "Löschen"))));
+        el("button", { class: "btn sm" + (p.doneAt ? "" : " primary"), disabled: g.every(x => x.blob) ? null : true, onclick: () => openShelfScan(null, { photo: p }) },
+          p.doneAt ? "Nochmal bearbeiten" : g.every(x => x.scan) ? "Prüfen & einsortieren" : "Erkennen & einsortieren"),
+        !p.doneAt && next ? el("button", { class: "btn sm", type: "button", "data-join": "1", title: "Das nächste Foto zeigt die rechte Fortsetzung dieses Fachs – beide zusammen prüfen und einsortieren",
+          onclick: async () => { await joinPhotos(p, next); toast("Zu einem Fach zusammengefasst."); redraw(); } }, "🔗 Mit nächstem Foto zusammenfassen") : null,
+        !p.doneAt && multi ? el("button", { class: "btn sm ghost", type: "button", "data-split": "1", onclick: async () => { await splitPhotos(p); toast("Wieder einzelne Fotos."); redraw(); } }, "✂ Trennen") : null,
+        el("button", { class: "btn sm ghost danger", "aria-label": "Foto löschen", onclick: async () => {
+          if (await confirmBox(`${multi ? `Diese ${g.length} Fach-Fotos` : "Dieses Fach-Foto"} löschen?\n(Bereits übernommene Bücher bleiben erhalten.)`)) { for (const x of g) await deletePhoto(x); redraw(); }
+        } }, "Löschen"))));
 }
 function openPhotoInbox() {
   endReviewChain(false); // „Später weiter“ beendet das Prüfen der Reihe nach
   const sh = sheet("📥 Gespeicherte Fach-Fotos");
   const draw = () => {
     if (openSheet !== sh) return;
-    const open = openPhotos();
-    const done = S.photos.filter(p => !p.deletedAt && p.doneAt).sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
+    const open = openPhotos().filter(p => photoRoot(p) === p); // weitere Fotos eines Fachs stehen auf der Karte des ersten
+    const done = S.photos.filter(p => !p.deletedAt && p.doneAt && photoRoot(p) === p).sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
     fillNode(sh.body,
       el("p", { class: "saved", style: "margin-top:0", text: "Fach-Fotos, die noch erkannt und einsortiert werden müssen. Mit dem Abgleich über deinen Server (oder per Sicherung) kommen sie auch auf deine anderen Geräte – so kannst du am Handy fotografieren und in Ruhe am PC prüfen." }),
       batchInboxBox(draw),
-      open.length ? el("div", { class: "phlist" }, ...open.map(p => photoCard(p, draw))) : el("div", { class: "note info", text: "Keine offenen Fach-Fotos." }),
+      open.length ? el("div", { class: "phlist" }, ...open.map((p, i) => photoCard(p, draw, open[i + 1]))) : el("div", { class: "note info", text: "Keine offenen Fach-Fotos." }),
       el("div", { class: "covertools", style: "margin-top:12px" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Neues Fach-Foto")),
       done.length ? el("details", { class: "sec" }, el("summary", { text: `Erledigt (${done.length})` }),
         el("div", { class: "phlist" }, ...done.map(p => photoCard(p, draw))),
         el("button", { class: "btn ghost danger", style: "margin-top:10px", onclick: async () => {
           if (!(await confirmBox(`Alle ${done.length} erledigten Fach-Fotos löschen?\n(Die Bücher bleiben erhalten.)`))) return;
-          for (const p of done) await deletePhoto(p);
+          for (const p of done) for (const x of photoGroup(p)) await deletePhoto(x);
           draw();
         } }, "Erledigte Fotos löschen")) : null);
   };

@@ -699,3 +699,10 @@ body.wandbig .wrap{max-width:none}
 /* Cover-Foto: Claudes Bildvergleich an der Trefferkarte (Stufe 7) */
 .judgetag{font-size:12px;font-weight:600;color:var(--ok);margin-bottom:3px}
 .judgewait{margin:0 0 8px}
+/* Fach in mehreren Fotos (Stufe 8) */
+.phstrip{display:flex;gap:3px;overflow-x:auto}
+.phcard .phstrip img{width:54px;height:82px;flex:0 0 auto}
+.phstrip.big img{height:120px;border-radius:6px;flex:0 0 auto}
+.phbig.multi{display:flex;gap:4px;overflow-x:auto}
+.phbig.multi img{max-width:none;height:min(42vh,320px);width:auto;flex:0 0 auto}
+.seaminfo{color:var(--accent)}

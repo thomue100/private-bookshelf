@@ -132,6 +132,13 @@ async function storePhotoLocal(p) { // ohne neuen Zeitstempel – für Abgleich 
 async function putPhoto(p) { p.updatedAt = new Date().toISOString(); await storePhotoLocal(p); dataChanged(); scheduleRender(); return p; }
 async function patchPhoto(id, patch) { const p = S.photos.find(x => x.id === id); if (p) return putPhoto({ ...p, ...patch }); }
 const openPhotos = () => S.photos.filter(p => !p.deletedAt && !p.doneAt).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+// Ein Fach in mehreren Fotos (links → rechts): weitere Fotos tragen partOf (Id des ersten) und part (2, 3 …) – optional, ältere Versionen sehen Einzelfotos
+// immer der aktuelle Stand aus S.photos (nach patchPhoto ist das alte Objekt veraltet)
+const photoRoot = p => { const cur = p && (S.photos.find(x => x.id === p.id) || p); return (cur?.partOf && S.photos.find(x => x.id === cur.partOf && !x.deletedAt)) || cur; };
+function photoGroup(p) {
+  const r = photoRoot(p);
+  return [r, ...S.photos.filter(x => x.id !== r.id && x.partOf === r.id && !x.deletedAt).sort((a, b) => (a.part || 0) - (b.part || 0) || (a.createdAt || "").localeCompare(b.createdAt || ""))];
+}
 // Nach jeder Änderung: lokale Ordner-Sicherung und (falls eingerichtet) Server-Abgleich einplanen
 function dataChanged() { if (typeof scheduleAutoBackup === "function") scheduleAutoBackup(); if (typeof scheduleSync === "function") scheduleSync(); }
 let rT; function scheduleRender() { clearTimeout(rT); rT = setTimeout(renderAll, 30); }

@@ -382,7 +382,9 @@ function claudeChatBridge(sh, { title, prompt, jpeg, fileName, onResult, onBack,
 // im Hintergrund beendet, und Erkennen/Einsortieren kann auch später – z. B. am PC – erledigt werden.
 function nextFachKey(key) { const f = fachOptions(); const i = f.findIndex(x => x.key === key); return i >= 0 && i + 1 < f.length ? f[i + 1].key : key || ""; }
 function fachName(key) { return key ? (fachOptions().find(f => f.key === key)?.label || "Fach gibt es nicht mehr") : "Ohne Fach"; }
-function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
+// group: erstes Foto eines Fachs, das gerade in mehreren Fotos aufgenommen wird (nächster Abschnitt rechts daneben); gMode: gewählter Erkennungs-Weg
+function openShelfScan(preFachKey, { photo = null, saved = null, group = null, gMode = null } = {}) {
+  if (group) return groupCapture(group, gMode || defaultMode());
   const sh = sheet(photo ? "📷 Gespeichertes Fach-Foto" : "📷 Fach-Foto einlesen");
   const fachs = fachOptions();
   const cur = photo ? photo.fachKey || "" : saved ? nextFachKey(saved.fachKey) : (preFachKey || S.lastScanFach);
@@ -393,25 +395,31 @@ function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
   if (photo && mode === "later") mode = aiKey() ? "api" : "chat";
   const m = isMobile();
   if (photo) {
-    const useFach = async () => { if (sel.value !== (photo.fachKey || "")) photo = await patchPhoto(photo.id, { fachKey: sel.value }) || photo; S.lastScanFach = sel.value; };
+    photo = photoRoot(photo);
+    const grp = photoGroup(photo), multi = grp.length > 1, scanned = grp.every(x => x.scan), hasBlob = grp.every(x => x.blob);
+    const useFach = async () => { for (const x of grp) if (sel.value !== (x.fachKey || "")) await patchPhoto(x.id, { fachKey: sel.value }); photo = S.photos.find(x => x.id === photo.id) || photo; S.lastScanFach = sel.value; };
+    const big = x => x.blob ? el("img", { src: photoUrl(x), alt: "Fach-Foto", onclick: () => lightbox(photoUrl(x)) }) : el("div", { class: "note", text: "Das Bild ist auf diesem Gerät (noch) nicht vorhanden." });
+    const nObj = grp.reduce((a, x) => a + (x.scan?.items || []).length, 0);
     fillNode(sh.body,
-      el("div", { class: "phbig" }, photo.blob ? el("img", { src: photoUrl(photo), alt: "Fach-Foto", onclick: () => lightbox(photoUrl(photo)) }) : el("div", { class: "note", text: "Das Bild ist auf diesem Gerät (noch) nicht vorhanden." })),
-      el("div", { class: "saved", text: "Aufgenommen am " + new Date(photo.createdAt).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }) + (photo.doneAt ? " · bereits einsortiert" : "") }),
-      el("label", { class: "lbl", style: "margin-top:12px", text: "Welches Fach zeigt das Foto?" }), sel,
-      photo.scan ? el("div", { class: "note info", style: "margin-top:12px", text: `Schon erkannt (${(photo.scan.items || []).length} Objekte) – du musst nur noch prüfen und einsortieren.` }) : null,
-      photo.scan ? null : el("label", { class: "lbl", style: "margin-top:14px", text: "Wie soll erkannt werden?" }), photo.scan ? null : modeChooser(mode, v => mode = v),
+      el("div", { class: "phbig" + (multi ? " multi" : "") }, ...grp.map(big)),
+      el("div", { class: "saved", text: (multi ? `${grp.length} Fotos von einem Fach (links → rechts) · ` : "") + "Aufgenommen am " + new Date(photo.createdAt).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" }) + (photo.doneAt ? " · bereits einsortiert" : "") }),
+      el("label", { class: "lbl", style: "margin-top:12px", text: multi ? "Welches Fach zeigen die Fotos?" : "Welches Fach zeigt das Foto?" }), sel,
+      scanned ? el("div", { class: "note info", style: "margin-top:12px", text: `Schon erkannt (${nObj} Objekte) – du musst nur noch prüfen und einsortieren.` }) : null,
+      scanned ? null : el("label", { class: "lbl", style: "margin-top:14px", text: "Wie soll erkannt werden?" }), scanned ? null : modeChooser(mode, v => mode = v),
       el("div", { class: "actions" },
         el("button", { class: "btn ghost", onclick: openPhotoInbox }, "← Alle Fotos"),
         el("div", { class: "covertools" },
-          photo.scan ? el("button", { class: "btn", onclick: async () => { await useFach(); runShelfScan(photo, mode === "later" ? "chat" : mode); } }, "Neu erkennen") : null,
-          el("button", { class: "btn primary", disabled: photo.blob ? null : true, onclick: async () => { await useFach(); if (!photo.scan) setDefaultMode(mode); runShelfScan(photo, photo.scan ? "stored" : mode); } }, photo.scan ? "✓ Prüfen & einsortieren" : "Erkennen starten"))));
+          scanned ? el("button", { class: "btn", onclick: async () => { await useFach(); runShelfScan(photo, mode === "later" ? "chat" : mode); } }, "Neu erkennen") : null,
+          el("button", { class: "btn primary", disabled: hasBlob ? null : true, onclick: async () => { await useFach(); if (!scanned) setDefaultMode(mode); runShelfScan(photo, scanned ? "stored" : mode); } }, scanned ? "✓ Prüfen & einsortieren" : "Erkennen starten"))));
     return;
   }
+  const multi = el("input", { type: "checkbox" });
   const go = async f => {
     S.lastScanFach = sel.value; setDefaultMode(mode);
     let p;
     try { p = await savePhoto(f, sel.value); } catch { toast("Das Foto konnte nicht gelesen werden."); return; }
-    if (mode === "later") openShelfScan(null, { saved: p }); else runShelfScan(p, mode);
+    if (multi.checked) openShelfScan(null, { group: p, gMode: mode }); // weiter mit dem nächsten Abschnitt
+    else if (mode === "later") openShelfScan(null, { saved: p }); else runShelfScan(p, mode);
   };
   const waiting = openPhotos().length;
   fillNode(sh.body,
@@ -423,25 +431,49 @@ function openShelfScan(preFachKey, { photo = null, saved = null } = {}) {
       m ? el("button", { class: "btn primary big", onclick: async () => { const f = await pickImage(true); if (f) go(f); } }, saved ? "📷 Nächstes Fach fotografieren" : "📷 Fach fotografieren") : null,
       el("button", { class: "btn" + (m ? "" : " primary"), onclick: async () => { const f = await pickImage(false); if (f) go(f); } }, m ? "Aus Galerie" : "🖼 Foto wählen"),
       saved ? el("button", { class: "btn ghost", onclick: closeSheet }, "Fertig") : null),
+    el("label", { class: "prow", style: "margin-top:10px" }, multi, el("span", {}, el("b", { text: "Fach passt nicht auf ein Foto: in mehreren Fotos aufnehmen" }), el("div", { class: "saved", text: "Von links nach rechts, mit etwas Überlappung – die App setzt die Fotos zusammen und zählt Bücher am Übergang nur einmal." }))),
     m ? null : dropZone("…oder Foto hierher ziehen bzw. mit Strg+V einfügen", go),
     el("label", { class: "lbl", style: "margin-top:16px", text: "Wie soll erkannt werden?" }), modeChooser(mode, v => mode = v, true),
     !saved && waiting ? el("div", { class: "note info", style: "margin-top:14px" }, `📥 ${waiting} gespeicherte${waiting === 1 ? "s Foto wartet" : " Fotos warten"} auf Erkennung. `, el("a", { href: "#", onclick: e => { e.preventDefault(); openPhotoInbox(); } }, "Ansehen")) : null);
   S.pasteHandler = go;
 }
+/* Fach in mehreren Fotos aufnehmen: nach jedem Foto der nächste Abschnitt (rechts daneben) oder „Fertig“ */
+function groupCapture(root, mode) {
+  root = photoRoot(root);
+  const sh = openSheet || sheet("📷 Fach in mehreren Fotos");
+  sh.h2.textContent = "📷 Fach in mehreren Fotos"; sh.redraw = null;
+  const grp = photoGroup(root), m = isMobile();
+  const add = async f => {
+    try { await savePhoto(f, root.fachKey || "", { partOf: root.id, part: photoGroup(root).length + 1 }); } catch { toast("Das Foto konnte nicht gelesen werden."); return; }
+    groupCapture(root, mode);
+  };
+  const done = () => { S.pasteHandler = null; if (mode === "later") openShelfScan(null, { saved: root }); else runShelfScan(root, mode); };
+  fillNode(sh.body,
+    el("div", { class: "note info savedok" }, el("b", { text: `✓ Foto ${grp.length} gespeichert` }), ` (${fachName(root.fachKey)}). Jetzt den nächsten Abschnitt rechts daneben fotografieren – ein, zwei Bücher Überlappung sind gut. Oder „Fertig“, wenn das Fach komplett ist.`),
+    el("div", { class: "phstrip big" }, ...grp.map((p, i) => el("img", { src: photoUrl(p), alt: "Foto " + (i + 1) }))),
+    el("div", { class: "covertools", style: "margin-top:14px" },
+      m ? el("button", { class: "btn big", onclick: async () => { const f = await pickImage(true); if (f) add(f); } }, "📷 Nächsten Abschnitt fotografieren") : null,
+      el("button", { class: "btn", onclick: async () => { const f = await pickImage(false); if (f) add(f); } }, m ? "Aus Galerie" : "🖼 Nächstes Foto wählen"),
+      el("button", { class: "btn primary", "data-groupdone": "1", onclick: done }, `✓ Fertig – ${grp.length} ${grp.length === 1 ? "Foto" : "Fotos"} ${mode === "later" ? "speichern" : "erkennen"}`)),
+    m ? null : dropZone("…oder nächstes Foto hierher ziehen bzw. mit Strg+V einfügen", add));
+  S.pasteHandler = add;
+}
 /* Erkennt ein gespeichertes Fach-Foto. mode: "api" | "chat" | "stored" (gespeicherte Erkennung nur prüfen). */
-async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = {}) {
+// single: nur dieses Foto erkennen und danach onScanned() (für Fächer aus mehreren Fotos, siehe runGroupScan)
+async function runShelfScan(photo, mode = defaultMode(), { autoRead = false, single = false, onScanned = null, label = "" } = {}) {
+  if (!single && photoGroup(photo).length > 1) return runGroupScan(photo, mode, { autoRead });
   const sh = openSheet || sheet("📷 Fach-Foto einlesen");
   sh.redraw = null; // ein wiederverwendetes Blatt (z. B. die Fach-Foto-Übersicht) darf sich nicht mehr darüber zeichnen
   S.pasteHandler = null;
   const file = photo.blob;
   setPending(photo.id, mode);
   sh.onClose = () => clearPending(photo.id);
-  const status = busyView(mode === "stored" ? "Foto wird geladen" : "Fach wird erkannt", file, "Bereite das Foto vor …");
+  const status = busyView((mode === "stored" ? "Foto wird geladen" : "Fach wird erkannt") + label, file, "Bereite das Foto vor …");
   let canvas, jpeg, img;
   try { img = await loadImage(file); canvas = toCanvas(img, 1568); jpeg = await canvasBlob(canvas, .88); }
   catch { toast("Das Foto konnte nicht gelesen werden."); openShelfScan(null, { photo }); return; }
   // Angefangene Prüfung (am Fach-Foto gemerkt): genau dort weitermachen – Auswahl, Korrekturen, „Passt so“
-  if (mode === "stored" && photo.scan && photo.review?.items?.length) {
+  if (mode === "stored" && photo.scan && photo.review?.items?.length && !photo.review.group && !onScanned) { // (Prüfliste mehrerer Fotos passt nicht zu einem allein)
     const rv = photo.review;
     scanReview(sh, { file, canvas, data: photo.scan, items: rv.items, fachKey: rv.fachKey ?? photo.fachKey ?? "", photo, opts: rv.opts });
     return;
@@ -449,6 +481,7 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
   const run = typeof recRun === "function" ? recRun("fach-foto", { mode, foto: { w: img.naturalWidth, h: img.naturalHeight }, gesendet: { w: canvas.width, h: canvas.height, bytes: jpeg.size } }) : null;
   const onData = async data => {
     if (mode !== "stored") photo = await patchPhoto(photo.id, { scan: data, scanAt: new Date().toISOString() }) || photo; // Erkennung aufheben – prüfen geht dann auch später/am PC
+    if (onScanned) { onScanned(photo); return; }
     continueShelfScan(sh, { file, canvas, data, fachKey: photo.fachKey || "", photo, run });
   };
   if (mode === "stored" && photo.scan) return onData(photo.scan);
@@ -472,19 +505,92 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
   }
   onData(data);
 }
+/* ================= Ein Fach in mehreren Fotos ================= */
+/* Erkennt die noch fehlenden Fotos der Gruppe nacheinander (todo = Ids; bei „api“/„chat“ ohne todo alle neu), dann gemeinsame Prüfliste. */
+async function runGroupScan(photo, mode, { autoRead = false, todo = null } = {}) {
+  const grp = photoGroup(photo), root = grp[0];
+  if (!todo) todo = mode === "stored" ? grp.filter(p => !p.scan).map(p => p.id) : grp.map(p => p.id);
+  todo = todo.filter(id => grp.some(p => p.id === id));
+  if (todo.length) {
+    const p = grp.find(x => x.id === todo[0]), k = grp.indexOf(p) + 1;
+    const m = mode === "stored" ? (aiKey() ? "api" : "chat") : mode;
+    return runShelfScan(p, m, { autoRead, single: true, label: ` (Foto ${k} von ${grp.length})`, onScanned: () => runGroupScan(root, "stored", { todo: todo.slice(1) }) });
+  }
+  const sh = openSheet || sheet("📷 Fach-Foto einlesen");
+  sh.redraw = null; S.pasteHandler = null;
+  setPending(root.id, "stored");
+  sh.onClose = () => clearPending(root.id);
+  busyView("Fotos werden zusammengesetzt", root.blob, `${grp.length} Fotos von einem Fach …`);
+  let g;
+  try { g = await groupScanData(grp); } catch { toast("Die Fotos konnten nicht gelesen werden."); openPhotoInbox(); return; }
+  const canvas = toCanvas(await loadImage(g.file), 1568), key = grp.map(p => p.id).join(",");
+  const rv = root.review;
+  if (rv?.items?.length && rv.group === key) { scanReview(sh, { file: g.file, canvas, data: g.data, items: rv.items, fachKey: rv.fachKey ?? root.fachKey ?? "", photo: root, opts: rv.opts, group: grp }); return; }
+  const run = typeof recRun === "function" ? recRun("fach-foto", { mode: "mehrere Fotos", fotos: grp.length }) : null;
+  continueShelfScan(sh, { file: g.file, canvas, data: g.data, fachKey: root.fachKey || "", photo: root, run, group: grp });
+}
+/* Fotos nebeneinander zu einem Bild (gleiche Höhe) und die Erkennungen umrechnen: Rahmen/Ecken relativ zum Gesamtbild,
+   Nummer des Fotos (photoNo). Bücher, die am Übergang auf beiden Fotos sind, bekommen seamOf (Index des ersten) und werden übersprungen. */
+const GROUP_H = 2400, GROUP_W = 12000;
+async function groupScanData(grp) {
+  const imgs = await Promise.all(grp.map(p => loadImage(p.blob)));
+  let H = Math.min(GROUP_H, ...imgs.map(i => i.naturalHeight));
+  let ws = imgs.map(i => i.naturalWidth * H / i.naturalHeight);
+  const s = Math.min(1, GROUP_W / ws.reduce((a, b) => a + b, 0)); H = Math.round(H * s); ws = ws.map(w => Math.round(w * s));
+  const W = ws.reduce((a, b) => a + b, 0);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.imageSmoothingQuality = "high";
+  const offs = []; let x = 0;
+  imgs.forEach((im, k) => { g.drawImage(im, x, 0, ws[k], H); offs.push(x); x += ws[k]; });
+  const parts = grp.map((p, k) => {
+    const ox = offs[k] / W, fw = ws[k] / W, mx = v => ox + v * fw;
+    return (p.scan?.items || []).map(it => {
+      const n = { ...it, photoNo: k + 1 };
+      if (it.bbox) n.bbox = { ...it.bbox, x0: mx(it.bbox.x0), x1: mx(it.bbox.x1) };
+      if (Array.isArray(it.quad)) n.quad = Array.isArray(it.quad[0]) ? it.quad.map(([qx, qy]) => [mx(qx), qy]) : it.quad.map((v, i) => i % 2 ? v : mx(v));
+      return n;
+    });
+  });
+  markSeams(parts);
+  const comps = grp.map((p, k) => { const cp = p.scan?.compartment || { x0: 0, y0: 0, x1: 1, y1: 1 }, ox = offs[k] / W, fw = ws[k] / W; return { x0: ox + cp.x0 * fw, x1: ox + cp.x1 * fw, y0: cp.y0, y1: cp.y1 }; });
+  const items = parts.flat();
+  for (const it of items) if (it._seam) { it.seamOf = items.indexOf(it._seam); delete it._seam; }
+  const data = { compartment: { x0: comps[0].x0, x1: comps[comps.length - 1].x1, y0: Math.min(...comps.map(q => q.y0)), y1: Math.max(...comps.map(q => q.y1)) }, items, two_stage: grp.every(p => p.scan?.two_stage) ? 1 : undefined, photos: grp.length };
+  const file = await canvasBlob(c, .9);
+  c.width = c.height = 0;
+  return { file, data };
+}
+// Gleiches Buch? (am Übergang zweier Fotos) – Titel ähnlich, Autor widerspricht nicht, gleicher Band
+const seamSame = (a, b) => a.kind !== "other" && b.kind !== "other" && !!String(a.title || "").trim() && overlap(a.title, b.title) >= 0.7
+  && (!a.author || !b.author || overlap(a.author, b.author) >= 0.5) && itemVol(a) === itemVol(b);
+const FRONT = it => !it.position || it.position === "standing" || it.position === "lying_in_row";
+function markSeams(parts) {
+  for (let k = 1; k < parts.length; k++) {
+    const A = parts[k - 1].filter(it => FRONT(it) && !it._seam), B = parts[k].filter(FRONT);
+    // längstes Ende von A, das genau dem Anfang von B entspricht (höchstens 4 Bücher Überlappung)
+    for (let m = Math.min(4, A.length, B.length); m >= 1; m--) {
+      const tail = A.slice(A.length - m);
+      if (tail.every((a, i) => seamSame(a, B[i]))) { tail.forEach((a, i) => { B[i]._seam = a; }); break; }
+    }
+    // liegende und hintere Bücher: auf beiden Fotos mit gleicher Lage → einmal
+    for (const b of parts[k]) if (!FRONT(b) && !b._seam) { const a = parts[k - 1].find(x => x.position === b.position && seamSame(x, b)); if (a) b._seam = a; }
+  }
+}
 /* Erkannte Objekte → Prüflisten-Zeilen mit Katalogtreffern (3 Suchen gleichzeitig). Gemeinsam für App und Auswertung (npm run eval). */
 // file (optional): Fach-Foto – dann vergleicht Claude Rücken und Kandidaten (judge.js), falls eingeschaltet
 async function matchScanItems(data, onStatus, run, file) {
-  const items = data.items.map((it, i) => ({ ...it, _i: i, include: it.kind !== "other", cands: [], choice: -1, title: it.title || it.spine_text_vertical || it.label || "" }));
-  let done = 0; const books = items.filter(x => x.kind !== "other");
-  onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (0/${books.length}) …`);
-  const queue = [...books], logs = new Map();
+  // seamOf: dasselbe Buch steht schon auf dem vorigen Foto (Fach in mehreren Fotos) → übersprungen, nicht gesucht
+  const items = data.items.map((it, i) => ({ ...it, _i: i, include: it.kind !== "other" && it.seamOf === undefined, cands: [], choice: -1, title: it.title || it.spine_text_vertical || it.label || "" }));
+  const books = items.filter(x => x.kind !== "other");
+  const queue = books.filter(x => x.seamOf === undefined), logs = new Map();
+  let done = 0;
+  onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (0/${queue.length}) …`);
   await Promise.all([0, 1, 2].map(async () => {
     while (queue.length) {
       const it = queue.shift(), log = []; logs.set(it, log);
       try { it.cands = await matchItem(it, log); } catch { it.cands = []; it.offline = true; }
       it.choice = autoChoice(it);
-      onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (${++done}/${books.length}) …`);
+      onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (${++done}/${books.length - books.filter(x => x.seamOf !== undefined).length}) …`);
     }
   }));
   resolveCollisions(items);
@@ -498,11 +604,11 @@ async function recognizeShelf(file, { onStatus, run } = {}) {
   const data = await aiScanShelf2(file, onStatus, run);
   return { data, items: await matchScanItems(data, onStatus, run, file) };
 }
-async function continueShelfScan(sh, { file, canvas, data, fachKey, photo, run }) {
+async function continueShelfScan(sh, { file, canvas, data, fachKey, photo, run, group }) {
   const status = busyView("Buchdaten werden gesucht", file, "…");
   const items = await matchScanItems(data, t => { status.textContent = t; }, run, file);
   for (const it of items) it.dup = scanDup(it);
-  const st = { file, canvas, data, items, fachKey, photo };
+  const st = { file, canvas, data, items, fachKey, photo, group };
   if (photo) await photoReviewSave(st, true); // Ergebnis sofort merken – auch wenn Android die App gleich schließt
   scanReview(sh, st);
 }
@@ -511,7 +617,7 @@ const reviewItem = it => { const { dup, reasons, ...rest } = it; return rest; };
 let reviewSaveT = null;
 function photoReviewSave(st, now) {
   if (!st.photo) return;
-  const go = () => patchPhoto(st.photo.id, { review: { at: new Date().toISOString(), fachKey: st.fachKey || "", opts: st.opts || null, items: st.items.map(reviewItem) } });
+  const go = () => patchPhoto(st.photo.id, { review: { at: new Date().toISOString(), fachKey: st.fachKey || "", opts: st.opts || null, items: st.items.map(reviewItem), ...(st.group ? { group: st.group.map(x => x.id).join(",") } : {}) } });
   clearTimeout(reviewSaveT);
   if (now) return go();
   reviewSaveT = setTimeout(go, 700);
@@ -719,7 +825,7 @@ function scanReview(sh, st) {
     };
     drawers.push(() => { drawWarn(); drawDup(); drawThumb(); drawCards(); drawDone(); if (it.doneId) dupInfo.textContent = ""; });
     const vol = itemVol(it);
-    const meta = [POS[it.position] || "", it.publisher, it.order_no ? "Nr. " + it.order_no : (!vol && it.series_no ? "Nr. " + it.series_no : "")].filter(Boolean).join(" · ");
+    const meta = [st.group && it.photoNo ? "Foto " + it.photoNo : "", POS[it.position] || "", it.publisher, it.order_no ? "Nr. " + it.order_no : (!vol && it.series_no ? "Nr. " + it.series_no : "")].filter(Boolean).join(" · ");
     // Zusätze der Titelliste (Originalzeile, Websuche, Link einfügen, überspringen)
     const extra = st.rowExtra ? st.rowExtra(it, {
       update: () => { drawPick(); refresh(); },
@@ -736,6 +842,7 @@ function scanReview(sh, st) {
         it.kind === "other" ? null : el("div", { class: "scanpick" }, pick, re, bc),
         it.kind === "other" ? null : cards,
         it.offline ? el("div", { class: "saved", text: "Katalogsuche nicht möglich (offline)." }) : null,
+        it.seamOf !== undefined ? el("div", { class: "saved seaminfo", text: `↔ Am Übergang zum vorigen Foto doppelt: dasselbe Buch wie Nr. ${it.seamOf + 1} – wird übersprungen. Sind es wirklich zwei, Haken setzen und „🔎 Neu suchen“.` }) : null,
         doneInfo, dupInfo, warn, extra.bottom || null));
     return row;
   };
@@ -753,7 +860,7 @@ function scanReview(sh, st) {
     st.intro ? el("div", { class: "note info", text: st.intro }) : el("div", { class: "note info" }, `${items.filter(x => x.kind !== "other").length} Bücher${items.some(x => x.kind === "other") ? " und " + items.filter(x => x.kind === "other").length + " sonstige Objekte" : ""} erkannt. Prüfe Titel und Katalogtreffer – Haken weg bei allem, was nicht übernommen werden soll.` + (S.reviewChain ? ` Danach geht es direkt mit dem nächsten Fach weiter.` : "")),
     catBar,
     unsureNote,
-    canvas && (items.filter(x => x.kind !== "other").length > 20 || items.filter(isUnsure).length > items.length * 0.4) ? el("div", { class: "note info", text: "📷 Tipp: Bei so vielen (oder schwer lesbaren) Rücken wird es schärfer, wenn du das Fach in zwei Hälften fotografierst – links und rechts." }) : null,
+    canvas && !st.group && (items.filter(x => x.kind !== "other").length > 20 || items.filter(isUnsure).length > items.length * 0.4) ? el("div", { class: "note info", text: "📷 Tipp: Bei so vielen (oder schwer lesbaren) Rücken wird es schärfer, wenn du das Fach in zwei Hälften fotografierst – links und rechts („Fach passt nicht auf ein Foto“ beim nächsten Mal)." }) : null,
     canvas ? ov : null,
     st.options || el("div", { class: "scanopts" },
       el("label", { class: "prow" }, optCrop, el("span", {}, el("b", { text: "Buchrücken-Bilder aus dem Foto übernehmen" }), el("div", { class: "saved", text: "Sonst Farbe, Text und Maße wie erkannt." }))),
@@ -894,7 +1001,7 @@ async function importScan(st, opt) {
     if (noCov.length && await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
     return;
   }
-  if (st.photo) { clearPending(); clearTimeout(reviewSaveT); await patchPhoto(st.photo.id, { review: null, doneAt: new Date().toISOString(), fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); }
+  if (st.photo) { clearPending(); clearTimeout(reviewSaveT); const at = new Date().toISOString(); for (const ph of st.group || [st.photo]) await patchPhoto(ph.id, { review: null, doneAt: at, fachKey: opt.target ? opt.target.key : st.photo.fachKey || "" }); } // Fach aus mehreren Fotos: alle erledigt
   if (st.full && st.full !== st.canvas) { st.full.width = st.full.height = 0; st.full = null; } // großes Bild freigeben
   sh.guard = null; st.imported = true;
   closeSheet();
