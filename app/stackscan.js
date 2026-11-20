@@ -25,30 +25,31 @@ async function dropStackEntry(id) {
 const newStackEntry = data => putStackEntry({ id: uid(), createdAt: new Date().toISOString(), ...data });
 
 /* ---------- Hintergrund: Buchdaten zur ISBN bzw. zur Erkennung suchen (nacheinander, offline → später) ---------- */
-let stackBusy = false;
+let stackBusy = false, stackRun = null;
 async function stackWork() {
   if (stackBusy) return; stackBusy = true;
   try {
     for (;;) {
       const e = S.stack.find(x => !x.lookupAt && (x.isbn || x.recog)); if (!e) break;
-      let res;
-      try { res = await stackMatch(e); } catch { break; } // keine Verbindung – beim nächsten Öffnen weiter
+      let res; const log = [];
+      stackRun = stackRun || recRun("stapel");
+      try { res = await stackMatch(e, log); recSearch(stackRun, e.isbn ? "isbn:" + e.isbn : e.recog?.title || "", log, res.rec?.title ? 1 : 0, res.sure ? "sicher" : "unsicher"); } catch (err) { recSearch(stackRun, e.isbn || "", log, 0, catErr(err)); break; } // keine Verbindung – beim nächsten Öffnen weiter
       if (!S.stack.some(x => x.id === e.id)) continue;   // inzwischen übernommen oder verworfen
       await patchStackEntry(e.id, { ...res, lookupAt: new Date().toISOString() });
     }
   } finally { stackBusy = false; }
 }
-async function stackMatch(e) {
+async function stackMatch(e, log) {
   const d = e.recog || {};
   const isbn = e.isbn || toIsbn13(d.isbn);
   if (isbn) {
-    const rec = await lookupIsbn(isbn);
+    const rec = await lookupIsbn(isbn, log);
     if (rec) return { rec, sure: true };
     if (!d.title) return { rec: { isbn }, sure: false };
   }
   if (!d.title) return { rec: null, sure: false };
   const q = [d.title, firstAuthorLast(d.author)].filter(Boolean).join(" ");
-  const list = await searchBooks(q);
+  const list = await searchBooks(q, log);
   const best = list.find(r => overlap(r.title, d.title) >= 0.5);
   // nur über Titel gefunden: immer nachfragen (gelb)
   return { rec: best ? { ...best, isbn: best.isbn || isbn || "" } : { title: d.title || "", author: d.author || "", publisher: d.publisher || "", year: d.year || "", isbn: isbn || "" }, sure: false };
@@ -301,7 +302,7 @@ async function importStack(list) {
 
 /* ---------- Start: angefangene Suchen nach einem Neustart fortsetzen ---------- */
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded) { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
   if (S.stack.length) stackWork();
   window.addEventListener("online", () => { if (S.stack.length) stackWork(); });
 })();

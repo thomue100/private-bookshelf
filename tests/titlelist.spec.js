@@ -100,7 +100,7 @@ function catalogFor(catalog) {
     q = q.toLowerCase();
     if (q.includes("vorleser")) return [googleItem("Der Vorleser", "Bernhard Schlink", isbn13("978325722953"), null, "Diogenes", "1997")];
     if (q.includes("weihnachtsgeschichten")) return [googleItem("Weihnachtsgeschichten am Kamin 27", "Barbara Mürmann", isbn13("978349927123"), null, "Rowohlt"), googleItem("Weihnachtsgeschichten am Kamin 26", "Barbara Mürmann", isbn13("978349927122"), null, "Rowohlt")];
-    if (q.startsWith("faust")) return [googleItem("Faust. Der Tragödie erster Teil", "Johann Wolfgang von Goethe", isbn13("978315000001"), null, "Reclam"), googleItem("Faust. Der Tragödie zweiter Teil", "Johann Wolfgang von Goethe", isbn13("978315000002"), null, "Reclam")];
+    if (q.includes("faust")) return [googleItem("Faust. Der Tragödie erster Teil", "Johann Wolfgang von Goethe", isbn13("978315000001"), null, "Reclam"), googleItem("Faust. Der Tragödie zweiter Teil", "Johann Wolfgang von Goethe", isbn13("978315000002"), null, "Reclam")];
     if (q.includes("momo")) return [googleItem("Momo", "Michael Ende", isbn13("978352220210"), null, "Thienemann")];
     return [];
   };

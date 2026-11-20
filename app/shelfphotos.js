@@ -131,9 +131,10 @@ function receiveAnswer(text) {
 
 /* ---------- Start ---------- */
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded) { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
   if (await takeShared()) return;
   const pend = pendingPhoto();
-  if (pend && !openSheet) { resumePhoto(pend); toast("Weiter mit deinem Fach-Foto."); }
-  else if (!pend) clearPending();
+  const chain = typeof chainRestore === "function" && chainRestore(); // „der Reihe nach prüfen“ lief noch
+  if (pend && !openSheet) { resumePhoto(pend); toast(chain ? "Weiter mit „der Reihe nach prüfen“." : "Weiter mit deinem Fach-Foto."); }
+  else if (!pend) { clearPending(); if (chain && !openSheet && typeof nextReview === "function" && scannedPhotos().length) { nextReview(); toast("Weiter mit „der Reihe nach prüfen“."); } else if (chain) { S.reviewChain = false; chainSave(); } }
 })();

@@ -19,7 +19,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
      Optional `photos` (Fach-Fotos ohne `blob`; offene mit `imageData`) – fehlt, wenn es keine gibt.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
-   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
+   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
    mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
 3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (Barcode, Hand-Eingabe, Claude-Chat-Brücke).
    Die frühere Texterkennung (Tesseract/OCR) ist bewusst entfernt – zu ungenau; nicht wieder einbauen.
@@ -33,8 +33,12 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 |---|---|
 | `app/index.html` | Gerüst, Navigation (`#regal`, `#wand`, `#wunsch`, `#verwaltung`), Skripte in fester Reihenfolge (alle `defer`) |
 | `app/app.js` | Kern: Zustand `S`, `DB` (IndexedDB), Rendering aller Ansichten, Erfassen/Bearbeiten, Katalogsuche, echtes Regal (Montana-Würfel), Tabelle mit Filtern/Sortierung, Import/Export, Einfügen/Ziehen von Bildern |
+| `app/reclog.js` | Erkennungsprotokoll: `recRun`, `recAi`, `recBook`, `recSearch` (Meta `recLog`, letzte 30 Läufe, nur Gerät, Schlüssel werden entfernt), Ansicht `openRecLog`. Katalogabfragen je Quelle über `catTrack` (app.js) – `searchBooks(q, log)`, `lookupIsbn(isbn, log)`, `matchItem(it, log)`; KI-Anfragen über `aiRequest` (shelfscan.js) |
+| `evalrun/eval.spec.js` | `npm run eval` (eigene Konfiguration `playwright.eval.config.js`, echtes Internet): wertet Fotos in `eval/` (nicht im Repo) mit `recognizeShelf` aus |
 | `app/attachments.js` | Weitere Bilder, Dateien (E-Books/PDF), Widmung/Signatur, Anhänge in Sicherungen |
 | `app/shelfscan.js` | Fach-Foto einlesen (Anthropic-API, Claude-Chat-Brücke), Katalogabgleich (`matchItem`, `autoChoice`, `resolveCollisions`, `assessScan` mit Texten `SCAN_WORDS`), Prüfliste `scanReview` (mit Foto oder ohne – siehe `titlelist.js`), neues Buch `bookFromItem`, Übernahme ins Fach `importScan`; Cover per KI |
+| `app/spineread.js` | Fach-Foto zweistufig: Übersicht `ovParams`/`ovToScan` (Haiku 5.5, Lage, `quad`), Rücken lesen `readSpines`/`readParams` (Gruppen à 8, je Rücken aus dem Originalfoto `spineCanvas`, waagerecht, ≤1200 px), strukturierte Ausgabe (`output_config.format`, kein erzwungenes `tool_choice` – Opus/Sonnet 5.5 lehnen es ab), `aiScanShelf2`, Kosten `shelfCostCents`, unsichere genauer lesen `rereadUnsure` (API oder Chat-Collage `spineCollages`). Sammelauftrag in zwei Runden (`kind` "ov"/"read" in `aiBatches`) |
+| `app/judge.js` | Claude wählt den Katalogtreffer: `judgeScan` (aus `matchScanItems`/`rematchItems`), `judgeItems` (Gruppen à 4, Rücken ≤800 px + Kandidaten-Cover 256 px), `applyJudge` (automatisch nur bei „high“ und passendem Band, sonst `it.suggest`), `clearJudge` nach neuer Suche; optionale Websuche `webSearchItems` (ISBN immer über `lookupIsbn` bestätigt). Läuft direkt, nicht im Sammelauftrag. Schalter localStorage `aiJudge` (Standard an), `aiWebSearch` (Standard aus), `judgeSettingsBox` |
 | `app/titlelist.js` | „📋 Titelliste einfügen“: `parseTitleList` (Freitext, Tabellen mit/ohne Kopfzeile, eigener CSV-Export), Vorschau, Suche über `matchItem`, Prüfliste über `scanReview` ohne Foto, `tlImport`; angefangener Lauf im Meta-Eintrag `titleListRun` (nur Gerät, nicht in Sicherung/Abgleich), Weitermachen `resumeTitleList` |
 | `app/batchscan.js` | Viele Fach-Fotos auf einmal erkennen: Sammelauftrag (Anthropic Message Batches, localStorage `aiBatches`), Abholen `checkBatches`, Ausweichweg einzeln, „der Reihe nach prüfen“ (`S.reviewChain`, `nextReview`) |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
@@ -52,17 +56,21 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 Wichtig: Alle Skripte teilen sich den globalen Gültigkeitsbereich (keine Module). Was beim **ersten Rendern** gebraucht wird
 (z. B. `needsCover`), muss in `app.js` stehen – die anderen Dateien laden danach.
 
+Kataloge: alle Abfragen über `catFetch` (Zwischenspeicher 30 Min., DNB einzeln nacheinander, Pause nach 429/403: DNB 10 Min., Google 1 Std. + Hinweis `googleQuotaHint`). Erkannte Bücher suchen gezielt mit `searchFields` (Titel-/Personen-Index, schrittweise lockerer, Verlagsnummer), freie Suche `searchBooks`. K10plus: `k10Query`/`fromK10` (MARC wie DNB, nur Textmaterial). Startroutinen in Zusatzdateien warten auf `S.loaded` **und** `document.readyState !== "loading"`.
+
 Zentrale Funktionen: `putBook`, `patchBook`, `readsOf`, `inStock`/`isWish`/`isGone`, `needsCover`, `buildBackup`, `importData`,
 `locationOf`/`placeBook`/`unshelve`/`saveShelves`, `renderAll`, `openDetail(id, edit)`, `findCoverFor`, `coverRun`, `runAutoBackup`.
 
 Abgleich (`sync.js`): Server-Dokumente `book:<id>` = `{type:"book", updatedAt, book:{…Felder ohne Blobs}, _attachments}` mit Anhängen
 `cover`, `spine`, `img-<id>`, `file-<id>`; Löschung = `{type:"book", updatedAt, deletedAt}`; Regal = `meta:shelves`;
 Fach-Fotos = `photo:<id>` `{type:"photo", updatedAt, photo:{…ohne blob}, _attachments:{image}}` (gelöscht: `deletedAt`, ohne Bild – lokal als Grabstein).
-Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, doneAt?, deletedAt?}`; ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
+Fach-Foto-Datensatz: `{id, createdAt, updatedAt, fachKey, blob, w, h, scan?, scanAt?, review?, doneAt?, deletedAt?}` (`scan` aus der zweistufigen Erkennung hat zusätzlich `two_stage`, je Rücken optional `quad`, `books_in_image`, `spine_problem`, `read_error`; `review` = gemerkter Stand der Prüfliste `{at, fachKey, opts, items}`, über `photoReviewSave`; beim Übernehmen `null`); ändern nur über `putPhoto`/`patchPhoto`. Neuere `updatedAt` gewinnt.
 Serveradresse immer über `syNormUrl` (Port/Pfad erlaubt – mehrere Anwendungen über Tailscale auf einem PC; `syStateKey` darf sich für alte Adressen nicht ändern).
 Lokaler Stand in Meta `syncConf` (Zugang) und `syncState` (`since`, je Dokument `rev`/`upd`/Anhang-Digests). Änderungen an Büchern
 immer über `putBook`/`patchBook`/`removeBook`/`saveShelves` – die rufen `dataChanged()` und lösen Sicherung und Abgleich aus.
 Das Server-Format wie das Sicherungsformat nur **additiv** ändern (ältere App-Versionen auf anderen Geräten müssen mitlesen können).
+
+Blätter (`sheet()`): am Handy schließt nur ✕, ein Blatt mit `guard` wird nie still ersetzt (`sheetStack`), Zurück-Taste über `popstate`. Wer ein offenes Blatt wiederverwendet (`openSheet || sheet()`), setzt `sh.redraw = null`. Hintergrund-Aktionen öffnen kein Blatt über einem offenen (`sh.webTake` erlaubt das Zwischenablage-Angebot). Entwurf „Prüfen & speichern“ in Meta `reviewDraft`, Hinweisleisten über `resumeBar`.
 
 Echtes Regal neu zeichnen nur über `renderWall` – `wallViewSave`/`wallViewRestore` halten Rollposition und das zuletzt angetippte Fach fest.
 Gesamtansicht (`S.overview`, localStorage `wallOverview`) zeigt alle Wände; Zoom stufenlos über `setWallZoom` (`S.zoom` bzw. `S.ovZoom`).
