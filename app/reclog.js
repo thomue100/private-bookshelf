@@ -45,6 +45,7 @@ function recBook(run, it, queries) {
     kandidaten: (it.cands || []).map(c => recPick({ ...c, score: c._score != null ? Math.round(c._score * 10) / 10 : undefined }, ["title", "author", "publisher", "year", "isbn", "series", "seriesNo", "src", "score"])),
     gewaehlt: it.choice ?? -1,
     warum: typeof choiceWhy === "function" ? choiceWhy(it) : "",
+    ...(it.judge ? { claude: it.judge } : {}), ...(it.judgeError ? { claudeFehler: it.judgeError } : {}), ...(it.webFound ? { websuche: true } : {}),
   });
   recSave();
 }

@@ -24,8 +24,9 @@ function shelfCostCents(n = 25, { batch = false, judge = false, model = aiModel(
   const groups = Math.ceil(n / READ_GROUP);
   let usd = (3300 * hi + 2500 * ho) / 1e6;                                       // Übersicht
   usd += ((n * 260 + groups * 700) * ri + (n * 120 + groups * 600) * ro) / 1e6;   // Rücken lesen
-  if (judge) usd += ((n * 900) * ri + (n * 100 + groups * 400) * ro) / 1e6;       // Kandidaten-Cover vergleichen
-  return usd * 100 * (batch ? 0.5 : 1);
+  usd *= batch ? 0.5 : 1;
+  if (judge) usd += ((n * 900) * ri + (n * 100 + groups * 400) * ro) / 1e6;       // Kandidaten-Cover vergleichen (immer direkt, nicht im Sammelauftrag)
+  return usd * 100;
 }
 const fmtCents = c => c < 1 ? "unter 1 ct" : `ca. ${Math.round(c)} ct`;
 function shelfCostText(n = 25) {
@@ -217,13 +218,17 @@ async function spineCollages(src, items, per = 10) {
 }
 
 /* ---------- Prüfliste: unsichere Rücken genauer lesen (mit Schlüssel per API, sonst über die Chat-Brücke) ---------- */
-async function rematchItems(items, run) {
+// src (optional): Originalfoto – dann vergleicht Claude danach Rücken und Kandidaten (judge.js); nOf: Nummer im Fach
+async function rematchItems(items, run, { src, nOf, onStatus } = {}) {
+  const logs = new Map();
   for (const it of items) {
-    const log = [];
+    const log = []; logs.set(it, log);
     try { it.cands = await matchItem(it, log); it.offline = false; } catch { it.cands = []; it.offline = true; }
     it.choice = autoChoice(it); it.confirmed = false;
-    if (typeof recBook === "function") recBook(run, it, log);
+    if (typeof clearJudge === "function") clearJudge(it);
   }
+  if (src && typeof judgeScan === "function") await judgeScan(items, { src, run, nOf, onStatus });
+  if (typeof recBook === "function") for (const it of items) recBook(run, it, logs.get(it));
 }
 async function rereadUnsure(sh, st) {
   const list = st.items.filter(it => it.kind !== "other" && it.include && isUnsure(it) && it.bbox);
@@ -231,8 +236,9 @@ async function rereadUnsure(sh, st) {
   const src = await fullScanCanvas(st);
   const run = typeof recRun === "function" ? recRun("fach-foto", { mode: "genauer lesen", anzahl: list.length }) : null;
   const finish = async () => {
-    busyView("Buchdaten werden gesucht", null, "…");
-    await rematchItems(list, run);
+    const msg = busyView("Buchdaten werden gesucht", null, "…");
+    const books = st.items.filter(it => it.kind !== "other");
+    await rematchItems(list, run, { src, nOf: it => books.indexOf(it) + 1, onStatus: t => { msg.textContent = t; } });
     resolveCollisions(st.items); for (const it of st.items) it.dup = scanDup(it);
     if (st.photo) await photoReviewSave(st, true);
     scanReview(sh, st);

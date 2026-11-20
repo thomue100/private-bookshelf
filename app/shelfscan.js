@@ -12,6 +12,7 @@ function aiKeyBox() {
   return el("div", { class: "sec" }, el("h3", { text: "KI-Erkennung für Fach-Fotos (optional)" }),
     el("p", { class: "saved", text: "Mit einem eigenen Schlüssel für die Claude-API erkennt die App auf Fach-Fotos alle Buchrücken – auch gestaltete Schriften, liegende Bücher und Reihennummern. Abgerechnet wird pro Foto direkt über dein API-Konto bei Anthropic (in der Regel wenige Cent pro Foto). Der Schlüssel bleibt nur in diesem Browser und wird nicht mit exportiert. Ohne Schlüssel geht es über deinen Claude-Chat (ohne Zusatzkosten)." }),
     el("div", { style: "display:grid;gap:8px;margin-top:6px" }, inp, sel, el("button", { class: "btn", onclick: save }, "Speichern")),
+    typeof judgeSettingsBox === "function" ? judgeSettingsBox() : null,
     el("p", { class: "saved", style: "margin-top:6px" }, "Schlüssel bekommst du unter ", el("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com ↗"), ". Gib die App mit eingetragenem Schlüssel nicht an andere weiter – jede Person trägt ihren eigenen ein."));
 }
 
@@ -167,7 +168,9 @@ function choiceWhy(it) {
   const b = it.cands?.[0];
   if (it.offline) return "Katalog nicht erreichbar";
   if (!b) return "keine Kandidaten gefunden";
-  if (it.choice >= 0) { const c = it.cands[it.choice]; return it.confirmed ? "von Hand gewählt" : `automatisch: ${(+c._score || 0).toFixed(1)} Punkte (Schwelle 3)`; }
+  const j = it.judge, jw = j ? `Claude (${j.confidence}): ${j.reason || "ohne Grund"}` : "";
+  if (it.choice >= 0) { const c = it.cands[it.choice]; return it.confirmed ? "von Hand gewählt" : j && j.ci === it.choice ? "gewählt von " + jw : it.webFound && it.choice === 0 ? "Websuche (ISBN im Katalog bestätigt)" : `automatisch: ${(+c._score || 0).toFixed(1)} Punkte (Schwelle 3)`; }
+  if (j) return j.ci < 0 ? "keiner passt laut " + jw : `nur Vorschlag ${j.choice}${j.volConflict ? ", Band passt nicht" : ""} – ${jw}`;
   const iv = itemVol(it);
   if (b._score < 3) return `bester Kandidat nur ${(+b._score || 0).toFixed(1)} Punkte (Schwelle 3)`;
   if (iv && candVol(b) !== iv) return `Band ${iv} gelesen, bester Kandidat nennt Band ${candVol(b) || "keinen"}`;
@@ -231,9 +234,13 @@ function assessScan(items, W = SCAN_WORDS.photo) {
         const cv = candVol(c);
         if (iv && !cv) r.push(W.volNone(iv));
         const isbnSure = toIsbn13(it.isbn) && toIsbn13(it.isbn) === c.isbn;
+        const judged = it.judge && it.judge.ci === it.choice && it.judge.confidence === "high"; // Claude hat die Kandidaten verglichen
         const rival = it.cands.find(x => x !== c && x._score > c._score - 1 && (normTxt(x.title) !== normTxt(c.title) || candVol(x) !== cv));
-        if (rival && !isbnSure) r.push(W.rival);
+        if (rival && !isbnSure && !judged) r.push(W.rival);
       }
+      const sg = it.choice < 0 ? it.cands[it.suggest] : null, web = it.webFound && it.suggest === 0, jr = it.judge?.reason ? " – " + it.judge.reason : "";
+      if (sg) r.push(web ? `Websuche fand „${sg.title}“ (ISBN ${sg.isbn}) – bitte prüfen` : `Claude vermutet „${sg.title}“${it.judge?.volConflict ? " (Band passt aber nicht)" : ""}${jr}`);
+      else if (it.judge && it.choice < 0 && it.cands.length) r.push("Claude: keiner der Katalogtreffer passt" + jr);
       const same = it.include ? (byKey.get(itemKey(it)) || []).filter(m => m !== n) : [];
       if (same.length) r.push(W.same(same.map(m => m + 1).join(", ")));
     }
@@ -451,7 +458,8 @@ async function runShelfScan(photo, mode = defaultMode(), { autoRead = false } = 
   onData(data);
 }
 /* Erkannte Objekte → Prüflisten-Zeilen mit Katalogtreffern (3 Suchen gleichzeitig). Gemeinsam für App und Auswertung (npm run eval). */
-async function matchScanItems(data, onStatus, run) {
+// file (optional): Fach-Foto – dann vergleicht Claude Rücken und Kandidaten (judge.js), falls eingeschaltet
+async function matchScanItems(data, onStatus, run, file) {
   const items = data.items.map((it, i) => ({ ...it, _i: i, include: it.kind !== "other", cands: [], choice: -1, title: it.title || it.spine_text_vertical || it.label || "" }));
   let done = 0; const books = items.filter(x => x.kind !== "other");
   onStatus && onStatus(`${items.length} Objekte erkannt – suche Buchdaten (0/${books.length}) …`);
@@ -465,6 +473,7 @@ async function matchScanItems(data, onStatus, run) {
     }
   }));
   resolveCollisions(items);
+  if (file && typeof judgeScan === "function") { await judgeScan(items, { file, run, onStatus, nOf: it => books.indexOf(it) + 1 }); resolveCollisions(items); }
   assessScan(items);
   if (run && typeof recBook === "function") for (const it of books) recBook(run, it, logs.get(it));
   return items;
@@ -472,11 +481,11 @@ async function matchScanItems(data, onStatus, run) {
 // Ganzes Fach-Foto erkennen und Treffer suchen – ohne Oberfläche (für die Auswertung mit echten Fotos)
 async function recognizeShelf(file, { onStatus, run } = {}) {
   const data = await aiScanShelf2(file, onStatus, run);
-  return { data, items: await matchScanItems(data, onStatus, run) };
+  return { data, items: await matchScanItems(data, onStatus, run, file) };
 }
 async function continueShelfScan(sh, { file, canvas, data, fachKey, photo, run }) {
   const status = busyView("Buchdaten werden gesucht", file, "…");
-  const items = await matchScanItems(data, t => { status.textContent = t; }, run);
+  const items = await matchScanItems(data, t => { status.textContent = t; }, run, file);
   for (const it of items) it.dup = scanDup(it);
   const st = { file, canvas, data, items, fachKey, photo };
   if (photo) await photoReviewSave(st, true); // Ergebnis sofort merken – auch wenn Android die App gleich schließt
@@ -626,7 +635,7 @@ function scanReview(sh, st) {
     const pick = el("select", { class: "field", style: "width:100%" });
     const drawPick = () => fillNode(pick,
       el("option", { value: -1, selected: it.choice === -1 || null }, W.own),
-      ...it.cands.map((c, i) => el("option", { value: i, selected: it.choice === i || null }, `${c.title} – ${c.author || "?"} · ${[c.publisher, c.year].filter(Boolean).join(" ")}${c.isbn ? " · ISBN " + c.isbn : ""}${c.ebook ? " · E-Book" : ""}`)));
+      ...it.cands.map((c, i) => el("option", { value: i, selected: it.choice === i || null }, `${it.judge?.ci === i || (it.choice < 0 && it.suggest === i) ? "🤖 " : ""}${c.title} – ${c.author || "?"} · ${[c.publisher, c.year].filter(Boolean).join(" ")}${c.isbn ? " · ISBN " + c.isbn : ""}${c.ebook ? " · E-Book" : ""}`)));
     drawPick();
     const dupInfo = el("div", { class: "saved" });
     const drawDup = () => { it.dup = scanDup(it); dupInfo.textContent = it.dup && st.dupText ? st.dupText(it) : it.dup ? (isWish(it.dup) ? `⭐ Stand auf deiner Wunschliste („${it.dup.title}“) – wird als gekauft in den Bestand übernommen.` : `✓ Schon in deiner Sammlung („${it.dup.title}“) – wird nicht doppelt angelegt, nur einsortiert.`) : ""; };
@@ -634,7 +643,7 @@ function scanReview(sh, st) {
     const re = el("button", { class: "btn sm", type: "button" }, "🔎 Neu suchen");
     re.addEventListener("click", async () => {
       editHint.textContent = ""; re.disabled = true; re.textContent = "Suche …";
-      try { it.cands = await matchItem(it); it.choice = autoChoice(it); it.confirmed = false; } catch { toast("Keine Internetverbindung."); }
+      try { it.cands = await matchItem(it); it.choice = autoChoice(it); it.confirmed = false; if (typeof clearJudge === "function") clearJudge(it); } catch { toast("Keine Internetverbindung."); }
       drawPick(); refresh(); re.disabled = false; re.textContent = "🔎 Neu suchen";
     });
     const warn = el("div", { class: "scanwarn" });
@@ -642,7 +651,9 @@ function scanReview(sh, st) {
       const why = it.kind === "other" ? [] : it.reasons || [];
       row.classList.toggle("unsure", isUnsure(it));
       ov.querySelector(`.scanbox[data-n="${n}"]`)?.classList.toggle("unsure", isUnsure(it));
+      const sg = it.choice < 0 && !it.confirmed ? it.cands[it.suggest] : null;
       fillNode(warn, why.length ? [el("div", { class: "scanwhy" }, ...why.map(t => el("div", { text: "⚠ " + t }))),
+        sg ? el("button", { class: "btn sm", type: "button", title: "Diesen Katalogtreffer übernehmen", onclick: () => { it.choice = it.suggest; it.confirmed = true; drawPick(); refresh(); } }, "🤖 Vorschlag übernehmen") : null,
         it.confirmed ? el("div", { class: "saved", text: "✓ Von dir geprüft" })
           : el("button", { class: "btn sm", type: "button", title: "Angaben stimmen – ohne weitere Nachfrage übernehmen", onclick: () => { it.confirmed = true; refresh(); } }, "✓ Passt so")] : []);
     };

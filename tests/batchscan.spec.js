@@ -46,7 +46,7 @@ test("Sammelauftrag: alle Fotos auf einmal erkennen, abholen, der Reihe nach pr�
   await page.context().route("https://api.anthropic.com/**", async r => {
     const req = r.request(), url = req.url();
     if (req.method() === "OPTIONS") return r.fulfill({ status: 204, headers: CORS });
-    if (url.endsWith("/v1/messages")) { single++; return json(r, answer(SCAN_A, JSON.parse(req.postData()))); }
+    if (url.endsWith("/v1/messages")) { const b = JSON.parse(req.postData()); if (!b.output_config?.format?.schema?.properties?.books) single++; return json(r, answer(SCAN_A, b)); } // Treffer-Wahl (judge.js) läuft direkt
     if (url.endsWith("/v1/messages/batches") && req.method() === "POST") {
       const body = JSON.parse(req.postData());
       if (!sentOv) { sentOv = body; return json(r, { id: "msgbatch_ov", processing_status: "in_progress" }); } // Runde 1: Übersichten
@@ -108,7 +108,7 @@ test("Sammelauftrag: alle Fotos auf einmal erkennen, abholen, der Reihe nach pr�
     chain: S.reviewChain,
   }), ids);
   expect(r).toEqual({ n: 3, a: ["Momo", "Krabat"], b: ["Siddhartha"], chain: false });
-  expect(single).toBe(0); // alles lief über den Sammelauftrag
+  expect(single).toBe(0); // Erkennung lief ganz über den Sammelauftrag (nur die Treffer-Wahl geht direkt)
 });
 
 test("Sammelauftrag klappt nicht: Fotos einzeln erkennen", async ({ page, catalog }) => {
