@@ -90,11 +90,13 @@
   <section id="v-mehr" class="hidden"></section>
 
   <section id="v-verwaltung" class="hidden">
-    <div class="stats" id="stats"></div>
-    <div class="tools">
+    <div class="vhead"><h2>Tabelle</h2><div class="stats" id="stats"></div></div>
+    <div class="tools libtools tabletools">
+      <div class="searchrow">
+        <label class="searchbox"><svg class="ico"><use href="#i-search"/></svg><input class="field search" id="tq" type="search" placeholder="In allen Feldern suchen …" aria-label="In allen Feldern suchen"></label>
+      </div>
+      <div class="fpanel"><span id="ttagSlot"></span></div>
       <div class="chips" id="tfilters"></div>
-      <input class="field search" id="tq" type="search" placeholder="In allen Feldern suchen …">
-      <span id="ttagSlot"></span>
     </div>
     <div id="tbar"></div>
     <div class="tablewrap"><table id="tbl"></table></div>

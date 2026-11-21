@@ -988,8 +988,8 @@ try { S.hideGone = !!localStorage.getItem("hideGone"); } catch {}
 /* ================= Ansicht: Wunschliste ================= */
 function renderWish() {
   const host = $("#v-wunsch"); if (!host || host.classList.contains("hidden")) return;
-  const q = el("input", { class: "field search", type: "search", placeholder: "In der Wunschliste suchen …", value: S.wishQ || "" });
-  const sort = el("select", { class: "field" }, ...[["added-desc", "Zuletzt hinzugefügt"], ["title", "Titel A–Z"], ["author", "Autor A–Z"], ["series", "Reihe & Band"], ["price", "Preis aufsteigend"]].map(([v, l]) => el("option", { value: v, selected: (S.wishSort || "added-desc") === v || null }, l)));
+  const q = el("input", { class: "field search", type: "search", placeholder: "In der Wunschliste suchen …", value: S.wishQ || "", "aria-label": "Wunschliste durchsuchen" });
+  const sort = el("select", { class: "field", "aria-label": "Sortierung" }, ...[["added-desc", "Zuletzt hinzugefügt"], ["title", "Titel A–Z"], ["author", "Autor A–Z"], ["series", "Reihe & Band"], ["price", "Preis aufsteigend"]].map(([v, l]) => el("option", { value: v, selected: (S.wishSort || "added-desc") === v || null }, l)));
   const grid = el("div", { class: "grid" });
   const sumEl = el("span", { class: "saved" });
   const draw = () => {
@@ -1007,9 +1007,11 @@ function renderWish() {
   q.addEventListener("input", () => { S.wishQ = q.value; draw(); });
   sort.addEventListener("change", () => { S.wishSort = sort.value; draw(); });
   fillNode(host,
-    el("div", { class: "tools" }, el("h2", { style: "font-size:20px", text: "⭐ Wunschliste" }), sumEl, el("span", { style: "flex:1" }), q, sort,
-      el("button", { class: "btn primary", onclick: () => openAdd(true) }, "＋ Wunsch hinzufügen")),
-    el("p", { class: "saved", style: "margin:0", text: "Getrennt von deinem Bestand: Wünsche erscheinen nicht im Regal und nicht im echten Regal und zählen nicht mit. Gekauft? Buch öffnen → „✓ Gekauft“." }),
+    el("div", { class: "vhead" }, el("h2", { text: "Wunschliste" }), sumEl),
+    el("div", { class: "tools libtools wishtools" },
+      el("div", { class: "searchrow" }, el("label", { class: "searchbox" }, icon("search"), q)),
+      el("div", { class: "fpanel wishpanel" }, sort, el("button", { class: "btn primary", onclick: () => openAdd(true) }, "＋ Wunsch hinzufügen"))),
+    el("p", { class: "saved vnote", text: "Wünsche zählen nicht zu deinem Bestand. Gekauft? Buch öffnen → „✓ Gekauft“." }),
     grid);
   draw();
 }
@@ -3386,7 +3388,7 @@ function renderTable() {
   const c = counts(S.books.filter(inStock)); const inc = S.books.filter(b => missingOf(b).length).length;
   const nDup = dupGroups().reduce((n, g) => n + g.length, 0);
   $("#stats").replaceChildren(
-    el("span", {}, el("b", { text: c.all }), "Bücher im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
+    el("span", {}, el("b", { text: c.all }), "im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
     el("span", {}, el("b", { text: c.reading }), "gerade dabei"), el("span", {}, el("b", { text: c.unread }), "ungelesen"),
     el("span", {}, el("b", { style: inc ? "color:var(--warn)" : "", text: inc }), "mit fehlenden Daten"),
     el("span", {}, el("b", { text: S.books.filter(isGone).length }), "hatte ich mal"),
@@ -3671,7 +3673,7 @@ function aboutBox() {
   sh.body.append(
     el("p", { text: "Mein Bücherregal speichert alle Daten in diesem Browser auf diesem Gerät – es gibt kein Konto. Wer möchte, kann zusätzlich einen eigenen Server (z. B. auf dem PC) für den automatischen Abgleich eintragen." }),
     el("p", { text: "Buchdaten kommen von der Deutschen Nationalbibliothek (sehr vollständig für deutschsprachige und aktuelle Ausgaben), Google Books und Open Library." }),
-    el("p", { text: "Handy und PC abgleichen: Menü ⋯ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
+    el("p", { text: "Handy und PC abgleichen: „Mehr“ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
     el("p", { text: "Wichtig: Wenn du die Browserdaten löschst, ist auch das Regal weg. Exportiere deshalb ab und zu eine Sicherung." }),
     el("p", { class: "saved", text: `${S.books.length} Bücher gespeichert.` }),
     autoBackupBox(),

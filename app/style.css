@@ -880,3 +880,19 @@ body.wandbig .wrap{max-width:none}
   .wmenu-list{left:auto;right:0}
 }
 .wmenu > summary{font-family:inherit;font-size:var(--fs-sm);font-weight:500;padding:5px 10px}
+
+/* ================= Kopf der Ansichten (Wunschliste, Tabelle) ================= */
+.vhead{display:flex;align-items:baseline;gap:6px 16px;flex-wrap:wrap;padding:18px 0 0}
+.vhead h2{font-size:var(--fs-xl)}
+.vhead .stats{padding:0;gap:4px 14px;font-size:var(--fs-sm)}
+.vhead .stats b{font-size:var(--fs-base)}
+.vnote{margin:2px 0 0}
+.wishtools .fpanel.wishpanel{display:flex}
+@media (max-width:759px){
+  .vhead{padding-top:12px}
+  .wishtools .fpanel.wishpanel{display:flex;width:100%;flex-wrap:nowrap;background:none;border:0;padding:0}
+  .wishtools .wishpanel select{flex:1;min-width:0}
+  .vhead .stats{overflow-x:auto;flex-wrap:nowrap;white-space:nowrap;max-width:100%;scrollbar-width:none}
+}
+.tabletools .fpanel{display:flex!important;width:auto;background:none;border:0;padding:0}
+@media (max-width:759px){ .tabletools .fpanel{width:100%} .tabletools .fpanel select{width:100%;max-width:none!important} }
