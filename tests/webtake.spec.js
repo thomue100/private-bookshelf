@@ -37,7 +37,7 @@ test("Buch hinzufügen: Link einfügen genügt", async ({ page, catalog }) => {
   catalog.dnb = dnbByIsbn;
   await openApp(page);
   await page.evaluate(() => openAdd());
-  const inp = page.getByPlaceholder("ISBN eintippen oder Link einfügen");
+  const inp = page.getByPlaceholder("Titel, Autor, ISBN oder Link");
   await inp.fill(ZVAB);
   await inp.press("Enter");
   await expect(page.locator(".sheet h2")).toHaveText("Prüfen & speichern");

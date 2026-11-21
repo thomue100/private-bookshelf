@@ -22,7 +22,7 @@ async function coverPhoto(page, setup) {
   await page.evaluate(setup || (() => {}));
   await page.evaluate(() => { localStorage.setItem("aiKey", "sk-ant-test"); openAdd(); });
   const chooser = page.waitForEvent("filechooser");
-  await page.click("text=🖼 Cover-Bild wählen");
+  await page.click("#addCover");
   await (await chooser).setFiles(fixture("cover-c.jpg"));
   await expect(page.locator(".sheet h2")).toHaveText("Welches Buch ist es?");
 }

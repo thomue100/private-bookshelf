@@ -26,7 +26,7 @@ test("ISBN erfassen: Höhe aus der DNB landet im Buchrücken; ohne $c keine Höh
   await openApp(page);
   for (const isbn of [I1, I3]) {
     await page.evaluate(() => openAdd());
-    const inp = page.getByPlaceholder("ISBN eintippen oder Link einfügen");
+    const inp = page.getByPlaceholder("Titel, Autor, ISBN oder Link");
     await inp.fill(isbn);
     await inp.press("Enter");
     await expect(page.locator(".sheet h2")).toHaveText("Prüfen & speichern");

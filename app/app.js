@@ -1256,40 +1256,47 @@ function openAdd(asWish) {
   const sh = sheet(S.addAsWish ? "⭐ Wunsch hinzufügen" : "Buch hinzufügen");
   sh.webTake = true; // Zwischenablage-Angebot darf hier ein Buch übernehmen
   const m = isMobile();
-  const scanBtn = el("button", { class: "btn primary", onclick: startLiveScan }, "▦ Barcode scannen");
-  const isbnRow = webTakeField("ISBN eintippen oder Link einfügen");
-  const qIn = el("input", { class: "field", type: "search", placeholder: "Titel und/oder Autor" });
-  const qGo = () => { if (qIn.value.trim()) showSearch(qIn.value.trim(), null); };
+  // Ein Feld für alles: ISBN → Buchdaten, Link/kopierter Text → ISBN oder Titel daraus, sonst Katalogsuche
+  const qIn = el("input", { class: "field", type: "search", placeholder: "Titel, Autor, ISBN oder Link", autocomplete: "off", "aria-label": "Titel, Autor, ISBN oder Link", enterkeyhint: "search" });
+  const qGo = () => {
+    const v = qIn.value.trim(); if (!v) { qIn.focus(); return; }
+    const i = toIsbn13(v); if (i) { handleIsbn(i); return; }
+    if (/https?:\/\//.test(v) || (typeof isbnsIn === "function" && isbnsIn(v).length)) { takeFromWeb(v); return; }
+    showSearch(v, null);
+  };
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") qGo(); });
+  qIn.addEventListener("paste", () => setTimeout(() => { if (/https?:\/\/|97[89]/.test(qIn.value)) qGo(); }, 50)); // eingefügter Link: gleich los
+  const coverPick = async cam => { const f = await pickImage(cam); if (f) coverFlow(f); };
+  const way = (id, ico, title, sub, fn, primary) => el("button", { class: "qway" + (primary ? " primary" : ""), id, onclick: fn }, icon(ico), el("b", { text: title }), el("small", { text: sub }));
+  const many = (id, ico, label, sub, fn) => el("button", { class: "mrow", id, onclick: fn },
+    el("span", { class: "mico", "aria-hidden": "true", text: ico }), el("span", { class: "mtxt" }, el("b", { text: label }), el("small", { text: sub })), icon("chevron"));
+  const nStack = (S.stack || []).length;
   fillNode(sh.body,
     presetBarEl(), // Vorgaben für Stapel und „Speichern & nächstes“
-    el("div", { class: "ways" },
-      el("div", { class: "way" }, el("h3", { text: "Weg A · Barcode" }),
-        el("p", { text: "Kamera über den ISBN-Barcode auf der Rückseite halten – Titel, Autor, Klappentext und Cover werden aus dem Internet geladen." }),
-        el("div", { class: "row" }, scanBtn, el("button", { class: "btn", onclick: async () => { const f = await pickImage(m); if (f) barcodeFromPhoto(f); } }, m ? "📷 Foto" : "🖼 Bild mit Barcode"))),
-      el("div", { class: "way" }, el("h3", { text: "Weg B · Cover-Foto" }),
-        el("p", { text: "Für Bücher ohne Barcode: Vorderseite fotografieren. Die App liest Titel und Autor vom Bild und sucht passende Bücher." }),
-        el("div", { class: "row" },
-          m ? el("button", { class: "btn primary", onclick: async () => { const f = await pickImage(true); if (f) coverFlow(f); } }, "📷 Cover fotografieren") : null,
-          el("button", { class: "btn" + (m ? "" : " primary"), onclick: async () => { const f = await pickImage(false); if (f) coverFlow(f); } }, m ? "Aus Galerie" : "🖼 Cover-Bild wählen")))),
-    m ? null : dropZone("…oder ein Cover-Bild hierher ziehen bzw. mit Strg+V einfügen", f => coverFlow(f)),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg C · Fach-Foto (viele Bücher auf einmal)" }),
-      el("p", { text: "Ein ganzes Regalfach fotografieren: Die App erkennt alle Buchrücken, sucht die Buchdaten und stellt die Bücher in der richtigen Reihenfolge ins echte Regal." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"))),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "📋 Titelliste einfügen (viele Bücher auf einmal)" }),
-      el("p", { text: S.addAsWish ? "Eine Liste aus Excel, einer Notiz oder Mail einfügen – die App sucht jedes Buch und setzt es nach deiner Prüfung auf die Wunschliste." : "Eine Liste aus Excel, einer Notiz oder Mail einfügen – die App sucht jedes Buch in den Katalogen. Nur unsichere Treffer musst du prüfen." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openTitleList() }, "📋 Titelliste einfügen"),
-        S.titleRun ? el("button", { class: "btn", onclick: () => resumeTitleList() }, "Titelliste weiter prüfen") : null)),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg D · 📚 Stapel erfassen (viele Bücher nacheinander)" }),
-      el("p", { text: "Die Kamera bleibt offen: Barcode scannen, auf Wunsch Cover und Rücken fotografieren, nächstes Buch. Bücher ohne Barcode: Cover fotografieren. Am Ende prüfst du alles auf einmal." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openStackCapture() }, "📚 Stapel erfassen"),
-        (S.stack || []).length ? el("button", { class: "btn", onclick: () => openStackReview() }, `Stapel prüfen (${S.stack.length})`) : null)),
-    el("div", { class: "sec" }, el("label", { class: "lbl", text: "Suchen nach Titel / Autor" }), el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn", onclick: qGo }, "Suchen"))),
-    el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN – oder Link aus dem Web" }), isbnRow,
-      el("div", { class: "saved", style: "margin-top:6px", text: "Buch in einem Shop oder Katalog gefunden (ZVAB, booklooker, Amazon, DNB …)? Einfach den Link der Seite einfügen – die App holt sich die ISBN selbst." })),
-    el("div", { style: "margin-top:16px" }, el("button", { class: "btn ghost", onclick: () => openReview({}, null) }, "✏️ Ganz von Hand eintragen"))
+    el("div", { class: "qways" },
+      way("addScan", "barcode", "Barcode scannen", "ISBN auf der Rückseite – Daten und Cover kommen von selbst", startLiveScan, true),
+      m ? way("addCover", "camera", "Cover fotografieren", "Für Bücher ohne Barcode", () => coverPick(true))
+        : way("addCover", "camera", "Cover-Bild wählen", "Für Bücher ohne Barcode – oder Bild hierher ziehen", () => coverPick(false))),
+    el("div", { class: "qalt" },
+      el("button", { class: "btn sm ghost", onclick: async () => { const f = await pickImage(m); if (f) barcodeFromPhoto(f); } }, m ? "Barcode aus einem Foto lesen" : "🖼 Bild mit Barcode"),
+      m ? el("button", { class: "btn sm ghost", onclick: () => coverPick(false) }, "Cover aus der Galerie") : null),
+    m ? null : dropZone("Cover-Bild hierher ziehen oder mit Strg+V einfügen", f => coverFlow(f)),
+    el("div", { class: "qsearch" },
+      el("div", { class: "manual" }, qIn, el("button", { class: "btn primary", onclick: qGo }, "Suchen"),
+        navigator.clipboard?.readText ? el("button", { class: "btn", title: "Link oder ISBN aus der Zwischenablage übernehmen", onclick: () => takeFromClipboard() }, "📋 Einfügen") : null),
+      el("div", { class: "saved", text: "Auch ein Link aus einem Shop oder Katalog (ZVAB, booklooker, Amazon, DNB …) – die App holt sich die ISBN selbst." })),
+    el("h3", { class: "qhead", text: "Viele Bücher auf einmal" }),
+    el("div", { class: "mlist" },
+      many("addStack", "📚", "Stapel erfassen", "Kamera bleibt offen – ein Buch nach dem anderen, am Ende alles prüfen", () => openStackCapture()),
+      many("addShelfScan", "📷", "Fach-Foto einlesen", "Ein ganzes Regalfach fotografieren – Bücher landen gleich im echten Regal", () => openShelfScan()),
+      many("addTitleList", "📋", "Titelliste einfügen", S.addAsWish ? "Liste aus Excel, Notiz oder Mail – auf die Wunschliste" : "Liste aus Excel, Notiz oder Mail – nur unsichere Treffer prüfen", () => openTitleList())),
+    nStack || S.titleRun ? el("div", { class: "hstack mt-2" },
+      nStack ? el("button", { class: "btn sm", onclick: () => openStackReview() }, `Stapel prüfen (${nStack})`) : null,
+      S.titleRun ? el("button", { class: "btn sm", onclick: () => resumeTitleList() }, "Titelliste weiter prüfen") : null) : null,
+    el("div", { class: "mt-4" }, el("button", { class: "btn ghost", onclick: () => openReview({}, null) }, "✏️ Ganz von Hand eintragen"))
   );
   S.pasteHandler = f => coverFlow(f);
+  if (!m) setTimeout(() => { if (qIn.isConnected && !sh.body.contains(document.activeElement)) qIn.focus(); }, 50); // am PC gleich lostippen
 }
 function busyView(title, img, msg) {
   const sh = openSheet || sheet(title);
