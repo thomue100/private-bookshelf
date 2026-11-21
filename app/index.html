@@ -27,6 +27,8 @@
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><rect x="4" y="4.5" width="4" height="6" rx=".8"/><rect x="4" y="13.5" width="4" height="6" rx=".8"/><path d="M11 6.5h9M11 9h6M11 15.5h9M11 18h6"/></symbol>
   <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M4 5v14M7 5v14M10.5 5v14M13 5v14M17 5v14M20 5v14"/></symbol>
 </svg>
 <header>
@@ -56,9 +58,13 @@
   <div id="banner"></div>
 
   <section id="v-regal">
-    <div class="tools">
+    <div class="tools libtools">
+      <div class="searchrow">
+        <label class="searchbox"><svg class="ico"><use href="#i-search"/></svg><input class="field search" id="q" type="search" placeholder="Suchen: Titel, Autor …" aria-label="Bücher durchsuchen" title="Suchen (Taste /)"></label>
+        <button class="btn filterbtn" id="filterBtn" aria-expanded="false" aria-controls="fpanel"><svg class="ico"><use href="#i-filter"/></svg>Filter<span class="fcount" id="fcount"></span></button>
+      </div>
       <div class="chips" id="filters"></div>
-      <input class="field search" id="q" type="search" placeholder="Suchen: Titel, Autor …">
+      <div class="fpanel" id="fpanel">
       <span id="seriesSlot"></span>
       <span id="tagSlot"></span>
       <select class="field" id="sort" aria-label="Sortierung">
@@ -68,6 +74,11 @@
         <option value="author">Autor A–Z (Nachname)</option>
         <option value="series">Reihe &amp; Band</option>
       </select>
+      <div class="layoutsw" role="group" aria-label="Darstellung">
+        <button class="btn sm" data-layout="grid" title="Als Cover zeigen" aria-label="Als Cover zeigen"><svg class="ico"><use href="#i-grid"/></svg></button>
+        <button class="btn sm" data-layout="list" title="Als Liste zeigen" aria-label="Als Liste zeigen"><svg class="ico"><use href="#i-list"/></svg></button>
+      </div>
+      </div>
     </div>
     <div id="shelf" class="grid"></div>
   </section>

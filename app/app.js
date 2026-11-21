@@ -37,6 +37,7 @@ const isMobile = () => matchMedia("(pointer:coarse)").matches;
 /** Symbol aus dem SVG-Satz in index.html (#i-…): library, shelf, star, more, plus, table, search, filter, chevron, camera, barcode */
 const icon = name => { const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), u = document.createElementNS(ns, "use"); s.setAttribute("class", "ico"); s.setAttribute("aria-hidden", "true"); u.setAttribute("href", "#i-" + name); s.append(u); return s; };
 function toast(msg, ms = 2800) { document.querySelectorAll(".toast").forEach(x => x.remove()); const t = el("div", { class: "toast", text: msg }); document.body.append(t); setTimeout(() => t.remove(), ms); return t; }
+function toastAction(msg, label, fn, ms = 6000) { const t = toast(msg, ms); t.classList.add("act"); t.append(el("button", { class: "tact", onclick: () => { t.remove(); fn(); } }, label)); return t; }
 function setBanner(t, btn) { $("#banner").replaceChildren(el("div", { class: "banner" }, t, btn || null)); }
 
 /* ================= Speicher (IndexedDB) ================= */
@@ -164,8 +165,9 @@ function coverEl(b, { badge = false, src } = {}) {
   };
   if (src) { const img = el("img", { src, alt: "", loading: "lazy" }); img.onerror = () => { img.replaceWith(ph()); if (b.id && !b.coverBlob && src === b.coverUrl && !S.badCover.has(b.id)) { S.badCover.add(b.id); scheduleRender(); } }; c.append(img); }
   else c.append(ph());
-  if (b.favorite) c.append(el("span", { class: "favbadge", title: "Lieblingsbuch", text: "♥" }));
-  if (badge && b.status && b.status !== "unread") c.append(el("span", { class: "badge", style: `background:${STATUS_COLOR[b.status]}`, text: b.status === "read" ? "✓ Gelesen" : "Liest du" }));
+  const st = badge && b.status && b.status !== "unread" ? el("span", { class: "badge " + b.status, text: b.status === "read" ? "✓ Gelesen" : "📖 Lese ich" }) : null;
+  const fav = b.favorite ? el("span", { class: "favbadge", title: "Lieblingsbuch", "aria-label": "Lieblingsbuch", text: "♥" }) : null;
+  if (st || fav) { c.classList.add("hasbar"); c.append(el("span", { class: "cbar" }, st, fav)); }
   return c;
 }
 function lastName(a) { const first = (a || "").split(/[,;&]| und /)[0].trim(); const p = first.split(/\s+/); return (p[p.length - 1] || "").toLowerCase(); }
@@ -912,9 +914,14 @@ function renderShelf() {
   const nFav = owned.filter(b => b.favorite).length;
   $("#filters").append(el("button", { class: "chip fav" + (S.favOnly ? " on" : ""), title: "Nur Lieblingsbücher (zusätzlich zum Status-Filter)", onclick: () => { S.favOnly = !S.favOnly; renderShelf(); } }, "♥ Lieblingsbücher", el("span", { class: "n", text: nFav })));
   const host = $("#shelf");
+  host.classList.toggle("list", S.layout === "list");
+  document.querySelectorAll(".layoutsw [data-layout]").forEach(x => { const on = x.dataset.layout === (S.layout || "grid"); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
   if (!S.loaded) { host.replaceChildren(el("div", { class: "empty", style: "grid-column:1/-1" }, el("div", { class: "spin", style: "margin:0 auto" }))); return; }
   const tagSlot = $("#tagSlot"); if (tagSlot) fillNode(tagSlot, tagFilterSelect(S.tag, t => { S.tag = t; renderShelf(); }, S.books));
   if (S.tag && !allTags().some(t => t.name.toLowerCase() === S.tag.toLowerCase())) S.tag = "";
+  // Filter-Knopf (Handy): Zahl der aktiven Zusatzfilter
+  const nExtra = (S.tag ? 1 : 0) + (S.series ? 1 : 0);
+  $("#fcount").textContent = nExtra || ""; $("#filterBtn").classList.toggle("on", !!nExtra);
   const list = owned.filter(b => (S.filter === "all" || (b.status || "unread") === S.filter) && (!S.favOnly || b.favorite) && (!S.tag || hasTag(b, S.tag)) && (!S.series || inSeries(b, S.series)) && matchQ(b, S.q));
   const goneList = S.books.filter(b => isGone(b) && matchQ(b, S.q) && (!S.favOnly || b.favorite) && (!S.tag || hasTag(b, S.tag))).sort((a, b) => (b.gone.date || "").localeCompare(a.gone.date || ""));
   const cmp = {
@@ -925,31 +932,56 @@ function renderShelf() {
     "series": bySeries,
   }[S.sort];
   list.sort(S.series ? bySeries : cmp);
+  const plain = !S.q && S.filter === "all" && !S.favOnly && !S.tag && !S.series;
   const goneSec = goneList.length ? el("div", { class: "gonesec", style: "grid-column:1/-1" },
     el("button", { class: "gonehead", onclick: () => { S.hideGone = !S.hideGone; try { localStorage.setItem("hideGone", S.hideGone ? "1" : ""); } catch {} renderShelf(); } },
       el("span", { text: (S.hideGone ? "▸ " : "▾ ") + "📦 Hatte ich mal" }), el("span", { class: "n", text: goneList.length })),
     S.hideGone ? null : el("div", { class: "grid gonegrid" }, ...goneList.map(b => el("button", { class: "card gone", onclick: () => openDetail(b.id) },
       coverEl(b), el("div", { class: "ti", text: b.title || "Ohne Titel" }), el("div", { class: "au", text: b.author || "—" }), el("div", { class: "gt", text: goneText(b.gone) }))))) : null;
+  // Hinweis „ohne Cover“: einzeilig; „Später“ gilt, bis neue Bücher ohne Cover dazukommen
   const noCov = S.books.filter(needsCover).length;
-  const covNote = noCov && !S.q && S.filter === "all" && !S.favOnly && !S.tag && !S.series && !S.hideCovNote ? el("div", { class: "note info", style: "grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
-    el("span", { style: "flex:1", text: `${noCov} ${noCov === 1 ? "Buch hat" : "Bücher haben"} noch kein Cover.` }),
-    el("button", { class: "btn sm primary", onclick: () => coverRun() }, "🖼 Cover online nachtragen"),
-    el("button", { class: "btn sm ghost", onclick: () => { S.hideCovNote = true; renderShelf(); } }, "Später")) : null;
+  let covSeen = 0; try { covSeen = +localStorage.getItem("covNoteSeen") || 0; } catch {}
+  const covNote = noCov && plain && !S.hideCovNote && noCov > covSeen ? el("div", { class: "hint", style: "grid-column:1/-1" },
+    el("span", { class: "grow", text: `${noCov} ${noCov === 1 ? "Buch" : "Bücher"} ohne Cover` }),
+    el("button", { class: "btn sm primary", onclick: () => coverRun() }, "🖼 Cover nachtragen"),
+    el("button", { class: "btn sm ghost", onclick: () => { S.hideCovNote = true; try { localStorage.setItem("covNoteSeen", String(noCov)); } catch {} renderShelf(); } }, "Später")) : null;
+  // Gerade dabei: aktuelle Bücher oben, mit „Ausgelesen“ in einem Tipp
+  const reading = plain ? owned.filter(b => b.status === "reading").sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")) : [];
+  const nowSec = reading.length ? el("section", { class: "nowreading", style: "grid-column:1/-1", "aria-label": "Gerade dabei" },
+    el("h2", { text: "Gerade dabei" }),
+    el("div", { class: "nrrow" }, ...reading.map(b => {
+      const open = [...readsOf(b)].reverse().find(r => r.start && !r.end);
+      return el("div", { class: "nrcard" },
+        el("button", { class: "nrmain", onclick: () => openDetail(b.id) }, coverEl(b),
+          el("span", { class: "nrtxt" }, el("b", { text: b.title || "Ohne Titel" }), el("span", { text: b.author || "" }), open ? el("small", { text: "seit " + fmtD(open.start) }) : null)),
+        el("button", { class: "btn sm nrdone", title: "Als gelesen markieren", onclick: async () => {
+          const before = { status: b.status, reads: b.reads };
+          await patchBook(b.id, statusPatch(b, "read"));
+          toastAction(`„${b.title || "Ohne Titel"}“ ist gelesen.`, "Rückgängig", () => patchBook(b.id, before));
+        } }, "✓ Ausgelesen"));
+    }))) : null;
   const wishHits = S.q ? S.books.filter(b => isWish(b) && matchQ(b, S.q)).length : 0;
   const wishNote = wishHits ? el("div", { class: "saved", style: "grid-column:1/-1" }, `Auch auf deiner Wunschliste: ${wishHits} Treffer – `, el("a", { href: "#wunsch", onclick: () => { S.wishQ = S.q; } }, "anzeigen")) : null;
   if (!list.length && goneSec && S.books.some(b => !isGone(b)) === false) { host.replaceChildren(goneSec); return; }
   if (!list.length) {
     host.replaceChildren(el("div", { class: "empty", style: "grid-column:1/-1" },
-      S.books.length ? el("div", {}, el("h2", { text: "Nichts gefunden" }), el("p", { text: "Kein Buch passt zu Filter oder Suche." }))
-        : el("div", {}, el("h2", { text: "Dein Regal ist noch leer" }), el("p", { text: "Scanne den Barcode eines Buches, fotografiere das Cover oder suche nach Titel." }),
+      S.books.length ? el("div", {}, el("h2", { text: "Nichts gefunden" }), el("p", { text: "Kein Buch passt zu Filter oder Suche." }),
+        !plain ? el("button", { class: "btn", onclick: () => { S.q = ""; $("#q").value = ""; S.filter = "all"; S.favOnly = false; S.tag = ""; S.series = ""; renderShelf(); } }, "Filter zurücksetzen") : null)
+        : el("div", {}, el("div", { class: "emptyart", "aria-hidden": "true", text: "📚" }), el("h2", { text: "Dein Regal ist noch leer" }), el("p", { text: "Scanne den Barcode eines Buches, fotografiere das Cover oder suche nach Titel." }),
           el("button", { class: "btn primary", onclick: openAdd }, "＋ Erstes Buch hinzufügen"),
           el("p", { style: "margin-top:18px;font-size:13px" }, "Du hast schon Bücher auf einem anderen Gerät? ", el("a", { href: "#", onclick: e => { e.preventDefault(); importFlow(); } }, "Sicherung importieren")))), wishNote || "", goneSec || "");
     return;
   }
-  fillNode(host, covNote, ...list.map(b => el("button", { class: "card", onclick: () => openDetail(b.id) },
+  // Liste: Standort einmal für alle nachschlagen (statt je Buch durch alle Fächer)
+  const locs = new Map();
+  if (S.layout === "list") for (const f of allFachs()) f.list.forEach((id, i) => { if (!locs.has(id)) locs.set(id, { ...f, pos: i }); });
+  const nReads = b => readsOf(b).filter(r => r.end).length;
+  fillNode(host, covNote, nowSec, ...list.map(b => el("button", { class: "card", onclick: () => openDetail(b.id) },
     coverEl(b, { badge: true }), el("div", { class: "ti", text: b.title || "Ohne Titel" }), el("div", { class: "au", text: b.author || "—" }),
-    b.series && (S.series || S.sort === "series") ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: seriesText(b) }) : null,
-    b.rating ? el("div", { class: "st", text: "★".repeat(b.rating) + (readsOf(b).filter(r => r.end).length > 1 ? "  ·  " + readsSummary(b) : "") }) : (readsOf(b).filter(r => r.end).length > 1 ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: readsSummary(b) }) : null))), wishNote, goneSec);
+    b.series && (S.series || S.sort === "series" || S.layout === "list") ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: seriesText(b) }) : null,
+    b.rating ? el("div", { class: "st", text: "★".repeat(b.rating) + (nReads(b) > 1 ? "  ·  " + readsSummary(b) : "") }) : (nReads(b) > 1 ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: readsSummary(b) }) : null),
+    S.layout === "list" ? el("div", { class: "lo" }, el("span", { class: "dot", style: `background:${STATUS_COLOR[b.status || "unread"]}` }), { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" }[b.status || "unread"],
+      locs.get(b.id) ? " · " + locationShort(locs.get(b.id)) : "") : null)), wishNote, goneSec);
 }
 try { S.hideGone = !!localStorage.getItem("hideGone"); } catch {}
 
@@ -1034,6 +1066,9 @@ document.addEventListener("keydown", e => {
 });
 
 $("#q").addEventListener("input", e => { S.q = e.target.value; renderShelf(); });
+$("#filterBtn").addEventListener("click", () => { const p = $("#fpanel"), open = !p.classList.contains("open"); p.classList.toggle("open", open); $("#filterBtn").setAttribute("aria-expanded", open); });
+try { S.layout = localStorage.getItem("libLayout") || "grid"; } catch { S.layout = "grid"; }
+document.querySelectorAll(".layoutsw [data-layout]").forEach(x => x.addEventListener("click", () => { S.layout = x.dataset.layout; try { localStorage.setItem("libLayout", S.layout); } catch {} renderShelf(); }));
 try { const s = localStorage.getItem("shelfSort"); if (s) { S.sort = s; $("#sort").value = s; } } catch {}
 $("#sort").addEventListener("change", e => { S.sort = e.target.value; try { localStorage.setItem("shelfSort", S.sort); } catch {} renderShelf(); });
 window.addEventListener("hashchange", renderAll);
