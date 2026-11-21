@@ -23,8 +23,8 @@ test("Einrichten über die Oberfläche lädt alle Bücher auf den Server", async
   await couch.attach(page.context());
   await openApp(page);
   await seedBooks(page);
-  await page.click("#menuBtn");
-  await page.click("text=Abgleich mit eigenem Server");
+  await page.click("nav.topnav a[data-view=mehr]");
+  await page.click("#syncRun");
   await page.fill("input[aria-label='Serveradresse']", COUCH_URL);
   await page.fill("input[aria-label='Benutzer']", "buecher");
   await page.fill("input[aria-label='Passwort']", "geheim");

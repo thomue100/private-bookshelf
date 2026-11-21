@@ -13,7 +13,7 @@ test("Service Worker: alle App-Dateien stehen in der Offline-Liste", () => {
   expect(sw).toMatch(/VERSION\s*=\s*["']v\d+["']/);
 });
 
-for (const hash of ["#regal", "#wand", "#wunsch", "#verwaltung"]) {
+for (const hash of ["#regal", "#wand", "#wunsch", "#mehr", "#verwaltung"]) {
   test(`Ansicht ${hash} lädt ohne Fehler`, async ({ page }) => {
     await openApp(page);
     await seedBooks(page);
@@ -29,7 +29,7 @@ test("Handy-Ansicht ist nicht breiter als der Bildschirm", async ({ browser }) =
   const page = await ctx.newPage();
   await openApp(page);
   await seedBooks(page);
-  for (const hash of ["#regal", "#wunsch", "#verwaltung"]) {
+  for (const hash of ["#regal", "#wand", "#wunsch", "#mehr", "#verwaltung"]) {
     await page.goto("/" + hash);
     await page.waitForFunction(() => S.loaded);
     expect(await page.evaluate(() => document.documentElement.scrollWidth), hash).toBeLessThanOrEqual(390);

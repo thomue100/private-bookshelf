@@ -44,9 +44,9 @@ test("Datenbank Version 2 (Bücher, Bilder, Regal) wird um Fach-Fotos und Stapel
 
 test("Sicherung Version 1 lässt sich importieren; alte Lesedaten werden zu Lesezeiträumen", async ({ page }) => {
   await openApp(page);
-  await page.click("#menuBtn");
+  await page.click("nav.topnav a[data-view=mehr]");
   const chooser = page.waitForEvent("filechooser");
-  await page.click("text=Sicherung importieren");
+  await page.click("#importRun");
   await (await chooser).setFiles(fixture("backup-v1.json"));
   await expect(page.locator(".toast")).toContainText("1 neu");
   const b = await page.evaluate(() => { const b = S.books.find(x => x.id === "old1"); return { title: b.title, reads: readsOf(b), notes: b.notes }; });

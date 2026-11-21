@@ -71,6 +71,7 @@ test("Verwaltung: Buchhöhen aus der DNB nachtragen – nur Bücher mit ISBN ohn
       putBook({ ...base, id: "wun", title: "Wunsch", isbn: i1, wish: true }),
     ]);
   }, [I1, I2, I3]);
+  await page.evaluate(() => { location.hash = "#mehr"; });
   await page.click("#heightRun");
   await expect(page.locator(".sheet .saved")).toContainText("Fertig: 1 Höhen nachgetragen, 1 ohne Angabe.");
   expect(asked.sort()).toEqual([`num=${I2}`, `num=${I3}`].sort());
