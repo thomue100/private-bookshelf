@@ -152,6 +152,21 @@ test("Filtervorschläge zeigen vorhandene Werte und beachten die anderen Filter"
   expect(await opts("year")).toEqual(["2000"]);
 });
 
+test("Filtervorschläge: Klick ins Feld baut die geöffnete Liste nicht neu auf (sonst schließt sie sofort)", async ({ page }) => {
+  await setup(page);
+  await page.locator("#tbl").evaluate(() => {
+    window.__dlChanges = 0;
+    new MutationObserver(ms => { window.__dlChanges += ms.length; }).observe(document.querySelector("#fsug-author"), { childList: true });
+  });
+  await fin(page, "Autor").click(); // Fokus + Klick: höchstens einmal befüllen
+  const first = await page.evaluate(() => window.__dlChanges);
+  expect(first).toBeLessThanOrEqual(1);
+  await fin(page, "Autor").click();
+  await fin(page, "Autor").click();
+  expect(await page.evaluate(() => window.__dlChanges)).toBe(first);
+  expect(await page.evaluate(() => document.querySelectorAll("#fsug-author option").length)).toBe(10);
+});
+
 test("Benannte Ansichten speichern, anwenden, als geändert erkennen und löschen", async ({ page }) => {
   await setup(page);
   await filter(page, "Autor", "hesse");

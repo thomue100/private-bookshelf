@@ -3339,7 +3339,10 @@ function fillSuggest(dl, k, inp, force) {
   const pre = cut >= 0 ? v.slice(0, cut + 1).trimEnd() + " " : ""; // „a | b“: Vorschläge hängen an das schon Getippte an
   if (!force && dl.dataset.pre === pre) return;
   dl.dataset.pre = pre;
-  dl.replaceChildren(...suggestValues(k).map(([s, n]) => el("option", { value: pre + s, label: n === 1 ? "1 Buch" : n + " Bücher" })));
+  const vals = suggestValues(k), sig = pre + "\u0001" + vals.map(([s, n]) => s + "\u0002" + n).join("\u0001");
+  if (dl._sig === sig) return; // unverändert nicht neu befüllen – sonst schließt der Browser die gerade geöffnete Liste
+  dl._sig = sig;
+  dl.replaceChildren(...vals.map(([s, n]) => el("option", { value: pre + s, label: n === 1 ? "1 Buch" : n + " Bücher" })));
 }
 function markF(inp, k) {
   const q = S.colF[k] || "", on = String(q).trim() !== "";
