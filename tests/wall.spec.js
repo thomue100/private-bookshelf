@@ -15,9 +15,10 @@ test("Regalwand 4er + 2er anlegen und Bücher per Antippen einräumen", async ({
   await newWall(page, "4er-Würfel + 2er-Würfel nebeneinander");
   await expect(page.locator(".fach")).toHaveCount(6);
   const before = await page.locator(".witem").count();
-  for (const fi of [0, 0, 1, 4]) {
+  for (const [i, fi] of [0, 0, 1, 4].entries()) {
     await page.locator(".witem").first().click();
     await page.locator(".fach").nth(fi).click({ position: { x: 200, y: 20 } });
+    await expect(page.locator(".witem")).toHaveCount(before - i - 1); // eingeräumtes Buch ist aus der Liste verschwunden
   }
   await expect(page.locator(".witem")).toHaveCount(before - 4);
   expect(await page.evaluate(() => S.books.filter(b => locationOf(b.id)).length)).toBe(4);

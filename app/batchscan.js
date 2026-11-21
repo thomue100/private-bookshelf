@@ -239,7 +239,7 @@ function batchInboxBox(redraw) {
 
 /* ---------- Start: laufende Sammelaufträge regelmäßig abfragen ---------- */
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && scriptsReady()) { clearInterval(t); r(); } }, 50); });
   const tick = () => { if (document.visibilityState === "visible" && batchList().length) checkBatches(); };
   tick();
   setInterval(tick, 60_000);
