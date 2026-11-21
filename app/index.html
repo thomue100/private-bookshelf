@@ -16,29 +16,55 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header style="padding-top:env(safe-area-inset-top)">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="4" width="4.5" height="16" rx="1"/><rect x="9.5" y="4" width="4.5" height="16" rx="1"/><path d="M15.6 5.8l4-1.1 3.4 14.3-4 1.1z"/></symbol>
+  <symbol id="i-shelf" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 12h18M12 3v18"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 9h18M3 14.5h18M9 9v11"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><rect x="4" y="4.5" width="4" height="6" rx=".8"/><rect x="4" y="13.5" width="4" height="6" rx=".8"/><path d="M11 6.5h9M11 9h6M11 15.5h9M11 18h6"/></symbol>
+  <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M4 5v14M7 5v14M10.5 5v14M13 5v14M17 5v14M20 5v14"/></symbol>
+</svg>
+<header>
   <div class="wrap bar">
-    <div class="brand">📚 <span>Mein Bücherregal</span></div>
-    <nav>
-      <a href="#regal" data-view="regal">Bücher</a>
-      <a href="#wand" data-view="wand"><span class="long">Echtes </span>Regal</a>
-      <a href="#wunsch" data-view="wunsch">⭐<span class="long"> Wunschliste</span></a>
-      <a href="#verwaltung" data-view="verwaltung">Verwaltung</a>
+    <a class="brand" href="#regal"><img src="icons/icon-192.png" alt=""><span>Mein Bücherregal</span></a>
+    <nav class="topnav" aria-label="Hauptnavigation">
+      <a href="#regal" data-view="regal">Bibliothek</a>
+      <a href="#wand" data-view="wand">Regal</a>
+      <a href="#wunsch" data-view="wunsch">Wünsche</a>
+      <a href="#verwaltung" data-view="verwaltung">Tabelle</a>
+      <a href="#mehr" data-view="mehr">Mehr</a>
     </nav>
-    <div class="menu">
-      <button class="btn ghost" id="menuBtn" aria-label="Menü">⋯</button>
+    <div class="hdrside">
+      <button class="btn primary addtop" data-add title="Buch hinzufügen (Taste N)"><svg class="ico"><use href="#i-plus"/></svg>Buch hinzufügen</button>
     </div>
-    <button class="btn primary addtop" data-add>＋ Buch hinzufügen</button>
   </div>
 </header>
+<nav class="bottomnav" aria-label="Hauptnavigation">
+  <a href="#regal" data-view="regal"><svg class="ico"><use href="#i-library"/></svg>Bibliothek</a>
+  <a href="#wand" data-view="wand"><svg class="ico"><use href="#i-shelf"/></svg>Regal</a>
+  <button class="bn-add" data-add aria-label="Buch hinzufügen"><svg class="ico"><use href="#i-plus"/></svg></button>
+  <a href="#wunsch" data-view="wunsch"><svg class="ico"><use href="#i-star"/></svg>Wünsche</a>
+  <a href="#mehr" data-view="mehr" data-also="verwaltung"><svg class="ico"><use href="#i-more"/></svg>Mehr</a>
+</nav>
 
 <main class="wrap">
   <div id="banner"></div>
 
   <section id="v-regal">
-    <div class="tools">
+    <div class="tools libtools">
+      <div class="searchrow">
+        <label class="searchbox"><svg class="ico"><use href="#i-search"/></svg><input class="field search" id="q" type="search" placeholder="Suchen: Titel, Autor …" aria-label="Bücher durchsuchen" title="Suchen (Taste /)"></label>
+        <button class="btn filterbtn" id="filterBtn" aria-expanded="false" aria-controls="fpanel"><svg class="ico"><use href="#i-filter"/></svg>Filter<span class="fcount" id="fcount"></span></button>
+      </div>
       <div class="chips" id="filters"></div>
-      <input class="field search" id="q" type="search" placeholder="Suchen: Titel, Autor …">
+      <div class="fpanel" id="fpanel">
       <span id="seriesSlot"></span>
       <span id="tagSlot"></span>
       <select class="field" id="sort" aria-label="Sortierung">
@@ -48,6 +74,11 @@
         <option value="author">Autor A–Z (Nachname)</option>
         <option value="series">Reihe &amp; Band</option>
       </select>
+      <div class="layoutsw" role="group" aria-label="Darstellung">
+        <button class="btn sm" data-layout="grid" title="Als Cover zeigen" aria-label="Als Cover zeigen"><svg class="ico"><use href="#i-grid"/></svg></button>
+        <button class="btn sm" data-layout="list" title="Als Liste zeigen" aria-label="Als Liste zeigen"><svg class="ico"><use href="#i-list"/></svg></button>
+      </div>
+      </div>
     </div>
     <div id="shelf" class="grid"></div>
   </section>
@@ -56,23 +87,21 @@
 
   <section id="v-wunsch" class="hidden"></section>
 
+  <section id="v-mehr" class="hidden"></section>
+
   <section id="v-verwaltung" class="hidden">
-    <div class="stats" id="stats"></div>
-    <div class="tools">
+    <div class="vhead"><h2>Tabelle</h2><div class="stats" id="stats"></div></div>
+    <div class="tools libtools tabletools">
+      <div class="searchrow">
+        <label class="searchbox"><svg class="ico"><use href="#i-search"/></svg><input class="field search" id="tq" type="search" placeholder="In allen Feldern suchen …" aria-label="In allen Feldern suchen"></label>
+      </div>
+      <div class="fpanel"><span id="ttagSlot"></span></div>
       <div class="chips" id="tfilters"></div>
-      <input class="field search" id="tq" type="search" placeholder="In allen Feldern suchen …">
-      <span id="ttagSlot"></span>
-      <button class="btn sm" id="coverRun">🖼 Cover nachtragen</button>
-      <button class="btn sm" id="dupRun">🧩 Dubletten prüfen</button>
-      <button class="btn sm" id="heightRun" title="Buchhöhen für Bücher mit ISBN aus der Deutschen Nationalbibliothek nachtragen">📏 Buchhöhen nachtragen</button>
-      <button class="btn sm" id="exportCsv">⬇ CSV für Excel</button>
     </div>
     <div id="tbar"></div>
     <div class="tablewrap"><table id="tbl"></table></div>
   </section>
 </main>
-
-<button class="btn primary fab" data-add>＋ Buch</button>
 
 <input type="file" id="fileCam" accept="image/*" capture="environment" class="hidden">
 <input type="file" id="filePick" accept="image/*" class="hidden">

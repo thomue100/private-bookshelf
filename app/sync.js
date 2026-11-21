@@ -315,7 +315,7 @@ function syRefresh() {
   if (!SY.conf?.on) { dot?.remove(); return; }
   if (!dot) {
     dot = el("button", { id: "syncDot", class: "btn ghost syncdot", onclick: openSyncSettings }, "⟳");
-    const m = document.querySelector("header .menu"); if (m) m.before(dot); else return;
+    const m = document.querySelector("header .hdrside"); if (m) m.prepend(dot); else return;
   }
   dot.classList.toggle("busy", SY.running); dot.classList.toggle("err", !!SY.lastError && !SY.running);
   dot.title = SY.running ? (SY.status || "Gleiche ab …") : SY.lastError ? "Abgleich: " + SY.lastError : "Abgleich mit deinem Server ist aktiv";

@@ -27,11 +27,18 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
    und nur bei Bedarf nachgeladen (ZXing).
 5. **Oberfläche auf Deutsch**, freundlich und ohne Fachjargon. Muss am Handy (390 px breit) und am PC benutzbar sein.
 
+## Oberfläche (Designsystem)
+
+- Werte nur über die Variablen in `style.css` (`:root`): Farben (`--accent`, `--on-accent` für Text auf Akzent …), Schrift `--fs-xs … --fs-xxl`, Abstände `--sp-1 … --sp-6`, Radien `--r-sm/--r-md/--r-lg/--r-pill`. Neue Stile lieber als Klasse (Hilfsklassen `.hstack`, `.vstack`, `.grow`, `.muted`, `.small`, `.mt-1…5`) statt Inline-`style`.
+- Umbruchpunkte: Handy `max-width:759px` (Leiste unten, `--navh` = ihre Höhe – alles, was unten schwebt, rechnet sie ein), kleines Handy `480px`; `899px` nur fürs echte Regal mit Seitenleiste.
+- Seltenes gehört auf die Seite **„Mehr“** (`renderMore`, Zeilen `.mrow` mit fester `id`), nicht als weiterer Knopf in Kopfzeile oder Werkzeugleisten. Im echten Regal: Häufiges direkt, Seltenes unter „⋯ Mehr“ (`details.wmenu`).
+- Tastenkürzel: `/` Suche, `N` Buch hinzufügen (nicht in Eingabefeldern, nicht bei offenem Blatt).
+
 ## Aufbau
 
 | Datei | Inhalt |
 |---|---|
-| `app/index.html` | Gerüst, Navigation (`#regal`, `#wand`, `#wunsch`, `#verwaltung`), Skripte in fester Reihenfolge (alle `defer`) |
+| `app/index.html` | Gerüst, SVG-Symbole (`#i-…`, in JS über `icon(name)`), Navigation: PC Kopfzeile `nav.topnav`, Handy Leiste unten `nav.bottomnav`; Ansichten `#regal` (Bibliothek), `#wand` (Regal), `#wunsch`, `#mehr`, `#verwaltung` (Tabelle) – Liste `VIEWS` in app.js; Skripte in fester Reihenfolge (alle `defer`) |
 | `app/app.js` | Kern: Zustand `S`, `DB` (IndexedDB), Rendering aller Ansichten, Erfassen/Bearbeiten, Katalogsuche, echtes Regal (Montana-Würfel), Tabelle mit Filtern/Sortierung, Import/Export, Einfügen/Ziehen von Bildern |
 | `app/reclog.js` | Erkennungsprotokoll: `recRun`, `recAi`, `recBook`, `recSearch` (Meta `recLog`, letzte 30 Läufe, nur Gerät, Schlüssel werden entfernt), Ansicht `openRecLog`. Katalogabfragen je Quelle über `catTrack` (app.js) – `searchBooks(q, log)`, `lookupIsbn(isbn, log)`, `matchItem(it, log)`; KI-Anfragen über `aiRequest` (shelfscan.js) |
 | `evalrun/eval.spec.js` | `npm run eval` (eigene Konfiguration `playwright.eval.config.js`, echtes Internet): wertet Fotos in `eval/` (nicht im Repo) mit `recognizeShelf` aus |

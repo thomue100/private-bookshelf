@@ -114,7 +114,7 @@ async function wall(page) {
   await expect(page.locator(".wall .fach").first()).toBeVisible();
 }
 async function pasteAndSearch(page, text) {
-  await page.click("button:text-is('📋 Titelliste einfügen')");
+  await page.click("#addTitleList");
   await page.fill(".tltext", text);
   await page.click("text=Weiter: Liste prüfen");
   await expect(page.locator(".tlrow")).toHaveCount(text.split("\n").filter(Boolean).length);
@@ -196,7 +196,7 @@ test("Titelliste: Neustart mitten in der Suche → „Titelliste weiter prüfen�
   });
   await openApp(page);
   await page.evaluate(() => openAdd());
-  await page.click("button:text-is('📋 Titelliste einfügen')");
+  await page.click("#addTitleList");
   await page.fill(".tltext", LIST);
   await page.click("text=Weiter: Liste prüfen");
   await page.click(".actions.sticky .btn.primary");

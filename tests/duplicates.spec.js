@@ -23,7 +23,9 @@ const groups = page => page.evaluate(() => dupGroups().map(g => g.map(b => b.id)
 test("Erkennung: gleiche ISBN (auch 10/13) oder gleicher Titel+Autor – andere ISBN/Band-Nr. zählt nicht", async ({ page }) => {
   await seed(page);
   expect(await groups(page)).toEqual([["m1", "m2"], ["s1", "s2"]]);
-  await expect(page.locator("#dupRun")).toHaveText("🧩 Dubletten prüfen (4)");
+  await page.evaluate(() => { location.hash = "#mehr"; });
+  await expect(page.locator("#dupRun .mcount")).toHaveText("4");
+  await page.evaluate(() => { location.hash = "#verwaltung"; });
   await page.click("#tfilters >> text=Mögliche Dubletten");
   await expect(page.locator("#tbl tbody tr")).toHaveCount(4);
 });
@@ -39,6 +41,7 @@ test("Zusammenführen übernimmt Angaben, Lesezeiten, Bilder und den Regalplatz"
     await placeBook("m2", S.shelves.walls[0].columns[0].modules[0], "TL", 1);
   });
 
+  await page.evaluate(() => { location.hash = "#mehr"; });
   await page.click("#dupRun");
   const card = page.locator(".dupgroup", { hasText: "Momo" });
   await expect(card.locator(".duprow")).toHaveCount(2);
@@ -62,6 +65,7 @@ test("Zusammenführen übernimmt Angaben, Lesezeiten, Bilder und den Regalplatz"
 
 test("„Sind verschiedene Bücher“ wird gemerkt, landet in der Sicherung und lässt sich wieder einlesen", async ({ page, browser }) => {
   await seed(page);
+  await page.evaluate(() => { location.hash = "#mehr"; });
   await page.click("#dupRun");
   await page.locator(".dupgroup", { hasText: "Steppenwolf" }).getByRole("button", { name: "Sind verschiedene Bücher" }).click();
   await expect(page.locator(".dupgroup")).toHaveCount(1);

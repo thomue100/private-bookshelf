@@ -25,7 +25,7 @@ test("Suchlauf: per ISBN sicher → automatisch; mehrere Ausgaben → Nachfrage"
   await page.evaluate(() => patchBook("b0", { isbn: "9783423000000" }));
   expect(await page.evaluate(() => S.books.filter(needsCover).map(b => b.id))).toEqual(["b0", "b2", "b4", "b6", "b8", "b10"]);
 
-  await page.click("text=🖼 Cover online nachtragen");
+  await page.click("text=🖼 Cover nachtragen");
   const ask = page.locator(".sheet .actions .btn.primary");
   await expect(ask).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => state(page, "b0")).toEqual([true, expect.any(String)]);

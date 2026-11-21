@@ -37,7 +37,7 @@ test("Stapel: Barcode, Cover- und Rückenfoto, Buch ohne Barcode per Sammelauftr
   await openApp(page);
   await page.evaluate(() => localStorage.setItem("aiKey", "sk-ant-test"));
   await page.evaluate(() => openAdd());
-  await page.click("button:text-is('📚 Stapel erfassen')");
+  await page.click("#addStack");
   await expect(page.locator(".scan.stack")).toBeVisible();
   await expect(count(page)).toHaveText("📚 0 im Stapel");
 
@@ -81,7 +81,7 @@ test("Stapel überlebt einen Neustart; angefangene Suchen laufen beim Öffnen we
   await fakeCamera(page);
   await openApp(page);
   await page.evaluate(() => openAdd());
-  await page.click("button:text-is('📚 Stapel erfassen')");
+  await page.click("#addStack");
   await code(page, A);
   await expect(count(page)).toHaveText("📚 1 im Stapel");
   await page.click(".scan.stack button:text-is('📷 Cover')");

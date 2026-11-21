@@ -78,7 +78,7 @@ test("KI liefert Ecken: Cover und Rücken werden aus einem Foto zugeschnitten un
   const file = await slantedBookPng(page);
   await page.evaluate(() => openAdd());
   const chooser = page.waitForEvent("filechooser");
-  await page.click("text=🖼 Cover-Bild wählen");
+  await page.click("#addCover");
   await (await chooser).setFiles(file);
   await expect(page.locator(".sheet h2")).toHaveText("Prüfen & speichern");
   await expect(page.locator(".spphoto .spmini .face.img")).toHaveCount(1);
@@ -101,7 +101,7 @@ test("Alte KI-Antwort ohne Ecken: das ganze Foto bleibt Cover, kein Rücken", as
   const file = await slantedBookPng(page);
   await page.evaluate(() => openAdd());
   const chooser = page.waitForEvent("filechooser");
-  await page.click("text=🖼 Cover-Bild wählen");
+  await page.click("#addCover");
   await (await chooser).setFiles(file);
   await page.locator(".cand").first().click();
   await expect(page.locator(".sheet h2")).toHaveText("Prüfen & speichern");

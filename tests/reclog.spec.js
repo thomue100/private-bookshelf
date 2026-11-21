@@ -81,7 +81,7 @@ test("Cover-Foto, Barcode und Titelsuche werden ebenfalls protokolliert", async 
   // Cover-Foto
   await page.evaluate(() => openAdd());
   const chooser = page.waitForEvent("filechooser");
-  await page.click("text=🖼 Cover-Bild wählen");
+  await page.click("#addCover");
   await (await chooser).setFiles(fixture("cover-a.jpg"));
   await expect(page.locator(".cand").first()).toBeVisible();
   await expect.poll(async () => (await lastRun(page))?.searches?.length).toBe(1);

@@ -34,7 +34,10 @@ const fillNode = (node, ...kids) => node.replaceChildren(...kids.flat().filter(k
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const isMobile = () => matchMedia("(pointer:coarse)").matches;
+/** Symbol aus dem SVG-Satz in index.html (#i-…): library, shelf, star, more, plus, table, search, filter, chevron, camera, barcode */
+const icon = name => { const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), u = document.createElementNS(ns, "use"); s.setAttribute("class", "ico"); s.setAttribute("aria-hidden", "true"); u.setAttribute("href", "#i-" + name); s.append(u); return s; };
 function toast(msg, ms = 2800) { document.querySelectorAll(".toast").forEach(x => x.remove()); const t = el("div", { class: "toast", text: msg }); document.body.append(t); setTimeout(() => t.remove(), ms); return t; }
+function toastAction(msg, label, fn, ms = 6000) { const t = toast(msg, ms); t.classList.add("act"); t.append(el("button", { class: "tact", onclick: () => { t.remove(); fn(); } }, label)); return t; }
 function setBanner(t, btn) { $("#banner").replaceChildren(el("div", { class: "banner" }, t, btn || null)); }
 
 /* ================= Speicher (IndexedDB) ================= */
@@ -162,8 +165,9 @@ function coverEl(b, { badge = false, src } = {}) {
   };
   if (src) { const img = el("img", { src, alt: "", loading: "lazy" }); img.onerror = () => { img.replaceWith(ph()); if (b.id && !b.coverBlob && src === b.coverUrl && !S.badCover.has(b.id)) { S.badCover.add(b.id); scheduleRender(); } }; c.append(img); }
   else c.append(ph());
-  if (b.favorite) c.append(el("span", { class: "favbadge", title: "Lieblingsbuch", text: "♥" }));
-  if (badge && b.status && b.status !== "unread") c.append(el("span", { class: "badge", style: `background:${STATUS_COLOR[b.status]}`, text: b.status === "read" ? "✓ Gelesen" : "Liest du" }));
+  const st = badge && b.status && b.status !== "unread" ? el("span", { class: "badge " + b.status, text: b.status === "read" ? "✓ Gelesen" : "📖 Lese ich" }) : null;
+  const fav = b.favorite ? el("span", { class: "favbadge", title: "Lieblingsbuch", "aria-label": "Lieblingsbuch", text: "♥" }) : null;
+  if (st || fav) { c.classList.add("hasbar"); c.append(el("span", { class: "cbar" }, st, fav)); }
   return c;
 }
 function lastName(a) { const first = (a || "").split(/[,;&]| und /)[0].trim(); const p = first.split(/\s+/); return (p[p.length - 1] || "").toLowerCase(); }
@@ -882,17 +886,17 @@ function renderAll() {
   if (openSheet?.redraw) openSheet.redraw(); // offene Übersicht (z. B. Fach-Fotos) nach Abgleich/Import aktualisieren
   renderNav();
   const v = view();
-  if (v === "verwaltung") renderTable(); else if (v === "wand") renderWall(); else if (v === "wunsch") renderWish(); else renderShelf();
+  if (v === "verwaltung") renderTable(); else if (v === "wand") renderWall(); else if (v === "wunsch") renderWish(); else if (v === "mehr") renderMore(); else renderShelf();
 }
-function view() { return location.hash === "#verwaltung" ? "verwaltung" : location.hash === "#wand" ? "wand" : location.hash === "#wunsch" ? "wunsch" : "regal"; }
+const VIEWS = ["regal", "wand", "wunsch", "mehr", "verwaltung"];
+function view() { const h = location.hash.slice(1); return VIEWS.includes(h) ? h : "regal"; }
 function renderNav() {
   const v = view();
-  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.view === v));
-  $("#v-regal").classList.toggle("hidden", v !== "regal");
-  $("#v-verwaltung").classList.toggle("hidden", v !== "verwaltung");
-  $("#v-wand").classList.toggle("hidden", v !== "wand");
-  $("#v-wunsch").classList.toggle("hidden", v !== "wunsch");
-  $(".fab").classList.toggle("hidden", v === "wand");
+  document.querySelectorAll("nav a").forEach(a => {
+    const on = a.dataset.view === v || (a.dataset.also || "").split(" ").includes(v);
+    a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  for (const k of VIEWS) $("#v-" + k).classList.toggle("hidden", v !== k);
   document.body.classList.toggle("wandbig", v === "wand" && !!S.wallBig);
 }
 function counts(list = S.books) { const c = { all: list.length, unread: 0, reading: 0, read: 0 }; for (const b of list) c[b.status || "unread"]++; return c; }
@@ -910,9 +914,14 @@ function renderShelf() {
   const nFav = owned.filter(b => b.favorite).length;
   $("#filters").append(el("button", { class: "chip fav" + (S.favOnly ? " on" : ""), title: "Nur Lieblingsbücher (zusätzlich zum Status-Filter)", onclick: () => { S.favOnly = !S.favOnly; renderShelf(); } }, "♥ Lieblingsbücher", el("span", { class: "n", text: nFav })));
   const host = $("#shelf");
+  host.classList.toggle("list", S.layout === "list");
+  document.querySelectorAll(".layoutsw [data-layout]").forEach(x => { const on = x.dataset.layout === (S.layout || "grid"); x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
   if (!S.loaded) { host.replaceChildren(el("div", { class: "empty", style: "grid-column:1/-1" }, el("div", { class: "spin", style: "margin:0 auto" }))); return; }
   const tagSlot = $("#tagSlot"); if (tagSlot) fillNode(tagSlot, tagFilterSelect(S.tag, t => { S.tag = t; renderShelf(); }, S.books));
   if (S.tag && !allTags().some(t => t.name.toLowerCase() === S.tag.toLowerCase())) S.tag = "";
+  // Filter-Knopf (Handy): Zahl der aktiven Zusatzfilter
+  const nExtra = (S.tag ? 1 : 0) + (S.series ? 1 : 0);
+  $("#fcount").textContent = nExtra || ""; $("#filterBtn").classList.toggle("on", !!nExtra);
   const list = owned.filter(b => (S.filter === "all" || (b.status || "unread") === S.filter) && (!S.favOnly || b.favorite) && (!S.tag || hasTag(b, S.tag)) && (!S.series || inSeries(b, S.series)) && matchQ(b, S.q));
   const goneList = S.books.filter(b => isGone(b) && matchQ(b, S.q) && (!S.favOnly || b.favorite) && (!S.tag || hasTag(b, S.tag))).sort((a, b) => (b.gone.date || "").localeCompare(a.gone.date || ""));
   const cmp = {
@@ -923,39 +932,64 @@ function renderShelf() {
     "series": bySeries,
   }[S.sort];
   list.sort(S.series ? bySeries : cmp);
+  const plain = !S.q && S.filter === "all" && !S.favOnly && !S.tag && !S.series;
   const goneSec = goneList.length ? el("div", { class: "gonesec", style: "grid-column:1/-1" },
     el("button", { class: "gonehead", onclick: () => { S.hideGone = !S.hideGone; try { localStorage.setItem("hideGone", S.hideGone ? "1" : ""); } catch {} renderShelf(); } },
       el("span", { text: (S.hideGone ? "▸ " : "▾ ") + "📦 Hatte ich mal" }), el("span", { class: "n", text: goneList.length })),
     S.hideGone ? null : el("div", { class: "grid gonegrid" }, ...goneList.map(b => el("button", { class: "card gone", onclick: () => openDetail(b.id) },
       coverEl(b), el("div", { class: "ti", text: b.title || "Ohne Titel" }), el("div", { class: "au", text: b.author || "—" }), el("div", { class: "gt", text: goneText(b.gone) }))))) : null;
+  // Hinweis „ohne Cover“: einzeilig; „Später“ gilt, bis neue Bücher ohne Cover dazukommen
   const noCov = S.books.filter(needsCover).length;
-  const covNote = noCov && !S.q && S.filter === "all" && !S.favOnly && !S.tag && !S.series && !S.hideCovNote ? el("div", { class: "note info", style: "grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
-    el("span", { style: "flex:1", text: `${noCov} ${noCov === 1 ? "Buch hat" : "Bücher haben"} noch kein Cover.` }),
-    el("button", { class: "btn sm primary", onclick: () => coverRun() }, "🖼 Cover online nachtragen"),
-    el("button", { class: "btn sm ghost", onclick: () => { S.hideCovNote = true; renderShelf(); } }, "Später")) : null;
+  let covSeen = 0; try { covSeen = +localStorage.getItem("covNoteSeen") || 0; } catch {}
+  const covNote = noCov && plain && !S.hideCovNote && noCov > covSeen ? el("div", { class: "hint", style: "grid-column:1/-1" },
+    el("span", { class: "grow", text: `${noCov} ${noCov === 1 ? "Buch" : "Bücher"} ohne Cover` }),
+    el("button", { class: "btn sm primary", onclick: () => coverRun() }, "🖼 Cover nachtragen"),
+    el("button", { class: "btn sm ghost", onclick: () => { S.hideCovNote = true; try { localStorage.setItem("covNoteSeen", String(noCov)); } catch {} renderShelf(); } }, "Später")) : null;
+  // Gerade dabei: aktuelle Bücher oben, mit „Ausgelesen“ in einem Tipp
+  const reading = plain ? owned.filter(b => b.status === "reading").sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")) : [];
+  const nowSec = reading.length ? el("section", { class: "nowreading", style: "grid-column:1/-1", "aria-label": "Gerade dabei" },
+    el("h2", { text: "Gerade dabei" }),
+    el("div", { class: "nrrow" }, ...reading.map(b => {
+      const open = [...readsOf(b)].reverse().find(r => r.start && !r.end);
+      return el("div", { class: "nrcard" },
+        el("button", { class: "nrmain", onclick: () => openDetail(b.id) }, coverEl(b),
+          el("span", { class: "nrtxt" }, el("b", { text: b.title || "Ohne Titel" }), el("span", { text: b.author || "" }), open ? el("small", { text: "seit " + fmtD(open.start) }) : null)),
+        el("button", { class: "btn sm nrdone", title: "Als gelesen markieren", onclick: async () => {
+          const before = { status: b.status, reads: b.reads };
+          await patchBook(b.id, statusPatch(b, "read"));
+          toastAction(`„${b.title || "Ohne Titel"}“ ist gelesen.`, "Rückgängig", () => patchBook(b.id, before));
+        } }, "✓ Ausgelesen"));
+    }))) : null;
   const wishHits = S.q ? S.books.filter(b => isWish(b) && matchQ(b, S.q)).length : 0;
   const wishNote = wishHits ? el("div", { class: "saved", style: "grid-column:1/-1" }, `Auch auf deiner Wunschliste: ${wishHits} Treffer – `, el("a", { href: "#wunsch", onclick: () => { S.wishQ = S.q; } }, "anzeigen")) : null;
   if (!list.length && goneSec && S.books.some(b => !isGone(b)) === false) { host.replaceChildren(goneSec); return; }
   if (!list.length) {
     host.replaceChildren(el("div", { class: "empty", style: "grid-column:1/-1" },
-      S.books.length ? el("div", {}, el("h2", { text: "Nichts gefunden" }), el("p", { text: "Kein Buch passt zu Filter oder Suche." }))
-        : el("div", {}, el("h2", { text: "Dein Regal ist noch leer" }), el("p", { text: "Scanne den Barcode eines Buches, fotografiere das Cover oder suche nach Titel." }),
+      S.books.length ? el("div", {}, el("h2", { text: "Nichts gefunden" }), el("p", { text: "Kein Buch passt zu Filter oder Suche." }),
+        !plain ? el("button", { class: "btn", onclick: () => { S.q = ""; $("#q").value = ""; S.filter = "all"; S.favOnly = false; S.tag = ""; S.series = ""; renderShelf(); } }, "Filter zurücksetzen") : null)
+        : el("div", {}, el("div", { class: "emptyart", "aria-hidden": "true", text: "📚" }), el("h2", { text: "Dein Regal ist noch leer" }), el("p", { text: "Scanne den Barcode eines Buches, fotografiere das Cover oder suche nach Titel." }),
           el("button", { class: "btn primary", onclick: openAdd }, "＋ Erstes Buch hinzufügen"),
           el("p", { style: "margin-top:18px;font-size:13px" }, "Du hast schon Bücher auf einem anderen Gerät? ", el("a", { href: "#", onclick: e => { e.preventDefault(); importFlow(); } }, "Sicherung importieren")))), wishNote || "", goneSec || "");
     return;
   }
-  fillNode(host, covNote, ...list.map(b => el("button", { class: "card", onclick: () => openDetail(b.id) },
+  // Liste: Standort einmal für alle nachschlagen (statt je Buch durch alle Fächer)
+  const locs = new Map();
+  if (S.layout === "list") for (const f of allFachs()) f.list.forEach((id, i) => { if (!locs.has(id)) locs.set(id, { ...f, pos: i }); });
+  const nReads = b => readsOf(b).filter(r => r.end).length;
+  fillNode(host, covNote, nowSec, ...list.map(b => el("button", { class: "card", onclick: () => openDetail(b.id) },
     coverEl(b, { badge: true }), el("div", { class: "ti", text: b.title || "Ohne Titel" }), el("div", { class: "au", text: b.author || "—" }),
-    b.series && (S.series || S.sort === "series") ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: seriesText(b) }) : null,
-    b.rating ? el("div", { class: "st", text: "★".repeat(b.rating) + (readsOf(b).filter(r => r.end).length > 1 ? "  ·  " + readsSummary(b) : "") }) : (readsOf(b).filter(r => r.end).length > 1 ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: readsSummary(b) }) : null))), wishNote, goneSec);
+    b.series && (S.series || S.sort === "series" || S.layout === "list") ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: seriesText(b) }) : null,
+    b.rating ? el("div", { class: "st", text: "★".repeat(b.rating) + (nReads(b) > 1 ? "  ·  " + readsSummary(b) : "") }) : (nReads(b) > 1 ? el("div", { class: "st", style: "color:var(--muted);letter-spacing:0", text: readsSummary(b) }) : null),
+    S.layout === "list" ? el("div", { class: "lo" }, el("span", { class: "dot", style: `background:${STATUS_COLOR[b.status || "unread"]}` }), { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" }[b.status || "unread"],
+      locs.get(b.id) ? " · " + locationShort(locs.get(b.id)) : "") : null)), wishNote, goneSec);
 }
 try { S.hideGone = !!localStorage.getItem("hideGone"); } catch {}
 
 /* ================= Ansicht: Wunschliste ================= */
 function renderWish() {
   const host = $("#v-wunsch"); if (!host || host.classList.contains("hidden")) return;
-  const q = el("input", { class: "field search", type: "search", placeholder: "In der Wunschliste suchen …", value: S.wishQ || "" });
-  const sort = el("select", { class: "field" }, ...[["added-desc", "Zuletzt hinzugefügt"], ["title", "Titel A–Z"], ["author", "Autor A–Z"], ["series", "Reihe & Band"], ["price", "Preis aufsteigend"]].map(([v, l]) => el("option", { value: v, selected: (S.wishSort || "added-desc") === v || null }, l)));
+  const q = el("input", { class: "field search", type: "search", placeholder: "In der Wunschliste suchen …", value: S.wishQ || "", "aria-label": "Wunschliste durchsuchen" });
+  const sort = el("select", { class: "field", "aria-label": "Sortierung" }, ...[["added-desc", "Zuletzt hinzugefügt"], ["title", "Titel A–Z"], ["author", "Autor A–Z"], ["series", "Reihe & Band"], ["price", "Preis aufsteigend"]].map(([v, l]) => el("option", { value: v, selected: (S.wishSort || "added-desc") === v || null }, l)));
   const grid = el("div", { class: "grid" });
   const sumEl = el("span", { class: "saved" });
   const draw = () => {
@@ -973,13 +1007,72 @@ function renderWish() {
   q.addEventListener("input", () => { S.wishQ = q.value; draw(); });
   sort.addEventListener("change", () => { S.wishSort = sort.value; draw(); });
   fillNode(host,
-    el("div", { class: "tools" }, el("h2", { style: "font-size:20px", text: "⭐ Wunschliste" }), sumEl, el("span", { style: "flex:1" }), q, sort,
-      el("button", { class: "btn primary", onclick: () => openAdd(true) }, "＋ Wunsch hinzufügen")),
-    el("p", { class: "saved", style: "margin:0", text: "Getrennt von deinem Bestand: Wünsche erscheinen nicht im Regal und nicht im echten Regal und zählen nicht mit. Gekauft? Buch öffnen → „✓ Gekauft“." }),
+    el("div", { class: "vhead" }, el("h2", { text: "Wunschliste" }), sumEl),
+    el("div", { class: "tools libtools wishtools" },
+      el("div", { class: "searchrow" }, el("label", { class: "searchbox" }, icon("search"), q)),
+      el("div", { class: "fpanel wishpanel" }, sort, el("button", { class: "btn primary", onclick: () => openAdd(true) }, "＋ Wunsch hinzufügen"))),
+    el("p", { class: "saved vnote", text: "Wünsche zählen nicht zu deinem Bestand. Gekauft? Buch öffnen → „✓ Gekauft“." }),
     grid);
   draw();
 }
+/* ================= Ansicht: Mehr ================= */
+/* Alles, was nicht täglich gebraucht wird, an genau einer Stelle – in Gruppen. Funktionen aus den Zusatzdateien werden erst beim Antippen
+   aufgerufen (die Seite kann schon vor dem Laden aller Skripte gezeichnet werden). */
+const call = (name, ...a) => () => { const f = globalThis[name]; if (typeof f === "function") f(...a); };
+function renderMore() {
+  const host = $("#v-mehr"); if (!host || host.classList.contains("hidden")) return;
+  const owned = S.books.filter(inStock), c = counts(owned);
+  const nPhotos = openPhotos().length, nStack = (S.stack || []).length;
+  const nCover = S.books.filter(needsCover).length;
+  const nDup = S.loaded ? dupGroups().reduce((n, g) => n + g.length, 0) : 0;
+  const row = (id, ico, label, sub, fn, n, warn) => el("button", { class: "mrow", id, onclick: fn },
+    el("span", { class: "mico", "aria-hidden": "true", text: ico }),
+    el("span", { class: "mtxt" }, el("b", { text: label }), sub ? el("small", { text: sub }) : null),
+    n ? el("span", { class: "mcount" + (warn ? " warn" : ""), text: n }) : null,
+    icon("chevron"));
+  const group = (title, ...rows) => el("section", { class: "mgroup" }, el("h3", { text: title }), el("div", { class: "mlist" }, ...rows));
+  const stat = (n, l) => el("span", {}, el("b", { text: n }), l);
+  fillNode(host,
+    el("div", { class: "mhead" }, el("h2", { text: "Mehr" }),
+      el("div", { class: "mstats" }, stat(c.all, "im Bestand"), stat(c.read, "gelesen"), stat(c.reading, "gerade dabei"), stat(S.books.filter(isWish).length, "Wünsche"))),
+    el("div", { class: "mgrid" },
+      group("Viele Bücher erfassen",
+        row("stackRun", "📚", "Stapel erfassen", nStack ? `${nStack} im Stapel – weiter erfassen oder prüfen` : "Kamera bleibt offen, ein Buch nach dem anderen", call("openStackCapture"), nStack),
+        row("shelfScanRun", "📷", "Fach-Foto einlesen", "Ein ganzes Regalfach fotografieren", call("openShelfScan")),
+        row("photoInboxRun", "📥", "Gespeicherte Fach-Fotos", nPhotos ? `${nPhotos} noch nicht übernommen` : "Später erkennen und einsortieren", call("openPhotoInbox"), nPhotos),
+        row("titleListRun", "📋", "Titelliste einfügen", S.titleRun ? "Angefangene Liste weiter prüfen" : "Aus Excel, einer Notiz oder Mail", S.titleRun ? call("resumeTitleList") : call("openTitleList"))),
+      group("Bestand pflegen",
+        row("tableRun", "▦", "Tabelle", "Alle Bücher als Liste bearbeiten, filtern, auswählen", () => { location.hash = "#verwaltung"; }),
+        row("coverRun", "🖼", "Fehlende Cover nachtragen", nCover ? `${nCover} ${nCover === 1 ? "Buch" : "Bücher"} ohne Cover` : "Alle Bücher haben ein Cover", call("coverRun"), nCover),
+        row("dupRun", "🧩", "Dubletten prüfen", nDup ? `${nDup} Bücher sehen doppelt aus` : "Keine möglichen Dubletten", call("openDuplicates"), nDup, true),
+        row("heightRun", "📏", "Buchhöhen nachtragen", "Aus der Deutschen Nationalbibliothek, für das echte Regal", () => heightRun())),
+      group("Daten & Sicherung",
+        row("exportRun", "⬆", "Sicherung exportieren", "Als Datei speichern oder an den PC senden", exportFlow),
+        row("importRun", "⬇", "Sicherung importieren", "Datei von einem anderen Gerät übernehmen und abgleichen", importFlow),
+        row("autoBackupRun", "💾", "Automatische Sicherung", "Regelmäßig in einen Ordner auf diesem Gerät", call("openAutoBackup")),
+        row("syncRun", "🔄", "Abgleich mit eigenem Server", "Handy und PC über deinen CouchDB-Server", call("openSyncSettings")),
+        row("exportCsv", "📊", "Als CSV für Excel exportieren", "", exportCsv)),
+      group("Einstellungen & Hilfe",
+        row("aboutRun", "⚙️", "Einstellungen & Über die App", "Schlüssel für Google und KI, Hinweise zu deinen Daten", aboutBox),
+        row("providerRun", "🔗", "Suchseiten wählen", "ZVAB, SLUB, booklooker …", providerSettings),
+        row("recLogRun", "🧾", "Erkennungsprotokoll", "Was die Erkennung zuletzt gemacht hat", call("openRecLog")))),
+    el("p", { class: "mfoot", text: "Deine Bücher liegen nur in diesem Browser auf diesem Gerät. Abgleich zwischen Geräten: hier exportieren, dort importieren – neuere Änderungen gewinnen." }));
+}
+
+document.addEventListener("click", e => { document.querySelectorAll("details.wmenu[open]").forEach(d => { if (!d.contains(e.target) || e.target.closest(".wmenu-list button")) d.open = false; }); });
+
+/* Tastenkürzel am PC: / = suchen, N = Buch hinzufügen */
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || openSheet || $(".scan") || $(".confirm")) return;
+  const t = e.target; if (t.closest && t.closest("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "/") { e.preventDefault(); if (view() !== "regal") location.hash = "#regal"; setTimeout(() => $("#q").focus(), 0); }
+  else if (e.key === "n" || e.key === "N") { e.preventDefault(); openAdd(view() === "wunsch"); }
+});
+
 $("#q").addEventListener("input", e => { S.q = e.target.value; renderShelf(); });
+$("#filterBtn").addEventListener("click", () => { const p = $("#fpanel"), open = !p.classList.contains("open"); p.classList.toggle("open", open); $("#filterBtn").setAttribute("aria-expanded", open); });
+try { S.layout = localStorage.getItem("libLayout") || "grid"; } catch { S.layout = "grid"; }
+document.querySelectorAll(".layoutsw [data-layout]").forEach(x => x.addEventListener("click", () => { S.layout = x.dataset.layout; try { localStorage.setItem("libLayout", S.layout); } catch {} renderShelf(); }));
 try { const s = localStorage.getItem("shelfSort"); if (s) { S.sort = s; $("#sort").value = s; } } catch {}
 $("#sort").addEventListener("change", e => { S.sort = e.target.value; try { localStorage.setItem("shelfSort", S.sort); } catch {} renderShelf(); });
 window.addEventListener("hashchange", renderAll);
@@ -1167,40 +1260,47 @@ function openAdd(asWish) {
   const sh = sheet(S.addAsWish ? "⭐ Wunsch hinzufügen" : "Buch hinzufügen");
   sh.webTake = true; // Zwischenablage-Angebot darf hier ein Buch übernehmen
   const m = isMobile();
-  const scanBtn = el("button", { class: "btn primary", onclick: startLiveScan }, "▦ Barcode scannen");
-  const isbnRow = webTakeField("ISBN eintippen oder Link einfügen");
-  const qIn = el("input", { class: "field", type: "search", placeholder: "Titel und/oder Autor" });
-  const qGo = () => { if (qIn.value.trim()) showSearch(qIn.value.trim(), null); };
+  // Ein Feld für alles: ISBN → Buchdaten, Link/kopierter Text → ISBN oder Titel daraus, sonst Katalogsuche
+  const qIn = el("input", { class: "field", type: "search", placeholder: "Titel, Autor, ISBN oder Link", autocomplete: "off", "aria-label": "Titel, Autor, ISBN oder Link", enterkeyhint: "search" });
+  const qGo = () => {
+    const v = qIn.value.trim(); if (!v) { qIn.focus(); return; }
+    const i = toIsbn13(v); if (i) { handleIsbn(i); return; }
+    if (/https?:\/\//.test(v) || (typeof isbnsIn === "function" && isbnsIn(v).length)) { takeFromWeb(v); return; }
+    showSearch(v, null);
+  };
   qIn.addEventListener("keydown", e => { if (e.key === "Enter") qGo(); });
+  qIn.addEventListener("paste", () => setTimeout(() => { if (/https?:\/\/|97[89]/.test(qIn.value)) qGo(); }, 50)); // eingefügter Link: gleich los
+  const coverPick = async cam => { const f = await pickImage(cam); if (f) coverFlow(f); };
+  const way = (id, ico, title, sub, fn, primary) => el("button", { class: "qway" + (primary ? " primary" : ""), id, onclick: fn }, icon(ico), el("b", { text: title }), el("small", { text: sub }));
+  const many = (id, ico, label, sub, fn) => el("button", { class: "mrow", id, onclick: fn },
+    el("span", { class: "mico", "aria-hidden": "true", text: ico }), el("span", { class: "mtxt" }, el("b", { text: label }), el("small", { text: sub })), icon("chevron"));
+  const nStack = (S.stack || []).length;
   fillNode(sh.body,
     presetBarEl(), // Vorgaben für Stapel und „Speichern & nächstes“
-    el("div", { class: "ways" },
-      el("div", { class: "way" }, el("h3", { text: "Weg A · Barcode" }),
-        el("p", { text: "Kamera über den ISBN-Barcode auf der Rückseite halten – Titel, Autor, Klappentext und Cover werden aus dem Internet geladen." }),
-        el("div", { class: "row" }, scanBtn, el("button", { class: "btn", onclick: async () => { const f = await pickImage(m); if (f) barcodeFromPhoto(f); } }, m ? "📷 Foto" : "🖼 Bild mit Barcode"))),
-      el("div", { class: "way" }, el("h3", { text: "Weg B · Cover-Foto" }),
-        el("p", { text: "Für Bücher ohne Barcode: Vorderseite fotografieren. Die App liest Titel und Autor vom Bild und sucht passende Bücher." }),
-        el("div", { class: "row" },
-          m ? el("button", { class: "btn primary", onclick: async () => { const f = await pickImage(true); if (f) coverFlow(f); } }, "📷 Cover fotografieren") : null,
-          el("button", { class: "btn" + (m ? "" : " primary"), onclick: async () => { const f = await pickImage(false); if (f) coverFlow(f); } }, m ? "Aus Galerie" : "🖼 Cover-Bild wählen")))),
-    m ? null : dropZone("…oder ein Cover-Bild hierher ziehen bzw. mit Strg+V einfügen", f => coverFlow(f)),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg C · Fach-Foto (viele Bücher auf einmal)" }),
-      el("p", { text: "Ein ganzes Regalfach fotografieren: Die App erkennt alle Buchrücken, sucht die Buchdaten und stellt die Bücher in der richtigen Reihenfolge ins echte Regal." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"))),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "📋 Titelliste einfügen (viele Bücher auf einmal)" }),
-      el("p", { text: S.addAsWish ? "Eine Liste aus Excel, einer Notiz oder Mail einfügen – die App sucht jedes Buch und setzt es nach deiner Prüfung auf die Wunschliste." : "Eine Liste aus Excel, einer Notiz oder Mail einfügen – die App sucht jedes Buch in den Katalogen. Nur unsichere Treffer musst du prüfen." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openTitleList() }, "📋 Titelliste einfügen"),
-        S.titleRun ? el("button", { class: "btn", onclick: () => resumeTitleList() }, "Titelliste weiter prüfen") : null)),
-    el("div", { class: "way", style: "margin-top:14px" }, el("h3", { text: "Weg D · 📚 Stapel erfassen (viele Bücher nacheinander)" }),
-      el("p", { text: "Die Kamera bleibt offen: Barcode scannen, auf Wunsch Cover und Rücken fotografieren, nächstes Buch. Bücher ohne Barcode: Cover fotografieren. Am Ende prüfst du alles auf einmal." }),
-      el("div", { class: "row" }, el("button", { class: "btn primary", onclick: () => openStackCapture() }, "📚 Stapel erfassen"),
-        (S.stack || []).length ? el("button", { class: "btn", onclick: () => openStackReview() }, `Stapel prüfen (${S.stack.length})`) : null)),
-    el("div", { class: "sec" }, el("label", { class: "lbl", text: "Suchen nach Titel / Autor" }), el("div", { class: "manual", style: "margin-top:0" }, qIn, el("button", { class: "btn", onclick: qGo }, "Suchen"))),
-    el("div", { class: "sec" }, el("label", { class: "lbl", text: "ISBN – oder Link aus dem Web" }), isbnRow,
-      el("div", { class: "saved", style: "margin-top:6px", text: "Buch in einem Shop oder Katalog gefunden (ZVAB, booklooker, Amazon, DNB …)? Einfach den Link der Seite einfügen – die App holt sich die ISBN selbst." })),
-    el("div", { style: "margin-top:16px" }, el("button", { class: "btn ghost", onclick: () => openReview({}, null) }, "✏️ Ganz von Hand eintragen"))
+    el("div", { class: "qways" },
+      way("addScan", "barcode", "Barcode scannen", "ISBN auf der Rückseite – Daten und Cover kommen von selbst", startLiveScan, true),
+      m ? way("addCover", "camera", "Cover fotografieren", "Für Bücher ohne Barcode", () => coverPick(true))
+        : way("addCover", "camera", "Cover-Bild wählen", "Für Bücher ohne Barcode – oder Bild hierher ziehen", () => coverPick(false))),
+    el("div", { class: "qalt" },
+      el("button", { class: "btn sm ghost", onclick: async () => { const f = await pickImage(m); if (f) barcodeFromPhoto(f); } }, m ? "Barcode aus einem Foto lesen" : "🖼 Bild mit Barcode"),
+      m ? el("button", { class: "btn sm ghost", onclick: () => coverPick(false) }, "Cover aus der Galerie") : null),
+    m ? null : dropZone("Cover-Bild hierher ziehen oder mit Strg+V einfügen", f => coverFlow(f)),
+    el("div", { class: "qsearch" },
+      el("div", { class: "manual" }, qIn, el("button", { class: "btn primary", onclick: qGo }, "Suchen"),
+        navigator.clipboard?.readText ? el("button", { class: "btn", title: "Link oder ISBN aus der Zwischenablage übernehmen", onclick: () => takeFromClipboard() }, "📋 Einfügen") : null),
+      el("div", { class: "saved", text: "Auch ein Link aus einem Shop oder Katalog (ZVAB, booklooker, Amazon, DNB …) – die App holt sich die ISBN selbst." })),
+    el("h3", { class: "qhead", text: "Viele Bücher auf einmal" }),
+    el("div", { class: "mlist" },
+      many("addStack", "📚", "Stapel erfassen", "Kamera bleibt offen – ein Buch nach dem anderen, am Ende alles prüfen", () => openStackCapture()),
+      many("addShelfScan", "📷", "Fach-Foto einlesen", "Ein ganzes Regalfach fotografieren – Bücher landen gleich im echten Regal", () => openShelfScan()),
+      many("addTitleList", "📋", "Titelliste einfügen", S.addAsWish ? "Liste aus Excel, Notiz oder Mail – auf die Wunschliste" : "Liste aus Excel, Notiz oder Mail – nur unsichere Treffer prüfen", () => openTitleList())),
+    nStack || S.titleRun ? el("div", { class: "hstack mt-2" },
+      nStack ? el("button", { class: "btn sm", onclick: () => openStackReview() }, `Stapel prüfen (${nStack})`) : null,
+      S.titleRun ? el("button", { class: "btn sm", onclick: () => resumeTitleList() }, "Titelliste weiter prüfen") : null) : null,
+    el("div", { class: "mt-4" }, el("button", { class: "btn ghost", onclick: () => openReview({}, null) }, "✏️ Ganz von Hand eintragen"))
   );
   S.pasteHandler = f => coverFlow(f);
+  if (!m) setTimeout(() => { if (qIn.isConnected && !sh.body.contains(document.activeElement)) qIn.focus(); }, 50); // am PC gleich lostippen
 }
 function busyView(title, img, msg) {
   const sh = openSheet || sheet(title);
@@ -1595,15 +1695,13 @@ function drawDetailView(sh, b) {
       el("button", { class: "btn sm", onclick: async () => { await patchBook(b.id, { gone: null }); toast("Wieder in deinem Besitz."); drawDetailView(sh, S.books.find(x => x.id === b.id)); } }, "↩ Wieder in meinem Besitz"))) : null;
   const kv = [["ISBN", book.isbn], ["Verlag", book.publisher], ["Jahr", book.year], ["Seiten", book.pages], ["Genre", book.genre], ["Sprache", book.language], ["Reihe", seriesText(book)], ["Preis", book.price ? fmtPrice(book.price) : ""], ["Heutiger Wert", book.value ? fmtPrice(book.value) : ""], ["Hinzugefügt", fmtDate(book.addedAt)], ["Zuletzt geändert", fmtDate(book.updatedAt)]].filter(([, v]) => v);
   const miss = missingOf(book);
-  const editBtn = el("button", { class: "btn primary", onclick: () => drawDetailEdit(sh, S.books.find(x => x.id === b.id)) }, "✏️ Bearbeiten");
   fillNode(sh.body,
     el("div", { class: "dtop" }, el("div", {}, cover),
       el("div", {}, head,
         el("label", { class: "lbl", style: "margin-top:12px", text: "Lesestatus" }), seg,
-        el("label", { class: "lbl", style: "margin-top:12px", text: "Deine Bewertung" }), stars,
-        el("div", { style: "margin-top:10px" }, el("button", { type: "button", class: "favbtn" + (book.favorite ? " on" : ""), onclick: () => quickSave({ favorite: !book.favorite }).then(() => drawDetailView(sh, S.books.find(x => x.id === b.id))) }, book.favorite ? "♥ Lieblingsbuch" : "♡ Als Lieblingsbuch markieren")),
-        dates,
-        el("div", { style: "margin-top:14px" }, editBtn))),
+        el("label", { class: "lbl", style: "margin-top:12px", text: "Deine Bewertung" }),
+        el("div", { class: "rateRow" }, stars, el("button", { type: "button", class: "favbtn" + (book.favorite ? " on" : ""), "aria-pressed": !!book.favorite, onclick: () => quickSave({ favorite: !book.favorite }).then(() => drawDetailView(sh, S.books.find(x => x.id === b.id))) }, book.favorite ? "♥ Lieblingsbuch" : "♡ Lieblingsbuch")),
+        dates)),
     miss.length ? el("div", { class: "note" }, "Es fehlen: " + miss.join(", ") + ". ", el("a", { href: "#", onclick: e => { e.preventDefault(); drawDetailEdit(sh, S.books.find(x => x.id === b.id)); } }, "Jetzt ergänzen"),
       needsCover(book) ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: async e => { e.target.disabled = true; const r = await findCoverFor(b.id); if (r === "set") drawDetailView(sh, S.books.find(x => x.id === b.id)); else e.target.disabled = false; } }, "🖼 Cover online suchen") : null) : null,
     goneBox,
@@ -1617,7 +1715,7 @@ function drawDetailView(sh, b) {
     extrasView(book),
     kv.length ? el("div", { class: "sec" }, el("h3", { text: "Details" }), el("dl", { class: "kv" }, ...kv.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]))) : null,
     webSearchLinks([book.title, book.author].filter(Boolean).join(" "), book.isbn, book.title, book.author),
-    el("div", { class: "actions" },
+    el("div", { class: "actions sticky" },
       el("div", { class: "covertools" },
         el("button", { class: "btn danger", onclick: async () => { if (await confirmBox(`„${book.title || "Dieses Buch"}“ endgültig löschen?\nTipp: Wenn du das Buch weggegeben hast, nimm lieber „Hatte ich mal“ – dann bleiben deine Notizen erhalten.`)) { await removeBook(b.id); closeSheet(); toast("Gelöscht."); } } }, "Löschen"),
         isGone(book) || isWish(book) ? null : el("button", { class: "btn", onclick: async () => { if (await markGone(S.books.find(x => x.id === b.id))) drawDetailView(sh, S.books.find(x => x.id === b.id)); } }, "📦 Hatte ich mal …")),
@@ -1864,15 +1962,15 @@ function drawDetailEdit(sh, b, keep) {
   const signSec = signEdit(draft, markDirty);
   const extrasSec = extrasEdit(draft, st, markDirty);
   fillNode(sh.body,
-    el("div", { class: "dtop" }, el("div", {}, coverBox, coverControls, coverDrop), el("div", {}, personal)),
-    signSec,
-    extrasSec,
-    spineSec,
-    goneSec,
+    el("div", { class: "dtop edit" }, el("div", { class: "dcover" }, coverBox, coverControls, coverDrop), el("div", {}, personal)),
     el("div", { class: "sec" }, el("h3", { text: "Buchdaten" }), form,
       el("label", { class: "lbl", style: "margin-top:12px", text: "Schlagworte" }), tagEditor(draft, () => markDirty()),
       el("div", { class: "covertools", style: "margin-top:12px" }, fillBtn, reloadBtn),
       webSearchLinks([draft.title, draft.author].filter(Boolean).join(" "), draft.isbn, draft.title, draft.author)),
+    signSec,
+    extrasSec,
+    spineSec,
+    goneSec,
     el("div", { class: "actions sticky" },
       el("button", { class: "btn ghost", onclick: cancel }, "Abbrechen"),
       el("div", { style: "display:flex;gap:12px;align-items:center" }, dirtyInfo, saveBtn))
@@ -2132,15 +2230,21 @@ function renderWall() {
   const zoomTxt = el("span", { class: "zoomtxt", text: Math.round(S[zKey] * 100) + " %" });
   zoomIn.addEventListener("input", () => { const z = +zoomIn.value / 100; zoomTxt.textContent = zoomIn.value + " %"; wallPreviewZoom(z / S[zKey]); });
   zoomIn.addEventListener("change", () => setWallZoom(+zoomIn.value / 100));
-  const tools = el("div", { class: "tools" },
+  // Werkzeugleiste: Häufiges direkt, Seltenes unter „⋯ Mehr“; eingeschaltete Ansichten bleiben als „✓ …“ sichtbar
+  const ovBtn = () => el("button", { class: "btn sm ovbtn" + (ov ? " primary" : ""), title: "Gesamtansicht: alle Regalwände auf einen Blick, mit Vergrößerung", onclick: () => setOverview(!ov) }, ov ? "✓ Gesamtansicht" : "🗺 Gesamtansicht");
+  const editBtn = () => el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern");
+  const bigBtn = () => el("button", { class: "btn sm bigbtn" + (S.wallBig ? " primary" : ""), title: "Regalwand so groß wie möglich: ganze Fensterbreite, Bücherliste eingeklappt", onclick: () => setWallBig(!S.wallBig) }, S.wallBig ? "✓ Großansicht" : "⛶ Großansicht");
+  const addWallBtn = () => el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand");
+  const more = (...items) => { const list = items.filter(Boolean); return list.length ? el("details", { class: "wmenu" }, el("summary", { class: "btn sm", title: "Weitere Regal-Funktionen" }, "⋯ Mehr"), el("div", { class: "wmenu-list" }, ...list)) : null; };
+  const tools = el("div", { class: "tools walltools" },
     ov ? el("h2", { style: "font-size:20px", text: "Alle Regalwände" }) : S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
-    S.wallEdit ? null : el("button", { class: "btn sm ovbtn" + (ov ? " primary" : ""), title: "Gesamtansicht: alle Regalwände auf einen Blick, mit Vergrößerung", onclick: () => setOverview(!ov) }, ov ? "✓ Gesamtansicht" : "🗺 Gesamtansicht"),
-    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
-    el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand"),
-    ...(S.wallEdit ? [] : [el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
-    el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
-    el("button", { class: "btn sm bigbtn" + (S.wallBig ? " primary" : ""), title: "Regalwand so groß wie möglich: ganze Fensterbreite, Bücherliste eingeklappt", onclick: () => setWallBig(!S.wallBig) }, S.wallBig ? "✓ Großansicht" : "⛶ Großansicht"),
-    el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe")]),
+    ...(S.wallEdit ? [editBtn(), addWallBtn()]
+      : [el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
+        el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
+        el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe"),
+        ov ? ovBtn() : null,
+        S.wallBig ? bigBtn() : null,
+        more(ov ? null : ovBtn(), editBtn(), addWallBtn(), S.wallBig ? null : bigBtn())]),
     el("span", { style: "flex:1" }),
     el("div", { class: "zoombox" },
       el("button", { class: "btn sm", title: "Verkleinern", onclick: () => setWallZoom(S[zKey] / 1.25) }, "−"),
@@ -2194,7 +2298,7 @@ function renderWall() {
       el("button", { class: "btn sm ghost danger", onclick: async () => { if (await confirmBox(`Regalwand „${w.name}“ löschen? Die Bücher bleiben in deiner Sammlung, gelten aber als nicht eingeräumt.`, "Löschen")) { S.shelves.walls = S.shelves.walls.filter(x => x !== w); S.wallId = null; S.wallEdit = false; await saveShelves(); renderAll(); } } }, "Wand löschen"),
       el("button", { class: "btn sm primary", onclick: () => { S.wallEdit = false; renderWall(); } }, "✓ Fertig"))) : null;
 
-  const legend = el("div", { class: "saved", style: "margin-top:10px" },
+  const legend = el("details", { class: "saved wlegend" }, el("summary", { text: "ⓘ So geht’s" }),
     ov ? "Gesamtansicht: alle Wände nebeneinander. Vergrößern mit dem Regler, mit zwei Fingern oder Strg + Mausrad; Wandname antippen zeigt nur diese Wand. " : "",
     "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
     "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs (oben herausschauende hintere Bücher lassen sich auch direkt antippen). Rot umrandet = rechnerisch voll. ",
@@ -3284,13 +3388,12 @@ function renderTable() {
   const c = counts(S.books.filter(inStock)); const inc = S.books.filter(b => missingOf(b).length).length;
   const nDup = dupGroups().reduce((n, g) => n + g.length, 0);
   $("#stats").replaceChildren(
-    el("span", {}, el("b", { text: c.all }), "Bücher im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
+    el("span", {}, el("b", { text: c.all }), "im Bestand"), el("span", {}, el("b", { text: c.read }), "gelesen"),
     el("span", {}, el("b", { text: c.reading }), "gerade dabei"), el("span", {}, el("b", { text: c.unread }), "ungelesen"),
     el("span", {}, el("b", { style: inc ? "color:var(--warn)" : "", text: inc }), "mit fehlenden Daten"),
     el("span", {}, el("b", { text: S.books.filter(isGone).length }), "hatte ich mal"),
     el("span", {}, el("b", { text: S.books.filter(isWish).length }), "auf der Wunschliste"));
   renderFilters($("#tfilters"), S.tFilter, k => { S.tFilter = k; renderTable(); }, [["fav", "♥ Lieblingsbücher", null, S.books.filter(b => b.favorite).length], ["unplaced", "Nicht eingeräumt", null, S.books.filter(b => inStock(b) && !locationOf(b.id)).length], ["gone", "📦 Hatte ich mal", null, S.books.filter(isGone).length], ["wish", "⭐ Wunschliste", null, S.books.filter(isWish).length], ["nocover", "Ohne Cover", null, S.books.filter(needsCover).length], ["incomplete", "Unvollständig", "var(--warn)", inc], ...(nDup || S.tFilter === "dup" ? [["dup", "🧩 Mögliche Dubletten", "var(--warn)", nDup]] : [])]);
-  const dupBtn = $("#dupRun"); if (dupBtn) { dupBtn.textContent = "🧩 Dubletten prüfen" + (nDup ? ` (${nDup})` : ""); dupBtn.classList.toggle("warn", !!nDup); }
   const tts = $("#ttagSlot"); if (tts) { tagDatalist(); fillNode(tts, tagFilterSelect(S.tTag, t => { S.tTag = t; renderTable(); }, S.books)); }
   const cols = visCols();
   const colgroup = el("colgroup", {}, ...cols.map(col => el("col", { "data-k": col.k, style: `width:${colW(col)}px` })));
@@ -3557,10 +3660,6 @@ function exportCsv(only) {
   const lines = [head.join(";"), ...books.map(b => keys.map(k => q(k === "status" ? STATUS[b.status || "unread"] : k === "isbn" && b.isbn ? `="${b.isbn}"` : k === "addedAt" && b.addedAt ? b.addedAt.slice(0, 10) : k === "favorite" ? (b.favorite ? "ja" : "") : k === "location" ? (locationOf(b.id) ? locationText(locationOf(b.id)) : "") : k === "reads" ? readsOf(b).map(r => readText(r) + (r.note ? " (" + r.note + ")" : "")).join("; ") : k === "gone" ? (b.gone ? goneText(b.gone) + (b.gone.note ? " – " + b.gone.note : "") : "") : k === "signed" ? (b.signed ? "ja" : "") : k === "images" ? ((b.images || []).length || "") : k === "files" ? (b.files || []).map(f => f.name).join("; ") : k === "tags" ? (b.tags || []).join(", ") : k === "wish" ? (b.wish ? "ja" : "") : b[k])).join(";"))];
   saveFile(`buecherregal-${today()}${Array.isArray(only) ? "-auswahl" : ""}.csv`, new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
 }
-$("#exportCsv").addEventListener("click", exportCsv);
-$("#coverRun").addEventListener("click", () => coverRun());
-$("#heightRun").addEventListener("click", () => heightRun());
-$("#dupRun").addEventListener("click", () => openDuplicates());
 async function remindBackup() {
   if (!S.books.length) return;
   if (typeof autoBackupActive === "function" && await autoBackupActive()) return;
@@ -3569,35 +3668,12 @@ async function remindBackup() {
   if (days > 14) setBanner(`Deine Bücher liegen nur in diesem Browser. ${last ? "Letzte Sicherung vor " + Math.floor(days) + " Tagen." : "Noch keine Sicherung."} `, el("button", { class: "btn sm", style: "margin-left:8px", onclick: exportFlow }, "Jetzt sichern"));
 }
 
-/* ================= Menü ================= */
-$("#menuBtn").addEventListener("click", e => {
-  e.stopPropagation();
-  const old = $(".menu-list"); if (old) { old.remove(); return; }
-  const close = () => list.remove();
-  const item = (label, fn) => el("button", { onclick: () => { close(); fn(); } }, label);
-  const list = el("div", { class: "menu-list" },
-    item("⬆ Sicherung exportieren / an PC senden", exportFlow),
-    item("⬇ Sicherung importieren & abgleichen", importFlow),
-    el("hr"),
-    item("💾 Automatische Sicherung …", openAutoBackup),
-    item("🔄 Abgleich mit eigenem Server …", openSyncSettings),
-    item("📊 Als CSV für Excel exportieren", exportCsv),
-    item("🔗 Suchseiten wählen (ZVAB, SLUB …)", providerSettings),
-    item("📷 Fach-Foto einlesen", () => openShelfScan()),
-    item("📥 Gespeicherte Fach-Fotos" + (openPhotos().length ? ` (${openPhotos().length} offen)` : ""), () => openPhotoInbox()),
-    item("🖼 Fehlende Cover online nachtragen", () => coverRun()),
-    item("🧾 Erkennungsprotokoll", () => openRecLog()),
-    item("⚙️ Über die App & Einstellungen", aboutBox),
-    el("small", { text: "Abgleich: Auf dem einen Gerät exportieren, auf dem anderen importieren. Neuere Änderungen gewinnen." }));
-  $(".menu").append(list);
-  setTimeout(() => document.addEventListener("click", function h(ev) { if (!list.contains(ev.target)) { close(); document.removeEventListener("click", h); } }), 0);
-});
 function aboutBox() {
   const sh = sheet("Über diese App");
   sh.body.append(
     el("p", { text: "Mein Bücherregal speichert alle Daten in diesem Browser auf diesem Gerät – es gibt kein Konto. Wer möchte, kann zusätzlich einen eigenen Server (z. B. auf dem PC) für den automatischen Abgleich eintragen." }),
     el("p", { text: "Buchdaten kommen von der Deutschen Nationalbibliothek (sehr vollständig für deutschsprachige und aktuelle Ausgaben), Google Books und Open Library." }),
-    el("p", { text: "Handy und PC abgleichen: Menü ⋯ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
+    el("p", { text: "Handy und PC abgleichen: „Mehr“ → „Sicherung exportieren“ (auf dem Handy z. B. per Mail, Messenger oder Cloud an dich selbst schicken), dann am anderen Gerät „Sicherung importieren“. Bücher werden zusammengeführt, die neuere Änderung gewinnt." }),
     el("p", { text: "Wichtig: Wenn du die Browserdaten löschst, ist auch das Regal weg. Exportiere deshalb ab und zu eine Sicherung." }),
     el("p", { class: "saved", text: `${S.books.length} Bücher gespeichert.` }),
     autoBackupBox(),

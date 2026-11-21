@@ -154,14 +154,14 @@ test("Gesamtansicht: alle Wände nebeneinander, stufenlos vergrößern, Wand ant
   await openApp(page);
   await seedBooks(page);
   await newWall(page, "Ein 4er-Würfel (1112)");
-  await page.click("text=＋ Weitere Wand");
+  await page.click(".wmenu > summary"); await page.click("text=＋ Weitere Wand");
   await page.fill(".confirm input.field", "Flur");
   await page.click(".confirm >> text=Zwei 2er-Würfel nebeneinander");
   await page.click(".confirm .btn.primary");
   await page.evaluate(async () => { await placeBook("b0", S.shelves.walls[0].columns[0].modules[0], "TL"); await placeBook("b1", S.shelves.walls[1].columns[0].modules[0], "L"); renderAll(); });
   await expect(page.locator(".wall")).toHaveCount(1);
 
-  await page.click("text=🗺 Gesamtansicht");
+  await page.click(".wmenu > summary"); await page.click("text=🗺 Gesamtansicht");
   await expect(page.locator(".wall")).toHaveCount(2);
   await expect(page.locator(".ovname")).toHaveText(["Wohnzimmer", "Flur"]);
   await expect(page.locator(".spine[data-id=b0]")).toBeVisible();
@@ -201,7 +201,7 @@ test("Gesamtansicht am Handy: zwei Finger vergrößern, Seite bleibt schmal", as
   await openApp(page);
   await seedBooks(page);
   await newWall(page, "Ein 4er-Würfel (1112)");
-  await page.click("text=🗺 Gesamtansicht");
+  await page.click(".wmenu > summary"); await page.click("text=🗺 Gesamtansicht");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   // Zwei-Finger-Geste nachbilden
   await page.evaluate(() => {
@@ -223,7 +223,7 @@ for (const vp of [{ width: 1300, height: 950 }, { width: 390, height: 800 }]) te
   await newWall(page, "4er-Würfel + 2er-Würfel nebeneinander");
   await page.evaluate(async () => { const w = S.shelves.walls[0]; const m = newModule("6112"); rotateModule(m); w.columns[0].modules.unshift(m); w.columns[1].modules.unshift(newModule("6112")); await saveShelves(); renderAll(); });
   await expect(page.locator(".wside")).toHaveCount(1);
-  await page.click("text=🧱 Aufbau ändern");
+  await page.click(".wmenu > summary"); await page.click("text=🧱 Aufbau ändern");
   await expect(page.locator(".modbar")).toHaveCount(4);
   await expect(page.locator(".wside")).toHaveCount(0);
   await expect(page.locator(".selbtn, .lensbtn")).toHaveCount(0);
@@ -307,13 +307,13 @@ test("Ganze Wände tauschen: im Aufbau und in der Gesamtansicht", async ({ page 
   await twoWalls(page);
   expect(await wallNames(page)).toEqual(["Wohnzimmer", "Arbeitszimmer"]);
   await page.evaluate(() => { S.wallId = S.shelves.walls[0].id; renderWall(); });
-  await page.click("text=🧱 Aufbau ändern");
+  await page.click(".wmenu > summary"); await page.click("text=🧱 Aufbau ändern");
   await expect(page.locator("text=◀ Wand nach vorne")).toBeDisabled();
   await page.click("text=Wand nach hinten ▶");
   expect(await wallNames(page)).toEqual(["Arbeitszimmer", "Wohnzimmer"]);
   await page.click("text=✓ Aufbau fertig");
   // Gesamtansicht: Pfeil neben dem Namen tauscht zurück; die Reihenfolge wird gespeichert
-  await page.click("text=🗺 Gesamtansicht");
+  await page.click(".wmenu > summary"); await page.click("text=🗺 Gesamtansicht");
   await expect(page.locator(".ovname")).toHaveText(["Arbeitszimmer", "Wohnzimmer"]);
   await page.locator(".ovhead").nth(1).getByLabel("Wand nach links").click();
   await expect(page.locator(".ovname")).toHaveText(["Wohnzimmer", "Arbeitszimmer"]);
@@ -341,7 +341,7 @@ test("Bücherliste einklappen und Großansicht: die Wand wird größer, die Eins
   await page.click(".wsidehead");
   await expect(page.locator(".wside .witem").first()).toBeVisible();
   // Großansicht: ganze Fensterbreite (statt höchstens 1280 px), Liste eingeklappt
-  await page.click("text=⛶ Großansicht");
+  await page.click(".wmenu > summary"); await page.click("text=⛶ Großansicht");
   await expect(page.locator("body.wandbig")).toHaveCount(1);
   await expect(page.locator(".wside.closed")).toHaveCount(1);
   const w2 = await wallW();
