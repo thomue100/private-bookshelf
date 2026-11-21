@@ -59,6 +59,7 @@ header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 9
   .bottomnav .bn-add{justify-self:center;align-self:center;width:52px;height:52px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 40%,transparent)}
   .bottomnav .bn-add .ico{width:26px;height:26px;stroke-width:2.4}
   main{padding-bottom:var(--navh)}
+  html{scroll-padding-bottom:var(--navh)} /* in den Blick rollen: nicht hinter die Leiste unten */
 }
 
 /* Knöpfe */
@@ -842,3 +843,40 @@ body.wandbig .wrap{max-width:none}
 .qsearch .saved{margin-top:6px}
 .qhead{font-size:var(--fs-xs);font-family:Inter,system-ui,sans-serif;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px 4px}
 @media (max-width:480px){ .qways{gap:8px} .qway{padding:12px;min-height:104px} .qway small{font-size:var(--fs-xs)} }
+
+/* ================= Buchdetail ================= */
+.rateRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.rateRow .stars{margin-top:0}
+.favbtn.on{font-weight:600}
+@media (max-width:480px){
+  /* Bearbeiten am Handy: Cover links, Werkzeuge daneben in einer Reihe statt einer schmalen Spalte; Persönliches darunter */
+  .dtop.edit{grid-template-columns:1fr}
+  .dtop.edit > .dcover{display:grid;grid-template-columns:104px minmax(0,1fr);gap:12px;align-items:start}
+  .dtop.edit > .dcover .covertools{margin-top:0;align-content:flex-start}
+  .dtop.edit > .dcover .covertools .btn{flex:1 1 calc(50% - 6px)}
+}
+@media (max-width:480px){
+  /* Aktionsleiste unten im Buch: eine Zeile */
+  .actions.sticky{gap:6px;flex-wrap:nowrap}
+  .actions.sticky .covertools{flex-wrap:nowrap;gap:6px;margin-top:0;min-width:0}
+  .actions.sticky .btn{padding:8px 10px;font-size:var(--fs-md);white-space:nowrap}
+}
+
+/* ================= Echtes Regal: Werkzeugleiste ================= */
+.walltools{gap:8px}
+.wmenu{position:relative}
+.wmenu > summary{list-style:none}
+.wmenu > summary::-webkit-details-marker{display:none}
+.wmenu[open] > summary{border-color:var(--muted);background:var(--bg)}
+.wmenu-list{position:absolute;left:0;top:calc(100% + 6px);z-index:40;display:flex;flex-direction:column;gap:2px;min-width:220px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:6px}
+.wmenu-list .btn{justify-content:flex-start;border-color:transparent;background:none;width:100%;font-size:var(--fs-md)}
+.wmenu-list .btn:hover{background:var(--bg)}
+.wlegend{margin-top:10px}
+.wlegend > summary{cursor:pointer;font-family:inherit;font-size:var(--fs-sm);font-weight:600;color:var(--muted);padding:2px 0;display:inline-block}
+.wlegend[open] > summary{margin-bottom:4px}
+@media (max-width:759px){
+  .walltools .zoombox{flex:0 0 auto}
+  .walltools .zoomrange,.walltools .zoomtxt{display:none}
+  .wmenu-list{left:auto;right:0}
+}
+.wmenu > summary{font-family:inherit;font-size:var(--fs-sm);font-weight:500;padding:5px 10px}

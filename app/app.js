@@ -1057,6 +1057,8 @@ function renderMore() {
     el("p", { class: "mfoot", text: "Deine Bücher liegen nur in diesem Browser auf diesem Gerät. Abgleich zwischen Geräten: hier exportieren, dort importieren – neuere Änderungen gewinnen." }));
 }
 
+document.addEventListener("click", e => { document.querySelectorAll("details.wmenu[open]").forEach(d => { if (!d.contains(e.target) || e.target.closest(".wmenu-list button")) d.open = false; }); });
+
 /* Tastenkürzel am PC: / = suchen, N = Buch hinzufügen */
 document.addEventListener("keydown", e => {
   if (e.ctrlKey || e.metaKey || e.altKey || openSheet || $(".scan") || $(".confirm")) return;
@@ -1691,15 +1693,13 @@ function drawDetailView(sh, b) {
       el("button", { class: "btn sm", onclick: async () => { await patchBook(b.id, { gone: null }); toast("Wieder in deinem Besitz."); drawDetailView(sh, S.books.find(x => x.id === b.id)); } }, "↩ Wieder in meinem Besitz"))) : null;
   const kv = [["ISBN", book.isbn], ["Verlag", book.publisher], ["Jahr", book.year], ["Seiten", book.pages], ["Genre", book.genre], ["Sprache", book.language], ["Reihe", seriesText(book)], ["Preis", book.price ? fmtPrice(book.price) : ""], ["Heutiger Wert", book.value ? fmtPrice(book.value) : ""], ["Hinzugefügt", fmtDate(book.addedAt)], ["Zuletzt geändert", fmtDate(book.updatedAt)]].filter(([, v]) => v);
   const miss = missingOf(book);
-  const editBtn = el("button", { class: "btn primary", onclick: () => drawDetailEdit(sh, S.books.find(x => x.id === b.id)) }, "✏️ Bearbeiten");
   fillNode(sh.body,
     el("div", { class: "dtop" }, el("div", {}, cover),
       el("div", {}, head,
         el("label", { class: "lbl", style: "margin-top:12px", text: "Lesestatus" }), seg,
-        el("label", { class: "lbl", style: "margin-top:12px", text: "Deine Bewertung" }), stars,
-        el("div", { style: "margin-top:10px" }, el("button", { type: "button", class: "favbtn" + (book.favorite ? " on" : ""), onclick: () => quickSave({ favorite: !book.favorite }).then(() => drawDetailView(sh, S.books.find(x => x.id === b.id))) }, book.favorite ? "♥ Lieblingsbuch" : "♡ Als Lieblingsbuch markieren")),
-        dates,
-        el("div", { style: "margin-top:14px" }, editBtn))),
+        el("label", { class: "lbl", style: "margin-top:12px", text: "Deine Bewertung" }),
+        el("div", { class: "rateRow" }, stars, el("button", { type: "button", class: "favbtn" + (book.favorite ? " on" : ""), "aria-pressed": !!book.favorite, onclick: () => quickSave({ favorite: !book.favorite }).then(() => drawDetailView(sh, S.books.find(x => x.id === b.id))) }, book.favorite ? "♥ Lieblingsbuch" : "♡ Lieblingsbuch")),
+        dates)),
     miss.length ? el("div", { class: "note" }, "Es fehlen: " + miss.join(", ") + ". ", el("a", { href: "#", onclick: e => { e.preventDefault(); drawDetailEdit(sh, S.books.find(x => x.id === b.id)); } }, "Jetzt ergänzen"),
       needsCover(book) ? el("button", { class: "btn sm", style: "margin-left:10px", onclick: async e => { e.target.disabled = true; const r = await findCoverFor(b.id); if (r === "set") drawDetailView(sh, S.books.find(x => x.id === b.id)); else e.target.disabled = false; } }, "🖼 Cover online suchen") : null) : null,
     goneBox,
@@ -1713,7 +1713,7 @@ function drawDetailView(sh, b) {
     extrasView(book),
     kv.length ? el("div", { class: "sec" }, el("h3", { text: "Details" }), el("dl", { class: "kv" }, ...kv.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]))) : null,
     webSearchLinks([book.title, book.author].filter(Boolean).join(" "), book.isbn, book.title, book.author),
-    el("div", { class: "actions" },
+    el("div", { class: "actions sticky" },
       el("div", { class: "covertools" },
         el("button", { class: "btn danger", onclick: async () => { if (await confirmBox(`„${book.title || "Dieses Buch"}“ endgültig löschen?\nTipp: Wenn du das Buch weggegeben hast, nimm lieber „Hatte ich mal“ – dann bleiben deine Notizen erhalten.`)) { await removeBook(b.id); closeSheet(); toast("Gelöscht."); } } }, "Löschen"),
         isGone(book) || isWish(book) ? null : el("button", { class: "btn", onclick: async () => { if (await markGone(S.books.find(x => x.id === b.id))) drawDetailView(sh, S.books.find(x => x.id === b.id)); } }, "📦 Hatte ich mal …")),
@@ -1960,15 +1960,15 @@ function drawDetailEdit(sh, b, keep) {
   const signSec = signEdit(draft, markDirty);
   const extrasSec = extrasEdit(draft, st, markDirty);
   fillNode(sh.body,
-    el("div", { class: "dtop" }, el("div", {}, coverBox, coverControls, coverDrop), el("div", {}, personal)),
-    signSec,
-    extrasSec,
-    spineSec,
-    goneSec,
+    el("div", { class: "dtop edit" }, el("div", { class: "dcover" }, coverBox, coverControls, coverDrop), el("div", {}, personal)),
     el("div", { class: "sec" }, el("h3", { text: "Buchdaten" }), form,
       el("label", { class: "lbl", style: "margin-top:12px", text: "Schlagworte" }), tagEditor(draft, () => markDirty()),
       el("div", { class: "covertools", style: "margin-top:12px" }, fillBtn, reloadBtn),
       webSearchLinks([draft.title, draft.author].filter(Boolean).join(" "), draft.isbn, draft.title, draft.author)),
+    signSec,
+    extrasSec,
+    spineSec,
+    goneSec,
     el("div", { class: "actions sticky" },
       el("button", { class: "btn ghost", onclick: cancel }, "Abbrechen"),
       el("div", { style: "display:flex;gap:12px;align-items:center" }, dirtyInfo, saveBtn))
@@ -2228,15 +2228,21 @@ function renderWall() {
   const zoomTxt = el("span", { class: "zoomtxt", text: Math.round(S[zKey] * 100) + " %" });
   zoomIn.addEventListener("input", () => { const z = +zoomIn.value / 100; zoomTxt.textContent = zoomIn.value + " %"; wallPreviewZoom(z / S[zKey]); });
   zoomIn.addEventListener("change", () => setWallZoom(+zoomIn.value / 100));
-  const tools = el("div", { class: "tools" },
+  // Werkzeugleiste: Häufiges direkt, Seltenes unter „⋯ Mehr“; eingeschaltete Ansichten bleiben als „✓ …“ sichtbar
+  const ovBtn = () => el("button", { class: "btn sm ovbtn" + (ov ? " primary" : ""), title: "Gesamtansicht: alle Regalwände auf einen Blick, mit Vergrößerung", onclick: () => setOverview(!ov) }, ov ? "✓ Gesamtansicht" : "🗺 Gesamtansicht");
+  const editBtn = () => el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern");
+  const bigBtn = () => el("button", { class: "btn sm bigbtn" + (S.wallBig ? " primary" : ""), title: "Regalwand so groß wie möglich: ganze Fensterbreite, Bücherliste eingeklappt", onclick: () => setWallBig(!S.wallBig) }, S.wallBig ? "✓ Großansicht" : "⛶ Großansicht");
+  const addWallBtn = () => el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand");
+  const more = (...items) => { const list = items.filter(Boolean); return list.length ? el("details", { class: "wmenu" }, el("summary", { class: "btn sm", title: "Weitere Regal-Funktionen" }, "⋯ Mehr"), el("div", { class: "wmenu-list" }, ...list)) : null; };
+  const tools = el("div", { class: "tools walltools" },
     ov ? el("h2", { style: "font-size:20px", text: "Alle Regalwände" }) : S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
-    S.wallEdit ? null : el("button", { class: "btn sm ovbtn" + (ov ? " primary" : ""), title: "Gesamtansicht: alle Regalwände auf einen Blick, mit Vergrößerung", onclick: () => setOverview(!ov) }, ov ? "✓ Gesamtansicht" : "🗺 Gesamtansicht"),
-    el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern"),
-    el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand"),
-    ...(S.wallEdit ? [] : [el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
-    el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
-    el("button", { class: "btn sm bigbtn" + (S.wallBig ? " primary" : ""), title: "Regalwand so groß wie möglich: ganze Fensterbreite, Bücherliste eingeklappt", onclick: () => setWallBig(!S.wallBig) }, S.wallBig ? "✓ Großansicht" : "⛶ Großansicht"),
-    el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe")]),
+    ...(S.wallEdit ? [editBtn(), addWallBtn()]
+      : [el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
+        el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
+        el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe"),
+        ov ? ovBtn() : null,
+        S.wallBig ? bigBtn() : null,
+        more(ov ? null : ovBtn(), editBtn(), addWallBtn(), S.wallBig ? null : bigBtn())]),
     el("span", { style: "flex:1" }),
     el("div", { class: "zoombox" },
       el("button", { class: "btn sm", title: "Verkleinern", onclick: () => setWallZoom(S[zKey] / 1.25) }, "−"),
@@ -2290,7 +2296,7 @@ function renderWall() {
       el("button", { class: "btn sm ghost danger", onclick: async () => { if (await confirmBox(`Regalwand „${w.name}“ löschen? Die Bücher bleiben in deiner Sammlung, gelten aber als nicht eingeräumt.`, "Löschen")) { S.shelves.walls = S.shelves.walls.filter(x => x !== w); S.wallId = null; S.wallEdit = false; await saveShelves(); renderAll(); } } }, "Wand löschen"),
       el("button", { class: "btn sm primary", onclick: () => { S.wallEdit = false; renderWall(); } }, "✓ Fertig"))) : null;
 
-  const legend = el("div", { class: "saved", style: "margin-top:10px" },
+  const legend = el("details", { class: "saved wlegend" }, el("summary", { text: "ⓘ So geht’s" }),
     ov ? "Gesamtansicht: alle Wände nebeneinander. Vergrößern mit dem Regler, mit zwei Fingern oder Strg + Mausrad; Wandname antippen zeigt nur diese Wand. " : "",
     "Symbolisch: Dicke aus der Seitenzahl geschätzt, Farbe aus dem Cover. ♥ = Lieblingsbuch. ",
     "Buch antippen: hinlegen, stapeln, oben drauflegen oder in die hintere Reihe stellen. „⇅ hinten“ zeigt die hintere Reihe eines Fachs (oben herausschauende hintere Bücher lassen sich auch direkt antippen). Rot umrandet = rechnerisch voll. ",
