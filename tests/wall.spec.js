@@ -170,3 +170,37 @@ test("Lupe zeigt das Fach vergrößert mit Titel", async ({ page }) => {
   const big = await page.locator(".lens .spine[data-id=b1]").boundingBox();
   expect(big.width).toBeGreaterThan(box.width * 2);
 });
+
+test("Dicke eines Buchs für die ganze Reihe übernehmen: mit Rückfrage, eigene Dicken werden ersetzt, andere Fächer bleiben", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.evaluate(async () => {
+    const m = S.shelves.walls[0].columns[0].modules[0];
+    await patchBook("b0", { spine: { thickCm: 3.4, color: "#123456" } });
+    await patchBook("b2", { spine: { thickCm: 1.2 } });
+    for (const id of ["b0", "b1", "b2"]) await placeBook(id, m, "TL");
+    await placeBook("b3", m, "TR");
+    renderAll();
+  });
+  await page.locator(".wall .spine[data-id=b0]").click();
+  const btn = page.getByRole("button", { name: "📏 Diese Dicke (3,4 cm) für die ganze Reihe" });
+  // Abbrechen ändert nichts
+  await btn.click();
+  const conf = page.locator(".overlay.confirm").last();
+  await expect(conf).toContainText("Alle 2 anderen Bücher dieser Reihe 3,4 cm dick zeichnen?");
+  await expect(conf).toContainText("1 davon hat schon eine eigene Dicke – sie wird ersetzt.");
+  await conf.getByRole("button", { name: "Abbrechen" }).click();
+  expect(await page.evaluate(() => S.books.find(b => b.id === "b2").spine.thickCm)).toBe(1.2);
+  await btn.click();
+  await page.locator(".overlay.confirm").last().getByRole("button", { name: "Übernehmen" }).click();
+  await expect(page.locator(".toast")).toContainText("3 Bücher sind jetzt 3,4 cm dick.");
+  const th = await page.evaluate(() => Object.fromEntries(["b0", "b1", "b2", "b3"].map(id => [id, S.books.find(b => b.id === id).spine?.thickCm ?? null])));
+  expect(th).toEqual({ b0: 3.4, b1: 3.4, b2: 3.4, b3: null });
+  expect(await page.evaluate(() => S.books.find(b => b.id === "b0").spine.color)).toBe("#123456"); // übrige Rückenangaben bleiben
+  // geschätzte Dicke: Hinweis in der Rückfrage
+  await page.evaluate(async () => { const m = S.shelves.walls[0].columns[0].modules[0]; await placeBook("b4", m, "TR"); renderAll(); });
+  await page.locator(".wall .spine[data-id=b3]").click();
+  await page.getByRole("button", { name: /📏 Diese Dicke \(.+ cm\) für die ganze Reihe/ }).click();
+  await expect(page.locator(".overlay.confirm").last()).toContainText("ist geschätzt; sie wird mit festgehalten.");
+});

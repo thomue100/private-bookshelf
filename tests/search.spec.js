@@ -116,3 +116,49 @@ test("Bester Treffer groß mit Bild oben, weitere Treffer eingeklappt; Google-Co
   await expect(more.locator(".cand").first()).toBeVisible();
   await expect(more.locator(".cand", { hasText: "Band 28" }).locator("img")).toHaveCount(0);
 });
+
+test("Mehrere Treffer auf einmal übernehmen: vorhandene gesperrt, Wunsch wird gekauft, neue in den Bestand – oder auf die Wunschliste", async ({ page, catalog }) => {
+  const ac = (title, isbn, year) => ({ title, author: "Christie, Agatha", publisher: "Atlantik", year, isbn });
+  const all = [ac("Mord im Orientexpress", "9783499257957", "2014"), ac("Tod auf dem Nil", "9783499007347", "2015"), ac("Das Haus an der Düne", "9783499123931", "2016"), ac("Die Morde des Herrn ABC", "9783499135422", "2017")];
+  catalog.dnb = cql => { const m = /^num=(\d+)$/.exec(cql); return m ? all.filter(r => r.isbn === m[1]) : all; };
+  catalog.lobid = () => [];
+  await page.route("https://www.googleapis.com/**", r => r.fulfill({ status: 200, body: JSON.stringify({ items: [] }) }));
+  await openApp(page);
+  await page.evaluate(async () => {
+    await putBook({ id: "own", title: "Mord im Orientexpress", author: "Agatha Christie", isbn: "9783499257957", status: "read", rating: 0, notes: "", addedAt: new Date().toISOString() });
+    await putBook({ id: "w", title: "Tod auf dem Nil", author: "Agatha Christie", isbn: "9783499007347", wish: true, status: "unread", rating: 0, notes: "", addedAt: new Date().toISOString() });
+  });
+  await search(page, "Agatha Christie");
+  await page.getByRole("button", { name: "☑ Mehrere übernehmen" }).click();
+  const rows = page.locator(".cand.mcand");
+  await expect(rows).toHaveCount(4);
+  await expect(page.getByLabel("Übernehmen: Mord im Orientexpress")).toBeDisabled();
+  await expect(rows.filter({ hasText: "Mord im Orientexpress" })).toContainText("✓ schon im Regal");
+  await expect(rows.filter({ hasText: "Tod auf dem Nil" })).toContainText("⭐ auf der Wunschliste");
+  const go = page.locator(".mpickgo");
+  await expect(go).toBeDisabled();
+  await page.getByLabel("Alle Treffer auswählen").check();
+  await expect(go).toHaveText("3 Bücher übernehmen");
+  await page.getByLabel("Übernehmen: Das Haus an der Düne").uncheck();
+  await expect(go).toHaveText("2 Bücher übernehmen");
+  await go.click();
+  await expect(page.locator(".toast").last()).toContainText("1 Buch übernommen, 1 von der Wunschliste gekauft");
+  await page.locator(".overlay.confirm").getByRole("button", { name: "Abbrechen" }).click(); // keine Cover nachtragen
+  const books = await page.evaluate(() => S.books.map(b => ({ t: b.title, wish: !!b.wish, src: b.source || "" })));
+  expect(books.filter(b => /Christie|Nil|Orient|ABC|Düne/.test(b.t)).sort((a, b) => a.t.localeCompare(b.t))).toEqual([
+    { t: "Die Morde des Herrn ABC", wish: false, src: "suche" }, { t: "Mord im Orientexpress", wish: false, src: "" }, { t: "Tod auf dem Nil", wish: false, src: "" }]);
+
+  // zweiter Durchgang: auf die Wunschliste
+  await search(page, "Agatha Christie");
+  await page.getByRole("button", { name: "☑ Mehrere übernehmen" }).click();
+  await page.getByRole("button", { name: "⭐ Auf die Wunschliste" }).click();
+  await page.getByLabel("Übernehmen: Das Haus an der Düne").check();
+  await expect(page.locator(".mpickgo")).toHaveText("1 Buch auf die Wunschliste");
+  await page.locator(".mpickgo").click();
+  await expect.poll(() => page.evaluate(() => S.books.find(b => b.title === "Das Haus an der Düne")?.wish)).toBe(true);
+  // „Abbrechen“ führt zur normalen Trefferliste zurück
+  await search(page, "Agatha Christie");
+  await page.getByRole("button", { name: "☑ Mehrere übernehmen" }).click();
+  await page.locator(".mpickhead").getByRole("button", { name: "Abbrechen" }).click();
+  await expect(page.locator(".cand.best")).toHaveCount(1);
+});

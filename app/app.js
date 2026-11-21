@@ -1375,20 +1375,54 @@ async function showSearch(query, coverFile, recognized, recRunCover) {
     try { list = await searchBooks(q, log); recSearch(R, q, log, list.length); } catch (e) { recSearch(R, q, log, 0, catErr(e)); results.replaceChildren(el("div", { class: "note", text: "Keine Internetverbindung. Du kannst das Buch trotzdem von Hand anlegen." })); return; }
     if (!list.length) { results.replaceChildren(el("div", { class: "note", text: "In den Katalogen nichts gefunden. Suchbegriff kürzen oder anpassen – oder unten über „Im Internet suchen“ die Buchseite finden und ihren Link einfügen." })); return; }
     const nextCover = img => { const r = img._r, n = (r.altCovers || []).indexOf(img.getAttribute("src")), nx = (r.altCovers || [])[n + 1]; if (nx) img.src = nx; else img.remove(); };
+    const cvEl = (r, eager) => el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: eager ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null);
+    const infoEl = (r, best, tag, mark) => el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, tag ? el("div", { class: "judgetag", text: tag }) : null, el("b", { text: bookLabel(r) }),
+      el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
+      el("div", { class: "candmeta" }, mark ? el("span", { class: "mtag", text: mark }) : null, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.av ? el("span", { class: "mtag", text: "Hörbuch/CD" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src })));
     const card = (r, best, tag) => el("button", { class: "cand" + (best ? " best" : ""), onclick: () => pickCandidate(r, coverFile) },
-      el("div", { class: "cv" }, r.coverUrl ? Object.assign(el("img", { src: r.coverUrl, alt: "", loading: best ? null : "lazy", referrerpolicy: "no-referrer", onerror: e => nextCover(e.target), onload: e => { if (placeholderImg(e.target)) nextCover(e.target); } }), { _r: r }) : null),
-      el("div", {}, best ? el("div", { class: "besttag", text: "★ Bester Treffer" }) : null, tag ? el("div", { class: "judgetag", text: tag }) : null, el("b", { text: bookLabel(r) }),
-        el("span", { text: [r.author, [r.publisher, r.year].filter(Boolean).join(" "), r.pages ? r.pages + " S." : ""].filter(Boolean).join(" · ") }),
-        el("div", { class: "candmeta" }, r.ebook ? el("span", { class: "mtag", text: "E-Book" }) : null, r.av ? el("span", { class: "mtag", text: "Hörbuch/CD" }) : null, r.edition ? el("span", { text: r.edition }) : null, r.isbn ? el("span", { text: "ISBN " + r.isbn }) : null, el("span", { text: r.src }))),
-      el("span", { class: "pick", text: best ? "Das ist es" : "Wählen" }));
+      cvEl(r, best), infoEl(r, best, tag), el("span", { class: "pick", text: best ? "Das ist es" : "Wählen" }));
+    // Mehrere Treffer auf einmal übernehmen (z. B. mehrere Titel eines Autors) – nur bei der Suche ohne Cover-Foto
+    const canMulti = !coverFile && list.length > 1;
+    let lastV = null, multiWish = false; const picked = new Set();
+    const showMulti = () => {
+      const go = el("button", { class: "btn primary mpickgo", type: "button", onclick: () => takeSearchResults(list.filter(r => picked.has(r)), multiWish) });
+      const free = list.filter(r => { const d = findDuplicate(r); return !d || isWish(d); });
+      const allCb = el("input", { type: "checkbox", "aria-label": "Alle Treffer auswählen" });
+      const cbs = [];
+      const upd = () => {
+        const n = picked.size; go.disabled = !n; go.textContent = n ? `${n} ${n === 1 ? "Buch" : "Bücher"} ${multiWish ? "auf die Wunschliste" : "übernehmen"}` : "Bücher anhaken";
+        allCb.checked = n > 0 && n === free.length; allCb.indeterminate = n > 0 && n < free.length;
+      };
+      allCb.addEventListener("change", () => { picked.clear(); if (allCb.checked) free.forEach(r => picked.add(r)); cbs.forEach(([cb, r]) => { cb.checked = picked.has(r); }); upd(); });
+      const row = r => {
+        const dup = findDuplicate(r), owned = !!dup && !isWish(dup);
+        const cb = el("input", { type: "checkbox", disabled: owned || null, "aria-label": "Übernehmen: " + bookLabel(r) });
+        cb.checked = picked.has(r); cbs.push([cb, r]);
+        cb.addEventListener("change", () => { cb.checked ? picked.add(r) : picked.delete(r); upd(); });
+        return el("label", { class: "cand mcand" + (owned ? " owned" : "") }, cb, cvEl(r), infoEl(r, false, null, owned ? "✓ schon im Regal" : dup ? "⭐ auf der Wunschliste" : null));
+      };
+      const seg = (w, l) => el("button", { class: "btn sm" + (multiWish === w ? " primary" : ""), type: "button", "aria-pressed": multiWish === w ? "true" : "false", onclick: () => { multiWish = w; showMulti(); } }, l);
+      results.replaceChildren(
+        el("div", { class: "note info mpickhead" },
+          el("div", { text: "Hake die Bücher an, die du übernehmen willst." }),
+          el("div", { class: "covertools mt-2" }, seg(false, "📚 In den Bestand"), seg(true, "⭐ Auf die Wunschliste"),
+            el("button", { class: "btn sm ghost", type: "button", onclick: () => { picked.clear(); show(lastV); } }, "Abbrechen"))),
+        free.length ? el("label", { class: "hstack small mpickall" }, allCb, `Alle ${free.length} auswählen`) : null,
+        ...list.map(row),
+        el("div", { class: "mpickbar" }, go));
+      upd();
+    };
     // v: Claudes Bildvergleich (judge.js) – sicher → Treffer nach oben; Vermutung → Hinweis an der Karte; keiner → Hinweis oben
     const show = v => {
+      lastV = v;
       const order = v && v.sure ? [list[v.i], ...list.filter((_, k) => k !== v.i)] : list;
       const tagOf = r => !v || v.i < 0 || r !== list[v.i] ? null : v.sure ? `🤖 Claude: das ist diese Ausgabe – ${v.reason}` : `🤖 Claude vermutet diese Ausgabe – ${v.reason}`;
       const [top, ...rest] = order, open = !!(v && !v.sure && v.i > 0);
       results.replaceChildren(
         v === undefined ? el("div", { class: "saved judgewait", text: "🤖 Claude vergleicht dein Foto mit den Covern der Treffer …" }) : null,
         v && v.i < 0 && v.reason ? el("div", { class: "note info", text: `🤖 Claude: keiner der Treffer passt sicher zu deinem Foto – ${v.reason}` }) : null,
+        canMulti ? el("div", { class: "hstack mpickstart" }, el("span", { class: "muted small grow", text: `${list.length} Treffer` }),
+          el("button", { class: "btn sm", type: "button", title: "Mehrere Treffer anhaken und auf einmal übernehmen – z. B. mehrere Titel eines Autors", onclick: () => { picked.clear(); const pre = capturePreset(); multiWish = pre ? pre.wish : !!S.addAsWish; showMulti(); } }, "☑ Mehrere übernehmen")) : null,
         card(top, true, tagOf(top)),
         rest.length ? el("details", { class: "morecands", open: open || null }, el("summary", { text: `Andere Ausgabe? ${rest.length} weitere Treffer anzeigen` }),
           el("div", { class: "saved", style: "margin:6px 0", text: "Am besten passende zuerst. Die ISBN zeigt, welche Ausgabe es ist." }), ...rest.map(r => card(r, false, tagOf(r)))) : null);
@@ -1426,11 +1460,45 @@ async function pickCandidate(r, coverFile) {
   const dup = S.books.find(b => toIsbn13(b.isbn) === r.isbn);
   if (dup && !(await confirmBox(`${dupText(dup)} (diese Ausgabe)\nTrotzdem noch einmal hinzufügen?`, "Trotzdem"))) { openDetail(dup.id); return; }
   busyView("Buchdaten werden ergänzt", coverFile, "Lade Klappentext und Cover zu dieser Ausgabe …");
+  openReview(await withIsbnData(r), coverFile);
+}
+// Die gewählte Ausgabe hat Vorrang; fehlende Felder (z. B. Klappentext, Cover) kommen aus der ISBN-Suche
+async function withIsbnData(r) {
+  if (!r.isbn) return r;
   let full = null; try { full = await lookupIsbn(r.isbn); } catch {}
-  // Die gewählte Ausgabe hat Vorrang; fehlende Felder (z. B. Klappentext, Cover) kommen aus der ISBN-Suche
-  const rec = full ? merge(r, full) : r;
-  if (full) { rec.altCovers = [...new Set([...(r.altCovers || []), ...(full.altCovers || [])])]; rec.coverUrl = rec.altCovers[0]; rec.src = [...new Set([r.src, ...(full.src || "").split(", ")])].filter(Boolean).join(", "); }
-  openReview(rec, coverFile);
+  if (!full) return r;
+  const rec = merge(r, full);
+  rec.altCovers = [...new Set([...(r.altCovers || []), ...(full.altCovers || [])])]; rec.coverUrl = rec.altCovers[0]; rec.src = [...new Set([r.src, ...(full.src || "").split(", ")])].filter(Boolean).join(", ");
+  return rec;
+}
+// Mehrere Suchtreffer auf einmal anlegen (Bestand oder Wunschliste); Vorgaben (Fach, Schlagworte, Status) gelten wie beim Stapel
+async function takeSearchResults(recs, wish) {
+  if (!recs.length) return;
+  if (openSheet) openSheet.guard = null;
+  const msg = busyView("Bücher werden übernommen", null, `0 / ${recs.length}`);
+  const pre = capturePreset(), placed = [], newIds = [];
+  let created = 0, bought = 0, skipped = 0, n = 0;
+  for (const r0 of recs) {
+    msg.textContent = `${++n} / ${recs.length}: ${r0.title || ""}`;
+    const r = await withIsbnData(r0);
+    const dup = findDuplicate(r);
+    if (dup && isWish(dup)) { if (wish) skipped++; else { await patchBook(dup.id, { wish: false, addedAt: new Date().toISOString() }); bought++; placed.push(dup.id); } continue; } // steht schon auf der Wunschliste → gekauft
+    if (dup) { skipped++; continue; } // schon im Regal (oder zweimal angehakt)
+    const b = { id: uid(), status: "unread", rating: 0, notes: "", addedAt: new Date().toISOString(), source: "suche" };
+    for (const f of FIELDS) b[f.k] = String(r[f.k] || "").trim();
+    b.isbn = toIsbn13(b.isbn) || b.isbn;
+    const hs = spineWithHeight(b, r); if (hs) b.spine = hs;
+    if (r.coverUrl) { const url = r.coverUrl; const blob = await fetchCoverBlob(url).catch(() => null); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
+    if (pre) applyPreset(b, pre);
+    if (wish) b.wish = true; else delete b.wish;
+    await putBook(b); created++; newIds.push(b.id); if (!wish) placed.push(b.id);
+  }
+  await placePresetBooks(placed);
+  closeSheet(); renderAll();
+  const fach = !wish && placed.length && capturePreset()?.fach;
+  toast(`${created} ${created === 1 ? "Buch" : "Bücher"} ${wish ? "auf die Wunschliste gesetzt" : fach ? "in " + fach.label + " gestellt" : "übernommen"}` + (bought ? `, ${bought} von der Wunschliste gekauft` : "") + (skipped ? `, ${skipped} schon vorhanden` : "") + ".", 4500);
+  const noCov = newIds.filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
+  if (noCov.length && await confirmBox(`${noCov.length} der neuen Bücher ${noCov.length === 1 ? "hat" : "haben"} noch kein Cover.\nJetzt online nachtragen? (Eindeutige Treffer werden übernommen, sonst wird gefragt.)`, "Cover suchen")) coverRun(noCov);
 }
 
 /* ================= Formular-Bausteine ================= */
@@ -2729,9 +2797,24 @@ function spineMenu(b) {
           onclick: () => { setFit(loc.m, loc.k, fitLayer, !fitted); after(fitted ? "Wieder mit geschätzter Dicke gezeichnet." : `Die ${fitLayer === "back" ? "hintere" : "vordere"} Reihe füllt jetzt das ganze Fach.`); } },
           fitted ? "↔ Wieder geschätzte Dicken" : "↔ Fach ist voll – auf ganze Breite verteilen"),
         el("button", { class: "btn sm", onclick: () => { close(); S.selMode = true; endPick(); layerList(loc.m, loc.k, fitLayer).forEach(id => S.sel.add(id)); renderWall(); } }, "☑ Bücher dieser Reihe auswählen"),
+        loc.list.length > 1 ? el("button", { class: "btn sm thickall", title: "Alle anderen Bücher dieser Reihe so dick zeichnen wie dieses – praktisch bei einer Reihe gleich dicker Bände", onclick: () => sameThickRow(b, loc, after) }, `📏 Diese Dicke (${cmText(spineCm(b).w)}) für die ganze Reihe`) : null,
         el("button", { class: "btn sm ghost danger", onclick: async () => { const ids = [...layerList(loc.m, loc.k, "front"), ...layerList(loc.m, loc.k, "back"), ...layerList(loc.m, loc.k, "top")]; if (await confirmBox(`Alle ${ids.length} Bücher aus diesem Fach zurück in „Noch nicht eingeräumt“ legen?`, "Fach leeren")) { ids.forEach(id => { unshelve(id); setLying(id, false); }); await after("Fach geleert."); } } }, "Ganzes Fach leeren")),
       el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: close }, "Schließen"), el("button", { class: "btn primary", onclick: () => { close(); openDetail(b.id); } }, "Buch öffnen")))));
   document.body.append(box);
+}
+const cmText = v => String(Math.round(v * 10) / 10).replace(".", ",") + " cm";
+// Dicke eines Buchs (spine.thickCm, gemessen oder geschätzt) für alle Bücher seiner Reihe übernehmen
+async function sameThickRow(b, loc, after) {
+  const w = Math.round(spineCm(b).w * 10) / 10;
+  const others = loc.list.filter(id => id !== b.id).map(bookOf).filter(Boolean);
+  if (!others.length) return;
+  const own = others.filter(x => +x.spine?.thickCm && +x.spine.thickCm !== w).length;
+  const where = loc.layer === "top" ? "anderen oben aufgelegten Bücher" : loc.layer === "back" ? "anderen Bücher der hinteren Reihe" : "anderen Bücher dieser Reihe";
+  if (!(await confirmBox(`Alle ${others.length} ${where} ${cmText(w)} dick zeichnen?`
+    + (own ? `\n${own} davon ${own === 1 ? "hat" : "haben"} schon eine eigene Dicke – sie wird ersetzt.` : "")
+    + (+b.spine?.thickCm ? "" : `\nDie Dicke von „${b.title || "diesem Buch"}“ ist geschätzt; sie wird mit festgehalten.`), "Übernehmen"))) return;
+  for (const x of [b, ...others]) if (+x.spine?.thickCm !== w) await patchBook(x.id, { spine: { ...(x.spine || {}), thickCm: w } });
+  await after(`${others.length + 1} Bücher sind jetzt ${cmText(w)} dick.`);
 }
 function newWallDialog() {
   const name = el("input", { class: "field", value: S.shelves.walls.length ? "" : "Wohnzimmer", placeholder: "z. B. Wohnzimmer, Arbeitszimmer" });
