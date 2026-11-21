@@ -897,3 +897,12 @@ body.wandbig .wrap{max-width:none}
 }
 .tabletools .fpanel{display:flex!important;width:auto;background:none;border:0;padding:0}
 @media (max-width:759px){ .tabletools .fpanel{width:100%} .tabletools .fpanel select{width:100%;max-width:none!important} }
+/* Suche: mehrere Treffer übernehmen */
+.mpickstart{margin-top:var(--sp-3);align-items:center}
+.cand.mcand{grid-template-columns:auto 46px 1fr}
+.cand.mcand input{width:20px;height:20px;accent-color:var(--accent);cursor:pointer}
+.cand.mcand.owned{opacity:.6;cursor:default}
+.mpickall{padding:var(--sp-1) var(--sp-2);cursor:pointer;align-items:center}
+.mpickall input{width:18px;height:18px;accent-color:var(--accent)}
+.mpickbar{position:sticky;bottom:0;padding:var(--sp-2) 0;background:var(--paper);display:flex;justify-content:flex-end}
+.mpickbar .btn{min-width:200px}
