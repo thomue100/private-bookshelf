@@ -368,7 +368,7 @@ function openSyncSettings() { const sh = sheet("🔄 Abgleich mit eigenem Server
   try { SY.conf = await DB.getMeta("syncConf") || null; } catch { SY.conf = null; }
   if (!SY.conf?.on) return;
   syRefresh();
-  const wait = () => new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
+  const wait = () => new Promise(r => { const t = setInterval(() => { if (S.loaded && scriptsReady()) { clearInterval(t); r(); } }, 50); });
   await wait();
   runSync(false);
 })();

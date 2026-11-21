@@ -269,6 +269,45 @@ test("„Noch nicht eingeräumt“: zeigt alle Bücher (lädt beim Rollen nach) 
   await expect(side.locator('.witem[data-id="neu"]')).toHaveCount(0);
 });
 
+test("„Noch nicht eingeräumt“ mit Suchbegriff: eingeräumtes Buch verschwindet sofort, der Filter bleibt (auch nach Neuladen)", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  const side = page.locator(".wside");
+  const q = side.getByLabel("Noch nicht eingeräumte Bücher filtern");
+  await q.fill("hesse");
+  const ids = await side.locator(".witem").evaluateAll(es => es.map(e => e.dataset.id));
+  expect(ids.length).toBeGreaterThan(1);
+  // per Antippen einräumen: Buch, dann Fach
+  await side.locator(`.witem[data-id="${ids[0]}"]`).click();
+  await page.locator(".wall .fach").first().click();
+  await expect(side.locator(`.witem[data-id="${ids[0]}"]`)).toHaveCount(0);
+  await expect(side.locator(".witem")).toHaveCount(ids.length - 1);
+  await expect(q).toHaveValue("hesse");
+  // eingeräumte Treffer nur auf Wunsch
+  await side.getByRole("button", { name: "1 eingeräumtes Buch passt auch – zeigen" }).click();
+  await expect(side.locator(`.witem[data-id="${ids[0]}"]`)).toContainText("📍");
+  // Filter bleibt nach dem Neuladen
+  await page.reload(); await page.waitForFunction(() => S.loaded);
+  await expect(page.locator(".wside").getByLabel("Noch nicht eingeräumte Bücher filtern")).toHaveValue("hesse");
+  await expect(page.locator(".wside .witem")).toHaveCount(ids.length - 1);
+});
+
+test("Neuzeichnen im Hintergrund: „⋯ Mehr“ bleibt offen, Tippen im Suchfeld der Liste geht weiter", async ({ page }) => {
+  await openApp(page);
+  await seedBooks(page);
+  await newWall(page, "Ein 4er-Würfel (1112)");
+  await page.click(".wmenu > summary");
+  await page.evaluate(() => renderAll());
+  await expect(page.locator("text=🗺 Gesamtansicht")).toBeVisible();
+  await page.keyboard.press("Escape"); await page.locator(".wside h3").click(); await page.locator(".wside h3").click(); // zu- und wieder aufklappen
+  const q = page.locator(".wside").getByLabel("Noch nicht eingeräumte Bücher filtern");
+  await q.click(); await page.keyboard.type("hes");
+  await page.evaluate(() => renderAll());
+  await page.keyboard.type("se");
+  await expect(page.locator(".wside").getByLabel("Noch nicht eingeräumte Bücher filtern")).toHaveValue("hesse");
+});
+
 test("Ausgewählte Bücher auf dieselbe Höhe bringen", async ({ page }) => {
   await openApp(page);
   await seedBooks(page);

@@ -307,7 +307,7 @@ async function importStack(list) {
 
 /* ---------- Start: angefangene Suchen nach einem Neustart fortsetzen ---------- */
 (async () => {
-  await new Promise(r => { const t = setInterval(() => { if (S.loaded && document.readyState !== "loading") { clearInterval(t); r(); } }, 50); });
+  await new Promise(r => { const t = setInterval(() => { if (S.loaded && scriptsReady()) { clearInterval(t); r(); } }, 50); });
   if (S.stack.length) stackWork();
   window.addEventListener("online", () => { if (S.stack.length) stackWork(); });
 })();

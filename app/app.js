@@ -10,6 +10,11 @@ const S = {
   photos: [], // gespeicherte Fach-Fotos (siehe shelfphotos.js)
   stack: [],  // Stapel-Erfassung, nur auf diesem Gerät (siehe stackscan.js)
 };
+// Alle Skripte (defer) sind erst bei DOMContentLoaded geladen – readyState ist schon vorher „interactive“.
+// Startroutinen in Zusatzdateien warten auf S.loaded && scriptsReady().
+let SCRIPTS_READY = document.readyState === "complete";
+document.addEventListener("DOMContentLoaded", () => { SCRIPTS_READY = true; });
+const scriptsReady = () => SCRIPTS_READY;
 const STATUS = { unread: "Ungelesen", reading: "Gerade dabei", read: "Gelesen" };
 const STATUS_COLOR = { unread: "var(--s-unread)", reading: "var(--s-reading)", read: "var(--s-read)" };
 const FIELDS = [
@@ -2053,7 +2058,7 @@ const LAYER_LABEL = { front: "", back: "hintere Reihe", top: "liegt oben auf der
 const BOARD = 1.2, FACH_W = 33.0, FACH_H = 33.0;
 const BACK_RISE = 1.6; // hintere Reihe steht so viele cm höher als die vordere
 const MOD_COLORS = [["Weiß", "#f3f2ee"], ["Hellgrau", "#d6d4cf"], ["Anthrazit", "#3a3a3a"], ["Ruby", "#7d2630"], ["Salbei", "#a7b4a0"], ["Blau", "#3f5d7d"], ["Senf", "#d9a640"]];
-S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = ""; S.showBack = new Set(); S.pickMany = null; S.selMode = false; S.sel = new Set(); S.lens = false;
+S.shelves = { walls: [], updatedAt: "" }; S.wallId = null; S.pick = null; S.wallEdit = false; S.zoom = 1; S.highlight = null; S.wq = (() => { try { return localStorage.getItem("wallQuery") || ""; } catch { return ""; } })(); S.wqShelved = false; S.showBack = new Set(); S.pickMany = null; S.selMode = false; S.sel = new Set(); S.lens = false;
 S.ovZoom = 1; S.anchor = null; S.zoomFocus = null; S.wallReset = false; // Gesamtansicht, Zoom, Ansicht beim Neuzeichnen halten
 try { S.overview = localStorage.getItem("wallOverview") === "1"; } catch { S.overview = false; }
 // Bücherliste eingeklappt (S.sideClosed) und Großansicht (S.wallBig: ganze Fensterbreite, Liste eingeklappt) – nur auf diesem Gerät
@@ -2345,6 +2350,10 @@ function wallEl(w, s) {
 function wallViewSave(host) {
   const sc = host.querySelector(".wallscroll"); if (!sc) return null;
   const st = { left: sc.scrollLeft, top: sc.scrollTop, win: scrollY, list: host.querySelector(".wlist")?.scrollTop || 0 };
+  // offenes „⋯ Mehr“ und Tippen im Suchfeld der Liste überstehen das Neuzeichnen (z. B. Cover-Farben, Abgleich)
+  st.menu = !!host.querySelector("details.wmenu[open]");
+  const ae = document.activeElement;
+  if (ae && ae.matches?.(".wside input[type=search]") && host.contains(ae)) st.caret = [ae.selectionStart, ae.selectionEnd];
   const vis = e => { const r = e.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth && r.width > 0; };
   let a = S.anchor && host.querySelector(S.anchor);
   if (!a || !vis(a)) { const sr = sc.getBoundingClientRect(); a = [...host.querySelectorAll(".wall .fach")].find(f => { const r = f.getBoundingClientRect(); return vis(f) && r.bottom > sr.top && r.top < sr.bottom; }); }
@@ -2356,6 +2365,8 @@ function wallViewRestore(host, st) {
   const z = S.zoomFocus; S.zoomFocus = null;
   if (!st) { sc.scrollLeft = 0; sc.scrollTop = 0; return; }
   const wl = host.querySelector(".wlist"); if (wl) wl.scrollTop = st.list;
+  if (st.menu) { const d = host.querySelector("details.wmenu"); if (d) d.open = true; }
+  if (st.caret) { const q = host.querySelector(".wside input[type=search]"); if (q) { q.focus({ preventScroll: true }); try { q.setSelectionRange(...st.caret); } catch {} } }
   if (z) { // Zoom: der Punkt unter Finger/Maus bzw. die Mitte bleibt stehen
     const r = sc.getBoundingClientRect();
     sc.scrollLeft = z.cx * z.ratio - (z.fx - r.left); sc.scrollTop = z.cy * z.ratio - (z.fy - r.top);
@@ -2622,7 +2633,7 @@ function sameHeightDialog(ids) {
 function bookLabel(b) { const v = volOf(b); return (b.title || "Ohne Titel") + (v && !new RegExp("\\b" + v + "\\s*\\)?\\s*$").test(b.title || "") ? " · Band " + v : ""); }
 const WLIST_STEP = 150;
 function sidebarEl() {
-  const q = el("input", { class: "field", type: "search", placeholder: "Buch suchen (auch eingeräumte)", value: S.wq });
+  const q = el("input", { class: "field", type: "search", placeholder: "In der Liste suchen", "aria-label": "Noch nicht eingeräumte Bücher filtern", value: S.wq });
   const listEl = el("div", { class: "wlist" });
   // Eingeräumte Bücher einmal sammeln (statt je Buch alle Fächer zu durchsuchen) – wichtig bei Tausenden Büchern
   const shelved = new Set(); for (const f of allFachs()) for (const id of f.list) shelved.add(id);
@@ -2649,24 +2660,31 @@ function sidebarEl() {
     S.wShown = Math.max(S.wShown || 0, have + next.length);
     if (have + next.length < list.length) listEl.append(el("button", { class: "btn sm ghost wmore", onclick: more }, `Weitere ${Math.min(WLIST_STEP, list.length - have - next.length)} von ${list.length - have - next.length} anzeigen`));
   };
+  // Die Liste zeigt nur nicht eingeräumte Bücher – der Suchbegriff filtert sie (bleibt beim Einräumen und nach Neuladen stehen).
+  // Eingeräumte Treffer nur auf Wunsch darunter, damit ein gerade eingeräumtes Buch sofort aus der Liste verschwindet.
+  const shelfInfo = el("div", { class: "wshelved" });
+  const sortB = (a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || coll.compare(a.title || "", b.title || "") || (+volOf(a) || 0) - (+volOf(b) || 0);
   const draw = (keep = true) => {
     const qq = S.wq.trim();
-    list = (qq ? S.books.filter(b => inStock(b) && matchQ(b, qq)) : S.books.filter(b => inStock(b) && !shelved.has(b.id)))
-      .sort((a, b) => lastName(a.author).localeCompare(lastName(b.author), "de") || coll.compare(a.title || "", b.title || "") || (+volOf(a) || 0) - (+volOf(b) || 0));
+    const open = S.books.filter(b => inStock(b) && !shelved.has(b.id) && (!qq || matchQ(b, qq))).sort(sortB);
+    const hits = qq ? S.books.filter(b => inStock(b) && shelved.has(b.id) && matchQ(b, qq)).sort(sortB) : [];
+    list = S.wqShelved ? [...open, ...hits] : open;
     if (!keep) S.wShown = 0;
-    fillNode(listEl, list.length ? null : el("div", { class: "saved", style: "padding:10px", text: qq ? "Nichts gefunden." : "Alle Bücher sind eingeräumt. 🎉" }));
+    fillNode(listEl, list.length ? null : el("div", { class: "saved", style: "padding:10px", text: qq ? "Kein noch nicht eingeräumtes Buch passt." : "Alle Bücher sind eingeräumt. 🎉" }));
     const want = Math.max(WLIST_STEP, S.wShown || 0);
     while (listEl.querySelectorAll(".witem").length < Math.min(want, list.length)) more();
+    fillNode(shelfInfo, hits.length ? el("button", { class: "btn sm ghost", type: "button", onclick: () => { S.wqShelved = !S.wqShelved; draw(); } },
+      S.wqShelved ? "Eingeräumte Treffer ausblenden" : (hits.length === 1 ? "1 eingeräumtes Buch passt auch – zeigen" : `${hits.length} eingeräumte Bücher passen auch – zeigen`)) : null);
   };
   listEl.addEventListener("scroll", () => { if (listEl.scrollTop + listEl.clientHeight > listEl.scrollHeight - 300) more(); });
-  q.addEventListener("input", () => { S.wq = q.value; draw(false); });
+  q.addEventListener("input", () => { S.wq = q.value; S.wqShelved = false; try { S.wq.trim() ? localStorage.setItem("wallQuery", S.wq) : localStorage.removeItem("wallQuery"); } catch {} draw(false); });
   draw();
   const n = S.books.filter(b => inStock(b) && !shelved.has(b.id)).length;
   const closed = sideClosed();
   const head = el("button", { class: "wsidehead", type: "button", "aria-expanded": closed ? "false" : "true", title: closed ? "Bücherliste aufklappen" : "Bücherliste einklappen – mehr Platz für das Regal", onclick: () => setSideClosed(!closed) },
     el("h3", { text: `Noch nicht eingeräumt (${n})` }), el("span", { class: "wsidearrow", text: closed ? "▸" : "▾" }));
   const aside = closed ? el("aside", { class: "wside closed" }, head)
-    : el("aside", { class: "wside" }, head, q, listEl,
+    : el("aside", { class: "wside" }, head, q, listEl, shelfInfo,
       el("div", { class: "saved", text: "Tipp: Ein Buch aus dem Regal hierher ziehen (oder antippen → ↩), um es wieder herauszunehmen." }));
   aside.addEventListener("dragover", e => { e.preventDefault(); aside.classList.add("hot"); });
   aside.addEventListener("dragleave", e => { if (!aside.contains(e.relatedTarget)) aside.classList.remove("hot"); });
