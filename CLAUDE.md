@@ -49,7 +49,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/titlelist.js` | „📋 Titelliste einfügen“: `parseTitleList` (Freitext, Tabellen mit/ohne Kopfzeile, eigener CSV-Export), Vorschau, Suche über `matchItem`, Prüfliste über `scanReview` ohne Foto, `tlImport`; angefangener Lauf im Meta-Eintrag `titleListRun` (nur Gerät, nicht in Sicherung/Abgleich), Weitermachen `resumeTitleList` |
 | `app/batchscan.js` | Viele Fach-Fotos auf einmal erkennen: Sammelauftrag (Anthropic Message Batches, localStorage `aiBatches`), Abholen `checkBatches`, Ausweichweg einzeln, „der Reihe nach prüfen“ (`S.reviewChain`, `nextReview`) |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
-| `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche (Custom Search nur Altschlüssel, Ende 1.1.2027). `probeCover`: ohne CORS (Google Books) nur verlinkt (`blob: null`). Erfolglose Suchen in Meta `coverMiss` (`recentMiss`, 60 Tage, nur Gerät). Ausgabensuche im Dialog `editionSection` |
+| `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche (Custom Search nur Altschlüssel, Ende 1.1.2027). Nur gespeicherte Cover (`coverBlob`) zählen, keine reinen Links: überall `storableCover(coverUrlsOf(r))` (app.js, erste speicherbare Adresse – Google Books hat kein CORS), `needsCover` = kein `coverBlob`; alte Links räumt `verifyCoverLinks` auf (ersetzen, sonst entfernen – nur mit `netReachable`). Erfolglose Suchen in Meta `coverMiss` (`recentMiss`, 60 Tage, nur Gerät). Ausgabensuche im Dialog `editionSection` |
 | `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |
 | `app/shelfphotos.js` | Gespeicherte Fach-Fotos: `savePhoto`, Übersicht `openPhotoInbox`, Weitermachen nach Neustart (`scanPending`), Empfang über „Teilen“ (Service Worker → Cache `share-inbox` → `?share=`) |
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |
@@ -57,7 +57,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/perspective.js` | Perspektive entzerren: `homography`, `validQuad`, `quadsFromAnswer` (`cover_quad`/`spine_quad` aus der Cover-Erkennung), `warpQuad`, Ecken-Editor `quadEditor` („✂ Zuschneiden“) |
 | `app/stackscan.js` | „📚 Stapel erfassen“: Kamera bleibt offen (`openStackCapture`, Barcode über `barcodeLoop` aus `app.js`), Einträge im Store `stack` (`putStackEntry`/`patchStackEntry`/`dropStackEntry`), Hintergrundsuche `stackWork`, Erkennung ohne Barcode per Sammelauftrag (`kind:"stack"` in `aiBatches`, Ergebnis über `stackRecognized`) oder Claude-Chat-Brücke, Prüfliste `openStackReview`, `importStack`; Vorgaben (localStorage `capturePreset`, nur Gerät): `capturePreset`, `applyPreset`, `placePresetBooks`, `presetBarEl`, `presetDialog` – auch von `openAdd`/`openReview` genutzt |
 | `app/measures.js` | „📏 Maße nachtragen“ (`measureRun`, Zeile `#heightRun` auf „Mehr“): fehlende `spine.heightCm`/`thickCm`/`imageBlob` aus gespeicherten Fach-Fotos (`photoMeasures`: Rücken → Buch im Fach, eindeutig), DNB, Google Books (`googleDims`, Einzeldatensatz `volumes/<id>`). Nie überschreiben (`mergeSpine` in app.js, auch in `importScan` für vorhandene Bücher). Erfolglose Katalogabfragen in Meta `measureMiss` (60 Tage, nur Gerät) |
-| `app/sw.js` | Service Worker (offline) |
+| `app/sw.js` | Service Worker (offline): App-Dateien „cache first“ aus `shell-VERSION` (auf localhost Netz zuerst), CDN optional (darf Installation nicht verhindern), Bilder fremder Seiten in `runtime-v1` (max. 3000). Test `tests/offline.spec.js` über 127.0.0.1 |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |
 
@@ -96,7 +96,7 @@ oder `"gap"`, `orient` `"h"|"v"`; Fächer `L/R`, `T/B` (hochkant), `TL/TR/BL/BR`
   Pull Request `develop → main`, nachdem die Tests grün sind. Nie direkt auf `main` committen oder pushen.
 
 - **Vor jedem Abschluss `npm test` ausführen** – alle Tests müssen grün sein. Neue Funktionen bekommen einen Test in `tests/`.
-- Änderungen an Dateien in `app/`: **`VERSION` in `app/sw.js` erhöhen** (z. B. `"v18"` → `"v19"`), sonst sehen installierte Apps die Änderung nicht.
+- Änderungen an Dateien in `app/`: **`VERSION` in `app/sw.js` erhöhen** (z. B. `"v18"` → `"v19"`), sonst sehen installierte Apps die Änderung nicht (die App-Dateien kommen „cache first“ aus dem Zwischenspeicher der Version).
   Neue Dateien zusätzlich in `FILES` in `sw.js` eintragen (ein Test prüft das).
 - Bei Datenänderungen immer einen Test ergänzen, der eine **alte** Sicherung bzw. einen alten Datensatz lädt (siehe `tests/compat.spec.js`).
 - Tests nutzen nie das echte Internet. Neue externe Dienste in `tests/helpers.js` nachbilden.

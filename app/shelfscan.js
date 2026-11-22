@@ -904,7 +904,7 @@ async function bookFromItem(it, c, opt) {
   if ("spine" in opt) b.spine = opt.spine;
   const hsp = c && spineWithHeight(b, c); if (hsp) b.spine = hsp; // Katalog-Höhe nur, wenn das Foto keine liefert
   if ((opt.tags || []).length) b.tags = normTags(opt.tags);
-  if (c?.coverUrl) { const url = (c.altCovers && c.altCovers[0]) || c.coverUrl; const blob = await fetchCoverBlob(url); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
+  if (c) { const sc = await storableCover(coverUrlsOf(c)); if (sc) { b.coverUrl = sc.url; b.coverBlob = sc.blob; } }
   return b;
 }
 /* Rücken groß ansehen (antippen in der Prüfliste): aus dem Originalfoto, Schrift waagerecht */
