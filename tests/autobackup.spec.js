@@ -61,8 +61,8 @@ test("Bilder liegen einzeln im Ordner „Bilder“: nur einmal geschrieben, Tage
     clearTimeout(AB.timer);
     return { covers: S.books.filter(b => b.coverBlob).map(b => [b.id, b.coverBlob.size]).sort() };
   });
-  // Ein Bild, auf das niemand verweist, wird aufgeräumt
-  await page.evaluate(async () => { const d = await AB.handle.getDirectoryHandle("Bilder", { create: true }); await abWrite(d, "0123456789abcdef0123456789abcdef.jpg", new Blob(["alt"])); });
+  // Ein Bild der App, auf das niemand verweist, wird aufgeräumt – eine eigene Datei im Ordner bleibt
+  await page.evaluate(async () => { const d = await AB.handle.getDirectoryHandle("Bilder", { create: true }); await abWrite(d, "0123456789abcdef0123456789abcdef.jpg", new Blob(["alt"])); await abWrite(d, "Urlaub.jpg", new Blob(["meins"])); });
   expect(await page.evaluate(() => runAutoBackup(true))).toBe(true);
   const r = await page.evaluate(async () => {
     const names = []; for await (const [n, h] of AB.handle.entries()) if (h.kind === "file") names.push(n);
@@ -78,8 +78,9 @@ test("Bilder liegen einzeln im Ordner „Bilder“: nur einmal geschrieben, Tage
   expect(r.d.books.find(b => b.id === "b2").spine).toMatchObject({ heightCm: 20, imageFile: expect.stringMatching(/\.png$/) });
   expect(r.d.books.find(b => b.id === "b4").images[0].file).toMatch(/^Bilder\//);
   expect(r.d.photos[0].imageFile).toMatch(/^Bilder\//);
-  // 5 verschiedene Cover (b1 = b3) + Rücken + Widmung + Fach-Foto; das verwaiste Bild ist weg
-  expect(r.imgs).toHaveLength(8);
+  // 5 verschiedene Cover (b1 = b3) + Rücken + Widmung + Fach-Foto + eigene Datei; das verwaiste Bild ist weg
+  expect(r.imgs).toHaveLength(9);
+  expect(r.imgs).toContain("Urlaub.jpg");
   expect(r.imgs).not.toContain("0123456789abcdef0123456789abcdef.jpg");
 
   // Zweiter Lauf schreibt keine Bilder neu
