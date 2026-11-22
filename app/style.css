@@ -465,8 +465,8 @@ tr.wishrow td{background:color-mix(in srgb,#f1c40f 8%,transparent)}
 .covrow.ok span{color:var(--ok)} .covrow.ask span{color:var(--warn)} .covrow.warn span{color:#b3261e}
 .thumb.nocov{display:flex;align-items:center;justify-content:center;font-size:var(--fs-lg);opacity:.6;border:1px dashed var(--muted)}
 /* Google-Bildersuche */
-.gsec{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}
-.gsec summary{font-size:var(--fs-base)}
+.gsec,.esec{margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}
+.gsec summary,.esec summary{font-size:var(--fs-base)}
 .gimgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:10px}
 .gimg{border:2px solid var(--line);border-radius:8px;padding:4px;background:var(--paper);cursor:pointer;display:flex;flex-direction:column;gap:3px;align-items:stretch}
 .gimg:hover{border-color:var(--accent)}

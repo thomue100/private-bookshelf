@@ -170,11 +170,15 @@ Am Handy gibt es diese Funktion nicht – dort weiter „Sicherung exportieren�
 
 ## Cover aus dem Internet nachtragen
 
-Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books und Open Library:
+Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books, Open Library und Amazon (über die ISBN; dabei geht nur die ISBN an Amazon):
 - **Alle auf einmal:** Hinweis oben in der Bibliothek („… Bücher ohne Cover“ → „🖼 Cover nachtragen“; „Später“ blendet ihn aus, bis weitere Bücher ohne Cover dazukommen), **Mehr → „Fehlende Cover nachtragen“** oder in der Tabelle „🖼 Cover nachtragen“. Direkt nach einem Fach-Foto-Import fragt die App von selbst.
 - **Eindeutig = automatisch:** Gibt es ein Cover genau zur ISBN, oder passt genau eine Ausgabe klar zu Titel, Autor und Verlag, wird es ohne Rückfrage übernommen.
 - **Unsicher = Nachfrage:** Bei mehreren passenden Ausgaben oder unsicheren Treffern zeigt die App am Ende des Laufs alle Kandidaten mit Bild, Verlag, Jahr und ISBN; der wahrscheinlichste ist markiert. Du wählst, nimmst ein eigenes Foto oder überspringst.
 - **Einzeln:** Auf der Buchseite „🖼 Cover online suchen“, in der Tabelle das 🖼-Feld in der Cover-Spalte oder der Filter „Ohne Cover“. Im Bearbeiten-Modus holt „🌐 Online-Cover“ ebenfalls die Kandidaten.
+- **Nicht immer wieder dasselbe suchen:** Findet der Sammellauf für ein Buch nichts (oder du wählst „Überspringen“), merkt sich die App das 60 Tage lang und lässt das Buch beim nächsten Lauf aus. Der Lauf sagt, wie viele übersprungen wurden; „Einzeln mit Bildersuche durchgehen“ bzw. „Trotzdem alle neu suchen“ holen sie zurück. Änderst du Titel, Autor oder ISBN, wird das Buch wieder gesucht. (Gilt nur für dieses Gerät.)
+- **Ohne Treffer → Bildersuche:** Am Ende des Laufs geht „… ohne Treffer mit Bildersuche durchgehen“ die Bücher nacheinander durch – jeweils mit offener Google-Bildersuche.
+- **📚 Weitere Ausgaben suchen** (im Cover-Dialog): sucht mit frei wählbarem Begriff (z. B. nur Titel, oder mit Verlag) in Google Books, DNB, Bibliotheksverbund und Open Library und zeigt alle gefundenen Cover – **antippen, fertig**.
+- Manche Quellen (vor allem Google Books) zeigen ihre Bilder nur an, geben sie aber nicht zum Speichern heraus. Solche Cover werden **verlinkt** („nur verlinkt“) – sie erscheinen, solange Internet da ist.
 - Bestehende Cover werden nie überschrieben; die Funktion füllt nur leere.
 - **Pseudo-Cover:** Liefert ein Katalog eine Cover-Adresse, hinter der kein Bild steckt, gilt das Buch als „ohne Cover“: Die App prüft solche Adressen beim Start im Hintergrund und vor jedem Suchlauf, entfernt tote Adressen und nimmt die Bücher in den Suchlauf auf. Ein Bild, das sich beim Anzeigen als tot erweist, wird sofort so behandelt.
 
@@ -183,7 +187,8 @@ Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books un
   - **PC:** Bild in die gestrichelte Fläche der App ziehen – oder Rechtsklick → **„Bild kopieren“** und in der App **Strg+V**. Auch „Bildadresse kopieren“ und kopierte Google-Links funktionieren; die App holt dann das Original.
   - **Handy:** Bild lange drücken → „Bild kopieren“, in der App auf **„📋 Aus Zwischenablage“** tippen (beim ersten Mal fragt der Browser um Erlaubnis) – oder in die gestrichelte Fläche tippen und „Einfügen“ wählen.
 - Manche Webseiten geben ihre Bilder nicht zum Speichern heraus. Dann verlinkt die App das Bild (wird online angezeigt) oder meldet sich mit einem Hinweis; „Bild kopieren“ statt „Bildadresse kopieren“ hilft in diesem Fall fast immer.
-- **Direkt in der App:** Mit einem eigenen Google-Schlüssel und einer Suchmaschinen-ID (**Mehr → „Einstellungen & Über die App“** → „Google-Bildersuche“; kostenlos bis 100 Anfragen pro Tag) erscheinen die Bilder als Treffer in der App – antippen, fertig.
+- **Warum ein eigener Tab?** Google erlaubt nicht, seine Suche in andere Apps einzubetten, und gibt die Treffer nicht an fremde Seiten heraus. Deshalb öffnet sich Google in einem eigenen Tab.
+- **Direkt in der App (nur mit altem Schlüssel):** Wer schon einen Google-Schlüssel mit Suchmaschinen-ID hat (**Mehr → „Einstellungen & Über die App“** → „Google-Bildersuche“), sieht die Bilder als Treffer in der App. Google nimmt dafür keine neuen Nutzer mehr an und stellt den Dienst am 1. 1. 2027 ein.
 - „Google Bilder“ gibt es außerdem als Suchseite unter „Suchseiten wählen“.
 
 ## Tabelle: filtern und sortieren

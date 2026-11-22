@@ -3,45 +3,81 @@
 "use strict";
 
 
-/* Prüft, ob eine Cover-Adresse ein echtes Bild liefert, und gibt Blob + Maße zurück (null, wenn nicht). */
+/* Lädt ein Bild nur zur Anzeige (ohne CORS) und liefert seine Maße – null bei Fehler oder Platzhalter. */
+function imgProbe(url, ms = 8000) {
+  return new Promise(res => {
+    const i = new Image(); const t = setTimeout(() => { i.src = ""; res(null); }, ms);
+    i.onload = () => { clearTimeout(t); res(placeholderImg(i, url) ? null : { w: i.naturalWidth, h: i.naturalHeight }); };
+    i.onerror = () => { clearTimeout(t); res(null); };
+    i.referrerPolicy = "no-referrer"; i.src = url;
+  });
+}
+/* Prüft, ob eine Cover-Adresse ein echtes Bild liefert: {url, blob, w, h} oder null.
+   Manche Quellen (vor allem Google Books) geben ihre Bilder nicht zum Speichern heraus (kein CORS) – das Bild lässt sich
+   aber anzeigen. Dann ist blob null und das Cover wird nur verlinkt (früher wurden diese Treffer ganz verworfen). */
 async function probeCover(url) {
-  const blob = await fetchCoverBlob(url); if (!blob) return null;
-  try { const img = await loadImage(blob); if (placeholderImg(img, url)) return null; return { url, blob, w: img.naturalWidth, h: img.naturalHeight }; }
-  catch { return null; }
+  const blob = await fetchCoverBlob(url);
+  if (blob) { try { const img = await loadImage(blob); return placeholderImg(img, url) ? null : { url, blob, w: img.naturalWidth, h: img.naturalHeight }; } catch { return null; } }
+  const d = await imgProbe(url); return d ? { url, blob: null, w: d.w, h: d.h } : null;
 }
 const covKey = u => String(u).replace(/^https?:\/\//, "").replace(/[?&](zoom|edge|source)=[^&]*/g, "").replace(/-[SML]\.jpg/, ".jpg");
+const covSrcName = u => /openlibrary|archive\.org/.test(u) ? "Open Library" : /books\.google|googleusercontent/.test(u) ? "Google Books" : /amazon\./.test(u) ? "Amazon" : "";
+// Bildadressen zu einem Katalogtreffer: eigenes Cover, dann Open Library und Google Books über die ISBN
+const hitCovers = c => [c.coverUrl, ...(c.altCovers || []), ...(toIsbn13(c.isbn) ? olCovers(toIsbn13(c.isbn)) : [])].filter((v, i, a) => v && a.indexOf(v) === i);
+const covUrl = c => c.blob ? URL.createObjectURL(c.blob) : c.url;
 
-/* Sammelt Cover-Kandidaten für ein Buch. Jeder Kandidat: {url, blob, w, h, src, title, author, year, publisher, isbn, score, reason} */
+/* Sammelt Cover-Kandidaten für ein Buch. Jeder Kandidat: {url, blob|null, w, h, src, title, author, year, publisher, isbn, score, reason}.
+   Das Ergebnis trägt failed=true, wenn kein Katalog erreichbar war (dann gilt „nichts gefunden“ nicht als Fehlschlag). */
 async function coverCandidates(b, onStatus) {
   const i13 = toIsbn13(b.isbn);
-  const seen = new Set(); const out = [];
+  const seen = new Set(); const out = []; let reached = false, tried = false;
   const add = async (url, meta, score, reason) => {
-    if (!url) return; const k = covKey(url); if (seen.has(k)) return; seen.add(k);
-    const p = await probeCover(url); if (!p) return;
-    out.push({ ...p, ...meta, score, reason });
+    if (!url) return false; const k = covKey(url); if (seen.has(k)) return false; seen.add(k);
+    const p = await probeCover(url); if (!p) return false;
+    out.push({ ...p, ...meta, src: meta.src || covSrcName(url), score: score + (p.blob ? 0.3 : 0), reason });
+    return true;
   };
   // 1) Genau diese Ausgabe per ISBN
   if (i13) {
     onStatus && onStatus("Suche Cover zur ISBN …");
-    let rec = null; try { rec = await lookupIsbn(i13); } catch {}
-    const urls = rec?.altCovers?.length ? rec.altCovers : olCovers(i13);
-    for (const u of urls) await add(u, { src: /openlibrary/.test(u) ? "Open Library" : "Google Books", title: rec?.title || b.title, author: rec?.author || b.author, year: rec?.year || b.year, publisher: rec?.publisher || b.publisher, isbn: i13 }, 10, "passend zur ISBN");
+    tried = true;
+    let rec = null; try { rec = await lookupIsbn(i13); reached = true; } catch {}
+    const urls = rec?.altCovers?.length ? [...rec.altCovers, ...olCovers(i13)] : olCovers(i13);
+    for (const u of [...new Set(urls)]) await add(u, { src: covSrcName(u), title: rec?.title || b.title, author: rec?.author || b.author, year: rec?.year || b.year, publisher: rec?.publisher || b.publisher, isbn: i13 }, 10, "passend zur ISBN");
   }
-  // 2) Ausgaben zum Titel (bei ISBN-Treffer nur als Alternative)
-  if (!out.length || !i13) {
+  // 2) Ausgaben zum Titel (bei ISBN-Treffer nur als Alternative): gezielt nach Titel + Autor, sonst freie Suche
+  if ((!out.length || !i13) && (b.title || "").trim()) {
     onStatus && onStatus("Suche Ausgaben zu Titel und Autor …");
-    let list = []; try { list = await searchBooks([b.title, lastName(b.author)].filter(Boolean).join(" ")); } catch {}
+    tried = true;
+    let list = [];
+    try { list = await searchFields({ title: b.title, author: b.author }); reached = true; } catch {}
+    if (!list.length) { try { list = await searchBooks([b.title, lastName(b.author)].filter(Boolean).join(" ")); reached = true; } catch {} }
     const tOk = c => overlap(b.title, c.title) >= 0.5;
     const aOk = c => !b.author || !c.author || overlap(b.author, c.author) > 0;
-    for (const c of list.filter(c => c.coverUrl && tOk(c)).slice(0, 8)) {
-      const score = (overlap(b.title, c.title) >= 0.8 ? 4 : 2) + (aOk(c) ? 2 : -3) + (b.publisher && c.publisher && overlap(b.publisher, c.publisher) > 0 ? 2 : 0) + (b.year && c.year === b.year ? 1 : 0) + (c.language === "Deutsch" ? 0.5 : 0);
-      await add(c.coverUrl, { src: c.src || "", title: c.title, author: c.author, year: c.year, publisher: c.publisher, isbn: c.isbn }, score, aOk(c) ? "Titel passt" : "anderer Autor?");
-      if (out.length >= 6) break;
+    const scoreOf = c => (overlap(b.title, c.title) >= 0.8 ? 4 : 2) + (aOk(c) ? 2 : -3) + (b.publisher && c.publisher && overlap(b.publisher, c.publisher) > 0 ? 2 : 0) + (b.year && c.year === b.year ? 1 : 0) + (c.language === "Deutsch" ? 0.5 : 0);
+    const isbns = new Set();
+    const hits = list.filter(c => tOk(c) && hitCovers(c).length).map(c => ({ c, s: scoreOf(c) })).sort((x, y) => y.s - x.s)
+      .filter(({ c }) => { const i = toIsbn13(c.isbn); if (!i) return true; if (isbns.has(i)) return false; isbns.add(i); return true; });
+    for (const { c, s } of hits.slice(0, 10)) {
+      for (const u of hitCovers(c)) if (await add(u, { src: covSrcName(u) || c.src || "", title: c.title, author: c.author, year: c.year, publisher: c.publisher, isbn: c.isbn }, s, aOk(c) ? "Titel passt" : "anderer Autor?")) break; // ein Bild je Ausgabe
+      if (out.length >= 8) break;
     }
   }
   out.sort((a, b) => b.score - a.score);
+  out.failed = tried && !reached;
   return out;
 }
+
+/* ---------- Erfolglose Suchen merken (Meta „coverMiss“, nur dieses Gerät) ----------
+   {<id>: {at, sig}} – sig aus ISBN, Titel und Autor: Ändert sich das Buch, wird wieder gesucht. */
+const COVER_MISS_DAYS = 60;
+const coverSig = b => normTxt([toIsbn13(b.isbn) || "", b.title, b.author].join(" | "));
+async function coverMisses() { if (!S.coverMiss) { try { S.coverMiss = (await DB.getMeta("coverMiss")) || {}; } catch { S.coverMiss = {}; } } return S.coverMiss; }
+async function saveCoverMisses() { try { await DB.setMeta("coverMiss", S.coverMiss || {}); } catch {} }
+async function markCoverMiss(b) { const m = await coverMisses(); m[b.id] = { at: new Date().toISOString(), sig: coverSig(b) }; await saveCoverMisses(); }
+async function clearCoverMiss(id) { const m = await coverMisses(); if (m[id]) { delete m[id]; await saveCoverMisses(); } }
+// Zuletzt erfolglos gesucht (innerhalb von COVER_MISS_DAYS, Buch unverändert)?
+function recentMiss(b) { const e = S.coverMiss?.[b.id]; return !!e && e.sig === coverSig(b) && Date.now() - Date.parse(e.at) < COVER_MISS_DAYS * 864e5; }
 function decideCover(cands) {
   if (!cands.length) return { kind: "none" };
   const best = cands[0];
@@ -49,7 +85,47 @@ function decideCover(cands) {
   if (best.score >= 8 && (cands.length === 1 || cands[1].score <= best.score - 3)) return { kind: "sure", c: best };
   return { kind: "ask" };
 }
-async function applyCover(id, c) { S.badCover.delete(id); await patchBook(id, { coverUrl: c.url, coverBlob: c.blob }); }
+// Ohne gespeichertes Bild (Quelle gibt es nicht heraus) wird das Cover nur verlinkt
+async function applyCover(id, c) { S.badCover.delete(id); await patchBook(id, c.blob ? { coverUrl: c.url, coverBlob: c.blob } : { coverUrl: c.url }); await clearCoverMiss(id); }
+async function applyOwnCover(id, file) { await patchBook(id, { coverBlob: await coverBlobFromFile(file), coverUrl: "" }); await clearCoverMiss(id); }
+
+/* Abschnitt im Cover-Dialog: weitere Ausgaben in den Katalogen suchen und deren Cover zum Antippen zeigen */
+function editionSection(b, onPick) {
+  const q = el("input", { class: "field", value: [b.title, (b.author || "").split(/[,;&]| und /)[0].trim()].filter(Boolean).join(" "), placeholder: "Titel, Autor, Verlag …" });
+  const grid = el("div", { class: "covgrid mt-2" });
+  const info = el("div", { class: "saved" });
+  const run = async () => {
+    const text = q.value.trim(); if (!text) return;
+    btn.disabled = true; grid.replaceChildren(); info.textContent = "Suche Ausgaben …";
+    let list = []; try { list = await searchBooks(text); } catch { info.textContent = "Keine Verbindung zu den Katalogen."; btn.disabled = false; return; }
+    const seen = new Set(); let n = 0;
+    info.textContent = list.length ? "Lade Cover …" : "Keine Ausgaben gefunden.";
+    for (const c of list.slice(0, 24)) {
+      for (const u of hitCovers(c)) {
+        const k = covKey(u); if (seen.has(k)) continue; seen.add(k);
+        const p = await probeCover(u); if (!p) continue;
+        const cand = { ...p, src: covSrcName(u) || c.src || "", title: c.title, author: c.author, year: c.year, publisher: c.publisher, isbn: c.isbn, reason: "aus der Ausgabensuche" };
+        grid.append(covCard(cand, false, () => onPick(cand))); n++;
+        break;
+      }
+    }
+    info.textContent = n ? `${n} Cover – zum Übernehmen antippen.` : list.length ? "Zu diesen Ausgaben gibt es keine Cover." : "Keine Ausgaben gefunden.";
+    btn.disabled = false;
+  };
+  const btn = el("button", { class: "btn sm primary", type: "button", onclick: run }, "🔍 Suchen");
+  q.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+  const sec = el("details", { class: "esec" }, el("summary", {}, "📚 Weitere Ausgaben suchen"),
+    el("div", { class: "saved mt-1", text: "Sucht in Google Books, DNB, Bibliotheksverbund und Open Library – auch mit anderem Suchbegriff (z. B. nur Titel oder mit Verlag). Cover antippen, fertig." }),
+    el("div", { class: "manual mt-1" }, q, btn), info, grid);
+  sec._open = () => { sec.open = true; run(); };
+  return sec;
+}
+function covCard(c, best, onclick) {
+  return el("button", { class: "covcand" + (best ? " best" : ""), type: "button", onclick },
+    el("div", { class: "cover" }, el("img", { src: covUrl(c), alt: "", referrerpolicy: "no-referrer" })),
+    el("b", { text: c.title || "" }), el("span", { text: [c.author, c.publisher, c.year].filter(Boolean).join(" · ") }),
+    el("small", { text: [c.src, c.isbn ? "ISBN " + c.isbn : "", c.reason, `${c.w}×${c.h}`, c.blob ? "" : "nur verlinkt"].filter(Boolean).join(" · ") }));
+}
 
 /* ---------- Einzelnes Buch: Auswahl-Dialog ---------- */
 function coverPickDialog(b, cands, { skipLabel = "Ohne Cover lassen", title, google } = {}) {
@@ -63,14 +139,8 @@ function coverPickDialog(b, cands, { skipLabel = "Ohne Cover lassen", title, goo
     const gsec = googleSection(b, done, pasteH);
     S.pasteHandler = pasteH;
     const m = isMobile();
-    const grid = el("div", { class: "covgrid" }, ...cands.map((c, i) => {
-      const u = URL.createObjectURL(c.blob);
-      const card = el("button", { class: "covcand" + (i === 0 ? " best" : ""), onclick: () => done(c) },
-        el("div", { class: "cover" }, el("img", { src: u, alt: "" })),
-        el("b", { text: c.title || "" }), el("span", { text: [c.author, c.publisher, c.year].filter(Boolean).join(" · ") }),
-        el("small", { text: [c.src, c.isbn ? "ISBN " + c.isbn : "", c.reason, `${c.w}×${c.h}`].filter(Boolean).join(" · ") }));
-      return card;
-    }));
+    const grid = el("div", { class: "covgrid" }, ...cands.map((c, i) => covCard(c, i === 0, () => done(c))));
+    const esec = editionSection(b, done);
     const own = async camera => { const f = await pickImage(camera); if (f) done({ ownFile: f }); };
     const box = el("div", { class: "overlay confirm", style: "z-index:72;align-items:center", onclick: e => { if (e.target === box) done(undefined); } },
       el("div", { class: "sheet", style: "max-width:760px" },
@@ -79,8 +149,9 @@ function coverPickDialog(b, cands, { skipLabel = "Ohne Cover lassen", title, goo
           el("div", { style: "display:flex;gap:12px;align-items:center;margin-bottom:12px" },
             el("div", { style: "width:46px;flex:none" }, coverEl(b)),
             el("div", {}, el("b", { text: b.title || "Ohne Titel" }), el("div", { class: "meta", text: [b.author, b.publisher, b.year, b.isbn ? "ISBN " + b.isbn : ""].filter(Boolean).join(" · ") }))),
-          cands.length ? el("p", { class: "saved", style: "margin-top:0", text: "Mehrere Treffer oder nicht ganz sicher – bitte wählen. Der wahrscheinlichste ist markiert." }) : el("div", { class: "note", text: "In den Buchkatalogen wurde kein passendes Cover gefunden. Versuch die Google-Bildersuche oder nimm ein eigenes Foto." }),
+          cands.length ? el("p", { class: "saved", style: "margin-top:0", text: "Mehrere Treffer oder nicht ganz sicher – bitte wählen. Der wahrscheinlichste ist markiert." }) : el("div", { class: "note", text: "In den Buchkatalogen wurde kein passendes Cover gefunden. Such unter „Weitere Ausgaben“ mit einem anderen Begriff (z. B. nur Titel), nutze die Google-Bildersuche oder nimm ein eigenes Foto." }),
           grid,
+          esec,
           gsec,
           el("div", { class: "actions" },
             el("div", { class: "covertools" },
@@ -100,8 +171,8 @@ async function findCoverFor(id, { auto = true } = {}) {
   if (auto && d.kind === "sure") { await applyCover(id, d.c); toast("✓ Cover übernommen (" + d.c.reason + ")."); return "set"; }
   const pick = await coverPickDialog(b, cands);
   if (pick === undefined) return "cancel";
-  if (pick === null) return "skip";
-  if (pick.ownFile) { await patchBook(id, { coverBlob: await coverBlobFromFile(pick.ownFile), coverUrl: "" }); toast("✓ Eigenes Cover gespeichert."); return "set"; }
+  if (pick === null) { if (!cands.failed) await markCoverMiss(b); return "skip"; } // „Ohne Cover lassen“: der Sammellauf fragt nicht gleich wieder
+  if (pick.ownFile) { await applyOwnCover(id, pick.ownFile); toast("✓ Eigenes Cover gespeichert."); return "set"; }
   await applyCover(id, pick); toast("✓ Cover übernommen."); return "set";
 }
 
@@ -124,13 +195,29 @@ async function verifyCoverLinks({ ids, onStatus, limit = 400 } = {}) {
   if (bad || fixed) renderAll();
   return { checked: list.length, bad, fixed };
 }
-async function coverRun(ids) {
+/* ids: bestimmte Bücher (z. B. gerade importierte) – die werden immer gesucht. Ohne ids: alle ohne Cover, außer denen,
+   für die vor Kurzem nichts gefunden wurde (recentMiss) – es sei denn retry. */
+async function coverRun(ids, { retry = false } = {}) {
   const pre = await verifyCoverLinks({ ids, onStatus: t => toast(t, 4000) });
   document.querySelectorAll(".toast").forEach(t => t.remove());
   if (pre.bad) toast(`${pre.bad} Pseudo-Cover erkannt – werden mitgesucht.`, 3000);
+  await coverMisses();
+  const all = !ids;
   ids = (ids || S.books.filter(needsCover).map(b => b.id)).filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
   if (!ids.length) { toast("Alle Bücher im Bestand haben schon ein Cover."); return; }
+  const skipped = all && !retry ? ids.filter(id => recentMiss(S.books.find(x => x.id === id))) : [];
+  ids = ids.filter(id => !skipped.includes(id));
   const sh = sheet("🖼 Cover nachtragen");
+  const skippedBooks = () => skipped.map(id => S.books.find(x => x.id === id)).filter(b => b && needsCover(b));
+  const skipNote = skipped.length ? el("div", { class: "note" },
+    el("div", { text: `${skipped.length} ${skipped.length === 1 ? "Buch wird" : "Bücher werden"} übersprungen: Dafür wurde in den letzten ${COVER_MISS_DAYS} Tagen nichts gefunden (oder du hast „Überspringen“ gewählt). Ändert sich Titel, Autor oder ISBN, wird wieder gesucht.` }),
+    el("div", { class: "covertools mt-2" },
+      el("button", { class: "btn sm", onclick: () => askCovers(skippedBooks().map(b => ({ b, cands: [] })), { google: true }) }, "Einzeln mit Bildersuche durchgehen"),
+      el("button", { class: "btn sm ghost", onclick: () => { closeSheet(); coverRun(null, { retry: true }); } }, "Trotzdem alle neu suchen"))) : null;
+  if (!ids.length) {
+    fillNode(sh.body, skipNote, el("div", { class: "actions" }, el("button", { class: "btn ghost", onclick: closeSheet }, "Schließen"), el("span")));
+    return;
+  }
   const bar = el("div", { class: "progress" }, el("div", {}));
   const status = el("div", { class: "saved", text: "" });
   const log = el("div", { class: "covlog" });
@@ -138,7 +225,7 @@ async function coverRun(ids) {
   const stopBtn = el("button", { class: "btn", onclick: () => { stop = true; stopBtn.disabled = true; stopBtn.textContent = "Wird beendet …"; } }, "Anhalten");
   fillNode(sh.body,
     el("p", { style: "margin-top:0", text: `${ids.length} ${ids.length === 1 ? "Buch" : "Bücher"} ohne Cover. Eindeutige Treffer werden direkt übernommen; bei mehreren oder unsicheren Treffern fragt die App am Ende nach.` }),
-    bar, status, log, el("div", { class: "actions" }, stopBtn, el("span")));
+    skipNote, bar, status, log, el("div", { class: "actions" }, stopBtn, el("span")));
   sh.guard = async () => { stop = true; return true; };
   const row = (b, txt, cls) => log.prepend(el("div", { class: "covrow " + (cls || "") }, el("span", { text: txt }), el("b", { text: b.title || "Ohne Titel" })));
   for (let i = 0; i < ids.length && !stop; i++) {
@@ -150,7 +237,8 @@ async function coverRun(ids) {
     const d = decideCover(cands);
     if (d.kind === "sure") { await applyCover(b.id, d.c); set++; row(b, "✓ übernommen", "ok"); }
     else if (d.kind === "ask") { asked.push({ b, cands }); row(b, `? ${cands.length} Treffer – nachfragen`, "ask"); }
-    else { none.push(b); row(b, "– nichts gefunden", "none"); }
+    else if (cands.failed) { row(b, "⚠ Kataloge nicht erreichbar", "warn"); }
+    else { none.push(b); await markCoverMiss(b); row(b, "– nichts gefunden", "none"); }
   }
   bar.firstChild.style.width = "100%";
   sh.guard = null;
@@ -158,22 +246,23 @@ async function coverRun(ids) {
   const actions = el("div", { class: "actions" },
     el("button", { class: "btn ghost", onclick: closeSheet }, "Schließen"),
     el("div", { class: "covertools" },
-      none.length ? el("button", { class: "btn", onclick: () => { closeSheet(); S.tFilter = "nocover"; location.hash = "#verwaltung"; renderAll(); } }, `${none.length} ohne Treffer in der Tabelle zeigen`) : null,
+      none.length ? el("button", { class: "btn", onclick: () => askCovers(none.map(b => ({ b, cands: [] })), { google: true }) }, `${none.length} ohne Treffer mit Bildersuche durchgehen`) : null,
       asked.length ? el("button", { class: "btn primary", onclick: () => askCovers(asked) }, `Jetzt ${asked.length} nachfragen`) : null));
   sh.body.querySelector(".actions").replaceWith(actions);
-  if (asked.length) renderAll();
-  else renderAll();
+  renderAll();
 }
-async function askCovers(asked) {
+/* Bücher nacheinander im Cover-Dialog: Kandidaten wählen, Ausgaben suchen oder Google-Bildersuche (google: gleich offen).
+   „Überspringen“ merkt sich das Buch (recentMiss), damit der nächste Sammellauf nicht wieder fragt. */
+async function askCovers(asked, { google = false } = {}) {
   closeSheet();
   let n = 0;
   for (let i = 0; i < asked.length; i++) {
     const { b, cands } = asked[i];
     const cur = S.books.find(x => x.id === b.id); if (!cur || !needsCover(cur)) continue;
-    const pick = await coverPickDialog(cur, cands, { skipLabel: "Überspringen", title: `Cover wählen (${i + 1} von ${asked.length})` });
+    const pick = await coverPickDialog(cur, cands, { skipLabel: "Überspringen", google, title: `Cover wählen (${i + 1} von ${asked.length})` });
     if (pick === undefined) break;
-    if (pick === null) continue;
-    if (pick.ownFile) await patchBook(b.id, { coverBlob: await coverBlobFromFile(pick.ownFile), coverUrl: "" });
+    if (pick === null) { await markCoverMiss(cur); continue; }
+    if (pick.ownFile) await applyOwnCover(b.id, pick.ownFile);
     else await applyCover(b.id, pick);
     n++;
   }
@@ -182,7 +271,7 @@ async function askCovers(asked) {
 }
 
 /* ================= Google-Bildersuche ================= */
-// Direkt in der App über die Google Custom Search API (eigener Schlüssel + Suchmaschinen-ID, 100 Anfragen/Tag kostenlos).
+// Direkt in der App über die Google Custom Search API – nur noch für vorhandene Schlüssel (Google: keine Neukunden, Ende 1. 1. 2027).
 // Ohne Schlüssel: Google Bilder im neuen Tab öffnen und das Bild per Drag & Drop oder Strg+V in die App holen.
 function gcsKeys() { try { return { key: localStorage.getItem("gcsKey") || "", cx: localStorage.getItem("gcsCx") || "" }; } catch { return { key: "", cx: "" }; } }
 const gcsReady = () => { const k = gcsKeys(); return !!(k.key && k.cx); };
@@ -223,6 +312,7 @@ function googleSection(b, onPick, pasteH) {
           card.classList.add("busy"); info.textContent = "Lade Bild …";
           const g = await grabImage(h); card.classList.remove("busy");
           if (g) onPick({ blob: g.blob, url: g.url, src: "Google Bilder · " + h.site, reason: "aus Bildersuche" });
+          else if (await imgOk(h.url)) onPick({ blob: null, url: h.url, src: "Google Bilder · " + h.site, reason: "nur verlinkt" }); // nicht speicherbar, aber anzeigbar
           else info.textContent = "Diese Seite erlaubt kein direktes Laden. Bild im Google-Tab mit Rechtsklick → „Bild kopieren“ und hier mit Strg+V einfügen.";
         } }, el("img", { src: h.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }), el("span", { text: h.site }));
         results.append(card);
@@ -235,7 +325,7 @@ function googleSection(b, onPick, pasteH) {
   q.addEventListener("keydown", e => { if (e.key === "Enter" && gcsReady()) run(false); });
   const sec = el("details", { class: "gsec" }, el("summary", {}, "🔍 Google-Bildersuche"),
     el("div", { class: "manual", style: "margin-top:8px" }, q, searchBtn, link),
-    gcsReady() ? null : el("div", { class: "saved", style: "margin-top:4px" }, "Suche direkt in der App: Google-Schlüssel + Suchmaschinen-ID unter ", el("a", { href: "#", onclick: e => { e.preventDefault(); aboutBox(); } }, "Einstellungen"), " eintragen (100 Anfragen/Tag kostenlos). Ohne Schlüssel: Google-Tab öffnen und Bild hierher ziehen."),
+    gcsReady() ? null : el("div", { class: "saved", style: "margin-top:4px", text: "Google lässt sich nicht in andere Apps einbetten – die Suche öffnet sich deshalb in einem eigenen Tab. Dort ein Bild anklicken, kopieren und hier einfügen (oder hierher ziehen); im Sammellauf kommt danach gleich das nächste Buch." }),
     results, info, moreBtn,
     el("div", { class: "pasterow" }, drop, clipBtn),
     el("div", { class: "saved", style: "margin-top:4px", text: "Tipp: In Google Bilder erst ein Bild anklicken (große Vorschau rechts), dann dieses kopieren oder ziehen – das kleine Vorschaubild in der Trefferliste ist sehr unscharf." }));
@@ -249,7 +339,7 @@ function gcsKeyBox() {
   const save = () => { try { for (const [n, v] of [["gcsKey", key.value.trim()], ["gcsCx", cx.value.trim()]]) { if (v) localStorage.setItem(n, v); else localStorage.removeItem(n); } toast(gcsReady() ? "Google-Bildersuche eingerichtet." : "Angaben gespeichert (unvollständig)."); } catch { toast("Konnte nicht gespeichert werden."); } };
   const test = async () => { try { const h = await googleImageSearch("Buch Cover", 1); toast(h.length ? `✓ Funktioniert – ${h.length} Bilder gefunden.` : "Verbindung ok, aber keine Treffer – ist „Bildersuche“ in der Suchmaschine aktiviert?", 4000); } catch (e) { toast("Fehler: " + e.message, 5000); } };
   return el("div", { class: "sec" }, el("h3", { text: "Google-Bildersuche (optional)" }),
-    el("p", { class: "saved", text: "Für die Bildersuche direkt in der App (Cover, die in keinem Katalog sind). Kostenlos bis 100 Anfragen pro Tag. Beide Angaben bleiben nur in diesem Browser." }),
+    el("p", { class: "saved", text: "Nur für bereits vorhandene Schlüssel: Google nimmt für diese Suche (Custom Search JSON API) keine neuen Nutzer mehr an und stellt sie am 1. 1. 2027 ganz ein. Ohne Schlüssel geht es über den Google-Tab und „Bild kopieren“ – und meist schon über „📚 Weitere Ausgaben suchen“ im Cover-Dialog. Beide Angaben bleiben nur in diesem Browser." }),
     el("div", { style: "display:grid;gap:8px;margin-top:6px" }, key, cx, el("div", { class: "covertools" }, el("button", { class: "btn", onclick: save }, "Speichern"), el("button", { class: "btn ghost", onclick: test }, "Testen"))),
     el("ol", { class: "saved", style: "margin:8px 0 0;padding-left:18px;line-height:1.6" },
       el("li", {}, el("a", { href: "https://programmablesearchengine.google.com/controlpanel/create", target: "_blank", rel: "noopener" }, "Programmable Search Engine ↗"), " anlegen: „Das gesamte Web durchsuchen“ wählen, dann in den Einstellungen „Bildersuche“ einschalten. Die Suchmaschinen-ID (cx) steht in der Übersicht."),

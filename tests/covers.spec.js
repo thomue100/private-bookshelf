@@ -152,3 +152,73 @@ test.describe("Bild aus der Google-Bildersuche übernehmen", () => {
     await expect(page.locator("text=💾 Speichern")).toBeEnabled();
   });
 });
+
+test("Cover ohne CORS-Freigabe (wie Google Books) wird verlinkt statt verworfen", async ({ page, catalog }) => {
+  await page.context().route("https://nocors.test/**", r => r.fulfill({ status: 200, headers: { "content-type": "image/jpeg" }, body: fixtureBytes("cover-c.jpg") }));
+  catalog.google = q => q === "isbn:9783423000000" ? [googleItem("Momo", "Michael Ende", "9783423000000", "https://nocors.test/momo.jpg", "dtv")] : [];
+  await openApp(page);
+  await seedBooks(page);
+  await page.evaluate(() => patchBook("b0", { isbn: "9783423000000" }));
+  // Im Test lässt sich fehlendes CORS nicht nachstellen → Speichern-Versuch für diese Adresse scheitern lassen
+  await page.evaluate(() => { const f = fetchCoverBlob; fetchCoverBlob = u => /nocors/.test(u) ? Promise.resolve(null) : f(u); });
+  const cands = await page.evaluate(async () => (await coverCandidates(S.books.find(b => b.id === "b0"))).map(c => [c.url, !!c.blob, c.score >= 10]));
+  expect(cands).toEqual([["https://nocors.test/momo.jpg", false, true]]);
+  expect(await page.evaluate(() => findCoverFor("b0"))).toBe("set");
+  expect(await state(page, "b0")).toEqual([false, "https://nocors.test/momo.jpg"]);
+  expect(await page.evaluate(() => needsCover(S.books.find(b => b.id === "b0")))).toBe(false);
+});
+
+test("Erfolglose Suche wird gemerkt: nächster Lauf überspringt, nach Änderung wird wieder gesucht", async ({ page, catalog }) => {
+  krabatCatalog(catalog);
+  await openApp(page);
+  await seedBooks(page);
+  await page.click("text=🖼 Cover nachtragen");
+  await expect(page.locator(".sheet .saved", { hasText: "Fertig:" })).toBeVisible({ timeout: 20_000 });
+  // Krabat (b6) hat Treffer, die anderen nicht → gemerkt (nur auf dem Gerät, Meta „coverMiss“)
+  const miss = await page.evaluate(async () => Object.keys(await DB.getMeta("coverMiss")).sort());
+  expect(miss).toEqual(["b0", "b10", "b2", "b4", "b8"]);
+  expect(await page.evaluate(async () => (await buildBackup()).coverMiss)).toBeUndefined();
+  await page.evaluate(() => closeSheet());
+
+  // zweiter Lauf: nur noch Krabat, Hinweis auf die übersprungenen
+  await page.evaluate(() => patchBook("b2", { title: "Die unendliche Geschichte (Jubiläumsausgabe)" }));
+  await page.evaluate(() => { coverRun(); });
+  await expect(page.locator(".sheet .note", { hasText: "4 Bücher werden übersprungen" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".sheet .saved", { hasText: "Fertig:" })).toBeVisible({ timeout: 20_000 });
+  const logged = () => page.locator(".sheet .covlog .covrow b").allTextContents(); // Zeilen = tatsächlich gesuchte Bücher
+  expect((await logged()).sort()).toEqual(["Die unendliche Geschichte (Jubiläumsausgabe)", "Krabat"]);
+
+  // „Trotzdem alle neu suchen“
+  await page.click("text=Trotzdem alle neu suchen");
+  await expect(page.locator(".sheet .saved", { hasText: "Fertig:" })).toBeVisible({ timeout: 20_000 });
+  expect(await logged()).toContain("Momo");
+});
+
+test("„Weitere Ausgaben suchen“ im Cover-Dialog: Cover antippen übernimmt es", async ({ page, catalog }) => {
+  krabatCatalog(catalog);
+  await openApp(page);
+  await seedBooks(page);
+  await page.evaluate(() => { findCoverFor("b0"); });
+  await expect(page.locator(".confirm .esec")).toBeVisible({ timeout: 20_000 });
+  await page.click(".confirm .esec summary");
+  await page.fill(".confirm .esec input.field", "Krabat Preußler");
+  await page.click(".confirm .esec >> text=🔍 Suchen");
+  await expect(page.locator(".confirm .esec .covcand")).toHaveCount(3, { timeout: 20_000 });
+  await page.locator(".confirm .esec .covcand").first().click();
+  await expect.poll(() => state(page, "b0")).toEqual([true, expect.stringContaining("img.test")]);
+  await expect(page.locator(".confirm")).toHaveCount(0);
+});
+
+test("Amazon-Cover über die ISBN-10 wird gespeichert, Amazons 1×1-Platzhalter zählt nicht", async ({ page, catalog }) => {
+  catalog.amazon = i10 => i10 === "3423000007" ? "b" : null; // 978-3-423-00000-0 → ISBN-10 3423000007
+  await openApp(page);
+  await seedBooks(page);
+  await page.evaluate(() => { patchBook("b0", { isbn: "9783423000000" }); patchBook("b2", { isbn: "9783522000000" }); });
+  expect(await page.evaluate(() => isbn10of("9783423000000"))).toBe("3423000007");
+  expect(await page.evaluate(() => findCoverFor("b0"))).toBe("set");
+  const [blob, url] = await state(page, "b0");
+  expect(blob).toBe(true);
+  expect(url).toContain("amazon");
+  // kein Bild bei Amazon (1×1) und sonst nichts → kein Kandidat
+  expect(await page.evaluate(async () => (await coverCandidates(S.books.find(b => b.id === "b2"))).length)).toBe(0);
+});

@@ -19,7 +19,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
      Optional `photos` (Fach-Fotos ohne `blob`; offene mit `imageData`) – fehlt, wenn es keine gibt.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
-   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
+   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Amazon-Cover-Bilder über die ISBN-10, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
    mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
 3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (Barcode, Hand-Eingabe, Claude-Chat-Brücke).
    Die frühere Texterkennung (Tesseract/OCR) ist bewusst entfernt – zu ungenau; nicht wieder einbauen.
@@ -49,7 +49,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/titlelist.js` | „📋 Titelliste einfügen“: `parseTitleList` (Freitext, Tabellen mit/ohne Kopfzeile, eigener CSV-Export), Vorschau, Suche über `matchItem`, Prüfliste über `scanReview` ohne Foto, `tlImport`; angefangener Lauf im Meta-Eintrag `titleListRun` (nur Gerät, nicht in Sicherung/Abgleich), Weitermachen `resumeTitleList` |
 | `app/batchscan.js` | Viele Fach-Fotos auf einmal erkennen: Sammelauftrag (Anthropic Message Batches, localStorage `aiBatches`), Abholen `checkBatches`, Ausweichweg einzeln, „der Reihe nach prüfen“ (`S.reviewChain`, `nextReview`) |
 | `app/autobackup.js` | Automatische Sicherung in einen lokalen Ordner (File System Access API), Wiederherstellen |
-| `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche |
+| `app/coverfinder.js` | Cover nachtragen (sichere Treffer automatisch, sonst Nachfrage), Pseudo-Cover-Prüfung, Google-Bildersuche (Custom Search nur Altschlüssel, Ende 1.1.2027). `probeCover`: ohne CORS (Google Books) nur verlinkt (`blob: null`). Erfolglose Suchen in Meta `coverMiss` (`recentMiss`, 60 Tage, nur Gerät). Ausgabensuche im Dialog `editionSection` |
 | `app/sync.js` | Optionaler Abgleich mit eigenem CouchDB-Server (eigene schlanke Umsetzung über die CouchDB-REST-API, kein PouchDB) |
 | `app/shelfphotos.js` | Gespeicherte Fach-Fotos: `savePhoto`, Übersicht `openPhotoInbox`, Weitermachen nach Neustart (`scanPending`), Empfang über „Teilen“ (Service Worker → Cache `share-inbox` → `?share=`) |
 | `app/duplicates.js` | Dubletten prüfen: Zusammenführen (`mergeBooks`), „verschiedene Bücher“ (`markDistinct`, Feld `notDup`). Erkennung `dupGroups` steht in `app.js` |

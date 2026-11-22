@@ -63,7 +63,8 @@ export function claudeShelf(scan, { log = [], answer } = {}) {
 }
 export const test = base.extend({
   // catalog.k10 = (cql) => [Datensätze wie bei dnb] (K10plus/GBV per SRU; leader "ngm" = Film, wird von der App ausgefiltert)
-  catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [], k10: () => [] }); },
+  // catalog.amazon = (isbn10) => "a"|"b"|… (Testbild cover-<x>.jpg) oder null (wie Amazon: 1×1-GIF als Platzhalter)
+  catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [], k10: () => [], amazon: () => null }); },
   page: async ({ page, context, catalog }, use) => {
     await context.route(url => !url.href.startsWith("http://localhost"), r => r.abort());
     await context.route("https://www.googleapis.com/books/**", r => {
@@ -81,6 +82,11 @@ export const test = base.extend({
     await context.route("https://lobid.org/**", r => json(r, { totalItems: 0, member: catalog.lobid(new URL(r.request().url()).searchParams.get("q") || "") }));
     await context.route("https://openlibrary.org/**", r => json(r, { docs: [] }));
     await context.route("https://covers.openlibrary.org/**", r => r.fulfill({ status: 404 }));
+    await context.route("https://images-na.ssl-images-amazon.com/**", r => {
+      const n = catalog.amazon(new URL(r.request().url()).pathname.split("/").pop().split(".")[0]);
+      return n ? r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "image/jpeg" }, body: fixtureBytes(`cover-${n}.jpg`) })
+        : r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "image/gif" }, body: Buffer.from("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", "base64") });
+    });
     await context.route("https://img.test/**", r => {
       const n = new URL(r.request().url()).pathname.split("/").pop()[0];
       return r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "image/jpeg" }, body: fixtureBytes(`cover-${n}.jpg`) });
