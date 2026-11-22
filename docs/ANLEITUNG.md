@@ -167,7 +167,8 @@ Im Bearbeiten-Modus (und beim Erfassen) unter den Buchdaten: Schlagwort eintippe
 
 **Mehr → „Automatische Sicherung“** → „Ordner wählen & einschalten“. Chrome fragt einmal nach Erlaubnis für den Ordner. Danach:
 - etwa eine Minute nach jeder Änderung wird gesichert – eine Datei pro Tag (`buecherregal-auto-JJJJ-MM-TT.json`), die letzten 14 Tage bleiben erhalten;
-- E-Books/PDFs liegen einzeln im Unterordner `Dateien`;
+- Bilder (Cover, Buchrücken, weitere Bilder, offene Fach-Fotos) liegen einzeln im Unterordner `Bilder`, E-Books/PDFs im Unterordner `Dateien`. Jedes Bild wird nur einmal gespeichert, die Tagesdateien verweisen nur darauf und bleiben deshalb klein. Bilder, die kein aufgehobener Tagesstand mehr braucht, räumt die App selbst weg. Den Ordner deshalb immer **komplett** kopieren oder verschieben;
+- „Sicherung exportieren“ macht weiter eine einzige, vollständige Datei mit allen Bildern – die ist zum Mitnehmen auf ein anderes Gerät gedacht;
 - es geht nichts ins Internet. Wähle einen Ordner, der **nicht** mit einer Cloud abgeglichen wird (unter Windows ist „Dokumente“ oft mit OneDrive verbunden) – z. B. `C:\Bücherregal-Sicherung` oder eine externe Festplatte.
 - Nach einem Neustart von Chrome erscheint ggf. oben ein Hinweis „Erlauben“ – einmal antippen. In neueren Chrome-Versionen kannst du beim Erlauben „Bei jedem Besuch zulassen“ wählen.
 - **Wiederherstellen:** „Aus Sicherungsordner wiederherstellen“ liest den neuesten Stand samt Dateien ein. Neuere Änderungen auf dem Gerät bleiben erhalten.
