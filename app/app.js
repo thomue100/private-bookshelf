@@ -176,7 +176,7 @@ function coverEl(b, { badge = false, src } = {}) {
   return c;
 }
 function lastName(a) { const first = (a || "").split(/[,;&]| und /)[0].trim(); const p = first.split(/\s+/); return (p[p.length - 1] || "").toLowerCase(); }
-function missingOf(b) { const m = []; for (const f of FIELDS) if (f.req && !String(b[f.k] ?? "").trim()) m.push(f.l); if (!b.coverBlob && !b.coverUrl) m.push("Cover"); return m; }
+function missingOf(b) { const m = []; for (const f of FIELDS) if (f.req && !String(b[f.k] ?? "").trim()) m.push(f.l); if (!b.coverBlob) m.push("Cover"); return m; }
 function matchQ(b, q) { if (!q) return true; q = q.toLowerCase(); return [...(b.tags || []), b.series, b.title, b.author, b.isbn, b.publisher, b.genre, b.notes, b.summary, b.year, b.dedication, b.signedBy, ...(b.images || []).map(x => x.caption), ...(b.files || []).map(x => x.name)].some(v => String(v ?? "").toLowerCase().includes(q)); }
 function cleanIsbn(s) { return String(s || "").replace(/[^0-9Xx]/g, "").toUpperCase(); }
 function isbn13ok(s) { if (!/^\d{13}$/.test(s)) return false; let t = 0; for (let i = 0; i < 12; i++) t += (+s[i]) * (i % 2 ? 3 : 1); return (10 - t % 10) % 10 === +s[12]; }
@@ -207,6 +207,19 @@ function imgOk(url, ms = 8000) {
     i.onerror = () => { clearTimeout(t); res(false); };
     i.referrerPolicy = "no-referrer"; i.src = url;
   });
+}
+/* Nur gespeicherte Cover zählen: Die App legt keine reinen Bild-Links mehr an (fehlen offline und in der Sicherung,
+   verschwinden, wenn die Quelle die Adresse ändert). Google Books gibt seine Bilder nicht zum Speichern heraus (kein CORS) –
+   deshalb immer der Reihe nach die erste speicherbare Adresse nehmen (Amazon, Open Library, Katalog …). */
+// Alle Bildadressen zu einem Katalogtreffer/Buch: eigenes Cover, Alternativen, dann über die ISBN (Open Library, Amazon, Google)
+const coverUrlsOf = r => [r?.coverUrl, ...(r?.altCovers || []), ...(toIsbn13(r?.isbn) ? olCovers(toIsbn13(r.isbn)) : [])].filter((v, i, a) => v && !String(v).startsWith("blob:") && a.indexOf(v) === i);
+// Erste Adresse, deren Bild sich speichern lässt und kein Platzhalter ist: {url, blob, w, h} oder null
+async function storableCover(urls) {
+  for (const url of urls || []) {
+    const blob = await fetchCoverBlob(url); if (!blob) continue;
+    try { const img = await loadImage(blob); if (!placeholderImg(img, url)) return { url, blob, w: img.naturalWidth, h: img.naturalHeight }; } catch {}
+  }
+  return null;
 }
 async function fetchCoverBlob(url) {
   try {
@@ -890,7 +903,7 @@ const bySeries = (a, b) => String(a.series || "~").localeCompare(String(b.series
 const isWish = b => !!(b && b.wish);
 const inStock = b => !isWish(b) && !isGone(b);
 S.badCover = new Set(); // Bücher, deren Cover-Adresse kein Bild liefert (Pseudo-Cover) – gelten als „ohne Cover“
-const needsCover = b => inStock(b) && !b.coverBlob && (!b.coverUrl || S.badCover.has(b.id));
+const needsCover = b => inStock(b) && !b.coverBlob; // ein reiner Link zählt nicht (wird beim Prüfen ersetzt oder entfernt)
 function dupText(d) { return isWish(d) ? `„${d.title}“ steht auf deiner Wunschliste.` : `„${d.title}“ steht schon in deinem Regal.`; }
 async function wishBought(id) {
   await patchBook(id, { wish: false, addedAt: new Date().toISOString() });
@@ -1161,7 +1174,7 @@ function pickFile(inputSel) {
 const pickImage = camera => pickFile(camera ? "#fileCam" : "#filePick");
 /* ---------- Bilder aus Zwischenablage / Drag & Drop übernehmen ----------
    Versteht: echte Bilddaten, eingebettete Bilder (data:…), Bildadressen, Google-Weiterleitungen (imgres?imgurl=…)
-   und kopiertes HTML mit <img>. Ergebnis: { blob } (gespeichert) oder { url } (nur verlinkt) oder { failed } / null. */
+   und kopiertes HTML mit <img>. Ergebnis: { blob, url } (gespeichert) oder { failed } / null – reine Links gibt es nicht mehr. */
 function unwrapImgUrl(u) {
   try {
     if (u.startsWith("/imgres") || u.startsWith("/url")) u = "https://www.google.com" + u;
@@ -1204,8 +1217,7 @@ async function imageFromData({ files = [], html = "", text = "" }) {
   const urls = [...new Set(cands.map(imgUrlFrom).filter(Boolean))];
   if (!urls.length) return null;
   for (const u of urls) { const b = await blobFromUrl(u); if (b) return { blob: b, url: u.startsWith("data:") ? "" : u }; }
-  for (const u of urls) if (!u.startsWith("data:") && await imgOk(u)) return { url: u };   // nur anzeigbar, nicht speicherbar
-  return { failed: true };
+  return { failed: true }; // nur anzeigbar, nicht speicherbar → Hinweis „Bild kopieren“
 }
 /* Übergibt das Ergebnis an den aktuellen Empfänger. Empfänger mit .urlOk bekommen {blob,url}|{url}, alle anderen eine Bilddatei. */
 function deliverImage(res, handler) {
@@ -1501,7 +1513,7 @@ async function takeSearchResults(recs, wish) {
     for (const f of FIELDS) b[f.k] = String(r[f.k] || "").trim();
     b.isbn = toIsbn13(b.isbn) || b.isbn;
     const hs = spineWithHeight(b, r); if (hs) b.spine = hs;
-    if (r.coverUrl) { const url = r.coverUrl; const blob = await fetchCoverBlob(url).catch(() => null); if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; }
+    const sc = await storableCover(coverUrlsOf(r)).catch(() => null); if (sc) { b.coverUrl = sc.url; b.coverBlob = sc.blob; }
     if (pre) applyPreset(b, pre);
     if (wish) b.wish = true; else delete b.wish;
     await putBook(b); created++; newIds.push(b.id); if (!wish) placed.push(b.id);
@@ -1683,10 +1695,9 @@ function openReview(rec, coverFile, noteText, restore) {
       const now = new Date().toISOString();
       const b = { id: uid(), ...draft, isbn: toIsbn13(draft.isbn) || draft.isbn.trim(), addedAt: now };
       if (coverMode === "photo" && photo) b.coverBlob = await coverBlobFromFile(photo);
-      else if (coverMode === "web" && webCovers[webIdx]) {
-        const url = webCovers[webIdx];
-        const blob = await fetchCoverBlob(url);
-        if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url; // sonst: kein Cover
+      else if (coverMode === "web" && webCovers[webIdx]) { // gewähltes Bild zuerst, sonst das nächste speicherbare derselben Ausgabe
+        const sc = await storableCover([...webCovers.slice(webIdx), ...webCovers.slice(0, webIdx), ...coverUrlsOf({ isbn: draft.isbn })]);
+        if (sc) { b.coverUrl = sc.url; b.coverBlob = sc.blob; }
       }
       if (!b.wish) delete b.wish;
       if (!b.spine) delete b.spine;
@@ -1976,7 +1987,7 @@ function drawDetailEdit(sh, b, keep) {
     if (!rec) { toast("Online nichts Passendes gefunden."); fillBtn.disabled = false; fillBtn.textContent = "🔎 Leere Felder online ergänzen"; return; }
     const got = [];
     for (const f of FIELDS) if (!String(draft[f.k] ?? "").trim() && rec[f.k]) { draft[f.k] = rec[f.k]; got.push(f.l); }
-    if (!draft.coverBlob && !draft.coverUrl && rec.coverUrl) { draft.coverUrl = rec.coverUrl; st.coverChanged = true; got.push("Cover"); }
+    if (!draft.coverBlob) { const sc = await storableCover(coverUrlsOf(rec)); if (sc) { draft.coverBlob = sc.blob; draft.coverUrl = sc.url; st.previewUrl = null; st.coverChanged = true; got.push("Cover"); } }
     const hsp = spineWithHeight(draft, rec); if (hsp) { draft.spine = hsp; got.push(`Höhe (${String(hsp.heightCm).replace(".", ",")} cm)`); }
     if (got.length) { markDirty(); toast("Ergänzt (noch nicht gespeichert): " + got.join(", "), 4000); drawDetailEdit(sh, b, { draft, st }); }
     else { toast("Nichts Neues gefunden."); fillBtn.disabled = false; fillBtn.textContent = "🔎 Leere Felder online ergänzen"; }
@@ -2005,7 +2016,7 @@ function drawDetailEdit(sh, b, keep) {
       const out = { ...S.books.find(x => x.id === b.id), ...draft };
       out.isbn = toIsbn13(out.isbn) || String(out.isbn || "").trim();
       for (const f of FIELDS) if (typeof out[f.k] === "string") out[f.k] = out[f.k].trim();
-      if (st.coverChanged && !out.coverBlob && out.coverUrl) { const blob = await fetchCoverBlob(out.coverUrl); if (blob) out.coverBlob = blob; }
+      if (st.coverChanged && !out.coverBlob && out.coverUrl) { const blob = await fetchCoverBlob(out.coverUrl); if (blob) out.coverBlob = blob; else out.coverUrl = ""; } // kein reiner Link
       if (!out.coverBlob) delete out.coverBlob;
       if ((out.gone || out.wish) && unshelve(out.id)) await saveShelves();
       if (!out.wish) delete out.wish;
@@ -2084,7 +2095,7 @@ async function fillMissing(id, btn) {
     const patch = {};
     for (const f of FIELDS) if (!String(b[f.k] ?? "").trim() && rec[f.k]) patch[f.k] = rec[f.k];
     const hsp = spineWithHeight(b, rec); if (hsp) patch.spine = hsp;
-    if (needsCover(b) && rec.coverUrl) { const blob = await fetchCoverBlob(rec.coverUrl); if (blob) { patch.coverUrl = rec.coverUrl; patch.coverBlob = blob; S.badCover.delete(b.id); } else if (await imgOk(rec.coverUrl)) { patch.coverUrl = rec.coverUrl; S.badCover.delete(b.id); } }
+    if (needsCover(b)) { const sc = await storableCover(coverUrlsOf(rec)); if (sc) { patch.coverUrl = sc.url; patch.coverBlob = sc.blob; S.badCover.delete(b.id); } }
     if (!Object.keys(patch).length) { toast("Nichts Neues gefunden."); return; }
     await patchBook(id, patch);
     toast("Ergänzt: " + Object.keys(patch).filter(k => k !== "coverBlob").map(k => k === "coverUrl" ? "Cover" : k === "spine" ? "Höhe" : FIELDS.find(f => f.k === k).l).join(", "));
@@ -3262,7 +3273,7 @@ function resetTableView() {
 
 /* ---------- Werte je Spalte ---------- */
 const normS = s => String(s ?? "").toLowerCase().replace(/ß/g, "ss").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
-const hasCover = b => !!(b.coverBlob || (b.coverUrl && !S.badCover.has(b.id)));
+const hasCover = b => !!b.coverBlob;
 function locText(b) { if (isGone(b)) return "Hatte ich mal · " + goneText(b.gone); if (isWish(b)) return "Wunschliste"; const l = locationOf(b.id); return l ? locationText(l) : "nicht eingeräumt"; }
 function colText(b, k) {
   switch (k) {

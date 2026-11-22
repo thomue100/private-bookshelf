@@ -20,7 +20,7 @@ async function mergeBooks(keepId, otherIds) {
   let shelvesChanged = false;
   for (const o of others) {
     for (const f of MERGE_FIELDS) if (!filled(k[f]) && filled(o[f])) k[f] = o[f];
-    if (!k.coverBlob && !k.coverUrl) { if (o.coverBlob) k.coverBlob = o.coverBlob; else if (o.coverUrl) k.coverUrl = o.coverUrl; }
+    if (!k.coverBlob && o.coverBlob) { k.coverBlob = o.coverBlob; k.coverUrl = o.coverUrl || ""; }
     if (!k.spine && o.spine) k.spine = o.spine;
     if (o.signed) k.signed = true;
     if (o.favorite) k.favorite = true;

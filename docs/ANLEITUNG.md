@@ -184,15 +184,15 @@ Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books, O
 - **Nicht immer wieder dasselbe suchen:** Findet der Sammellauf für ein Buch nichts (oder du wählst „Überspringen“), merkt sich die App das 60 Tage lang und lässt das Buch beim nächsten Lauf aus. Der Lauf sagt, wie viele übersprungen wurden; „Einzeln mit Bildersuche durchgehen“ bzw. „Trotzdem alle neu suchen“ holen sie zurück. Änderst du Titel, Autor oder ISBN, wird das Buch wieder gesucht. (Gilt nur für dieses Gerät.)
 - **Ohne Treffer → Bildersuche:** Am Ende des Laufs geht „… ohne Treffer mit Bildersuche durchgehen“ die Bücher nacheinander durch – jeweils mit offener Google-Bildersuche.
 - **📚 Weitere Ausgaben suchen** (im Cover-Dialog): sucht mit frei wählbarem Begriff (z. B. nur Titel, oder mit Verlag) in Google Books, DNB, Bibliotheksverbund und Open Library und zeigt alle gefundenen Cover – **antippen, fertig**.
-- Manche Quellen (vor allem Google Books) zeigen ihre Bilder nur an, geben sie aber nicht zum Speichern heraus. Solche Cover werden **verlinkt** („nur verlinkt“) – sie erscheinen, solange Internet da ist.
+- **Nur gespeicherte Cover:** Die App übernimmt nur Bilder, die sie wirklich speichern kann – die sind offline da und stecken in der Sicherung. Google Books zeigt seine Cover zwar an, gibt sie aber nicht zum Speichern heraus; die App nimmt dann automatisch ein speicherbares Bild derselben Ausgabe (Amazon, Open Library). Reine Links (alte „verlinkte“ Cover) räumt die App beim Start und vor „Cover nachtragen“ auf: ersetzt, wo es ein speicherbares Bild gibt, sonst entfernt – das Buch zählt dann als „ohne Cover“. Entfernt wird nur, wenn das Internet nachweislich geht.
 - Bestehende Cover werden nie überschrieben; die Funktion füllt nur leere.
-- **Pseudo-Cover:** Liefert ein Katalog eine Cover-Adresse, hinter der kein Bild steckt, gilt das Buch als „ohne Cover“: Die App prüft solche Adressen beim Start im Hintergrund und vor jedem Suchlauf, entfernt tote Adressen und nimmt die Bücher in den Suchlauf auf. Ein Bild, das sich beim Anzeigen als tot erweist, wird sofort so behandelt.
+- **Pseudo-Cover:** Eine Cover-Adresse ohne gespeichertes Bild zählt als „ohne Cover“ und wird wie oben aufgeräumt.
 
 **Google-Bildersuche** (im Cover-Dialog unter „🔍 Google-Bildersuche“, im Bearbeiten-Modus als Knopf „🔍 Bildersuche“):
 - **Ohne Einrichtung:** „Google Bilder öffnen ↗“ öffnet die Suche mit passendem Suchbegriff im neuen Tab. Dort ein Bild **anklicken** (große Vorschau rechts – die kleinen Bilder in der Trefferliste sind unscharf) und dann:
   - **PC:** Bild in die gestrichelte Fläche der App ziehen – oder Rechtsklick → **„Bild kopieren“** und in der App **Strg+V**. Auch „Bildadresse kopieren“ und kopierte Google-Links funktionieren; die App holt dann das Original.
   - **Handy:** Bild lange drücken → „Bild kopieren“, in der App auf **„📋 Aus Zwischenablage“** tippen (beim ersten Mal fragt der Browser um Erlaubnis) – oder in die gestrichelte Fläche tippen und „Einfügen“ wählen.
-- Manche Webseiten geben ihre Bilder nicht zum Speichern heraus. Dann verlinkt die App das Bild (wird online angezeigt) oder meldet sich mit einem Hinweis; „Bild kopieren“ statt „Bildadresse kopieren“ hilft in diesem Fall fast immer.
+- Manche Webseiten geben ihre Bilder nicht zum Speichern heraus. Dann meldet sich die App mit einem Hinweis; „Bild kopieren“ statt „Bildadresse kopieren“ hilft in diesem Fall fast immer.
 - **Warum ein eigener Tab?** Google erlaubt nicht, seine Suche in andere Apps einzubetten, und gibt die Treffer nicht an fremde Seiten heraus. Deshalb öffnet sich Google in einem eigenen Tab.
 - **Direkt in der App (nur mit altem Schlüssel):** Wer schon einen Google-Schlüssel mit Suchmaschinen-ID hat (**Mehr → „Einstellungen & Über die App“** → „Google-Bildersuche“), sieht die Bilder als Treffer in der App. Google nimmt dafür keine neuen Nutzer mehr an und stellt den Dienst am 1. 1. 2027 ein.
 - „Google Bilder“ gibt es außerdem als Suchseite unter „Suchseiten wählen“.
@@ -351,7 +351,7 @@ Jede Erkennung schreibt ein Protokoll: Fach-Foto, Cover-Foto, Barcode, Titelsuch
 
 - **Neue Version:** Wurde die App aktualisiert, erscheint unten „Neue Version der App ist da“. „Jetzt aktualisieren“ lädt sie neu; mit ✕ geht es später beim nächsten Öffnen.
 
-- **Offline:** Nach dem ersten Öffnen mit Internet startet die App auch ohne Netz – sofort, auch bei schlechtem Empfang (die App wartet nicht auf den Server). Ansehen, Suchen in den eigenen Büchern, Notizen, Bewertungen, Regal und Tabelle funktionieren offline. Cover, die nur verlinkt sind, erscheinen offline, wenn sie vorher schon einmal angezeigt wurden.
+- **Offline:** Nach dem ersten Öffnen mit Internet startet die App auch ohne Netz – sofort, auch bei schlechtem Empfang (die App wartet nicht auf den Server). Ansehen, Suchen in den eigenen Büchern, Notizen, Bewertungen, Regal und Tabelle funktionieren offline. Alle Cover sind gespeichert und deshalb auch offline da.
 - Erfassen braucht Internet (für Buchdaten und Cover); ebenso Abgleich und Sicherung auf den Server.
 - **Updates:** Eine neue Version lädt die App im Hintergrund; danach erscheint „Neue Version der App ist da“ → „Jetzt aktualisieren“.
 - Diktieren (🎙) gibt es in Chrome, Edge und Safari. Sonst geht das Mikrofon der Handy-Tastatur.

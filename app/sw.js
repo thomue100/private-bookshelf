@@ -2,7 +2,7 @@
    Wie bei professionellen PWAs: Die App-Dateien kommen sofort aus dem Zwischenspeicher („cache first“) – auch bei schlechtem
    Empfang startet die App ohne Warten. Neue Versionen kommen über eine neue VERSION: Der neue Service Worker lädt alle Dateien
    im Hintergrund, danach zeigt die App „Neue Version der App ist da“. Cover-Bilder werden beim ersten Anzeigen gemerkt. */
-const VERSION = "v67";
+const VERSION = "v68";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
 const CDN = ["https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"]; // optional: darf die Installation nicht verhindern
@@ -42,7 +42,7 @@ self.addEventListener("fetch", e => {
     e.respondWith(url.hostname === "localhost" ? networkFirst(req) : shellFirst(req));
     return;
   }
-  // Cover und andere Bilder von fremden Seiten (auch nur verlinkte Cover, z. B. Google Books): beim ersten Anzeigen merken
+  // Bilder fremder Seiten (z. B. Cover in Suchergebnissen): beim ersten Anzeigen merken
   if (req.destination === "image" && url.protocol === "https:") { e.respondWith(runtimeFirst(req)); return; }
   // Bibliotheken, Schriften, Texterkennungs-Daten, Cover: Cache zuerst
   const cacheable = ["cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com", "tessdata.projectnaptha.com", "covers.openlibrary.org", "books.google.com", "books.googleusercontent.com", "archive.org"].some(h => url.hostname === h || url.hostname.endsWith("." + h));

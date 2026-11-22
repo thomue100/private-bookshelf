@@ -290,9 +290,8 @@ async function importStack(list) {
         if (q?.cover) src = await warpQuad(e.coverBlob, q.cover, 1200).catch(() => e.coverBlob);
         if (!spineSrc && q?.spine) spineSrc = await warpQuad(e.coverBlob, q.spine, SPINE_MAX).catch(() => null);
         b.coverBlob = await coverBlobFromFile(src);
-      } else if (r.coverUrl) {
-        const url = (r.altCovers && r.altCovers[0]) || r.coverUrl, blob = await fetchCoverBlob(url);
-        if (blob) { b.coverUrl = url; b.coverBlob = blob; } else if (await imgOk(url)) b.coverUrl = url;
+      } else {
+        const sc = await storableCover(coverUrlsOf(r)); if (sc) { b.coverUrl = sc.url; b.coverBlob = sc.blob; }
       }
       if (spineSrc) b.spine = await spineWithPhoto(b, spineSrc);
     } catch {}

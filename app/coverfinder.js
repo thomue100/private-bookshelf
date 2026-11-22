@@ -1,32 +1,16 @@
-/* Mein Bücherregal – Cover aus dem Internet nachtragen (Google Books, Open Library).
-   Eindeutige Treffer werden direkt übernommen, bei mehreren Kandidaten oder Unsicherheit wird nachgefragt. */
+/* Mein Bücherregal – Cover aus dem Internet nachtragen (Amazon, Open Library, Kataloge).
+   Eindeutige Treffer werden direkt übernommen, bei mehreren Kandidaten oder Unsicherheit wird nachgefragt.
+   Es zählen nur Bilder, die sich speichern lassen – Google Books gibt seine Bilder nicht heraus (kein CORS), reine Links legt die App nicht an. */
 "use strict";
 
-
-/* Lädt ein Bild nur zur Anzeige (ohne CORS) und liefert seine Maße – null bei Fehler oder Platzhalter. */
-function imgProbe(url, ms = 8000) {
-  return new Promise(res => {
-    const i = new Image(); const t = setTimeout(() => { i.src = ""; res(null); }, ms);
-    i.onload = () => { clearTimeout(t); res(placeholderImg(i, url) ? null : { w: i.naturalWidth, h: i.naturalHeight }); };
-    i.onerror = () => { clearTimeout(t); res(null); };
-    i.referrerPolicy = "no-referrer"; i.src = url;
-  });
-}
-/* Prüft, ob eine Cover-Adresse ein echtes Bild liefert: {url, blob, w, h} oder null.
-   Manche Quellen (vor allem Google Books) geben ihre Bilder nicht zum Speichern heraus (kein CORS) – das Bild lässt sich
-   aber anzeigen. Dann ist blob null und das Cover wird nur verlinkt (früher wurden diese Treffer ganz verworfen). */
-async function probeCover(url) {
-  const blob = await fetchCoverBlob(url);
-  if (blob) { try { const img = await loadImage(blob); return placeholderImg(img, url) ? null : { url, blob, w: img.naturalWidth, h: img.naturalHeight }; } catch { return null; } }
-  const d = await imgProbe(url); return d ? { url, blob: null, w: d.w, h: d.h } : null;
-}
+/* Prüft, ob eine Cover-Adresse ein echtes, speicherbares Bild liefert: {url, blob, w, h} oder null. */
+const probeCover = url => storableCover([url]);
 const covKey = u => String(u).replace(/^https?:\/\//, "").replace(/[?&](zoom|edge|source)=[^&]*/g, "").replace(/-[SML]\.jpg/, ".jpg");
 const covSrcName = u => /openlibrary|archive\.org/.test(u) ? "Open Library" : /books\.google|googleusercontent/.test(u) ? "Google Books" : /amazon\./.test(u) ? "Amazon" : "";
-// Bildadressen zu einem Katalogtreffer: eigenes Cover, dann Open Library und Google Books über die ISBN
-const hitCovers = c => [c.coverUrl, ...(c.altCovers || []), ...(toIsbn13(c.isbn) ? olCovers(toIsbn13(c.isbn)) : [])].filter((v, i, a) => v && a.indexOf(v) === i);
-const covUrl = c => c.blob ? URL.createObjectURL(c.blob) : c.url;
+const hitCovers = coverUrlsOf; // Bildadressen zu einem Katalogtreffer (app.js)
+const covUrl = c => URL.createObjectURL(c.blob);
 
-/* Sammelt Cover-Kandidaten für ein Buch. Jeder Kandidat: {url, blob|null, w, h, src, title, author, year, publisher, isbn, score, reason}.
+/* Sammelt Cover-Kandidaten für ein Buch. Jeder Kandidat: {url, blob, w, h, src, title, author, year, publisher, isbn, score, reason}.
    Das Ergebnis trägt failed=true, wenn kein Katalog erreichbar war (dann gilt „nichts gefunden“ nicht als Fehlschlag). */
 async function coverCandidates(b, onStatus) {
   const i13 = toIsbn13(b.isbn);
@@ -34,7 +18,7 @@ async function coverCandidates(b, onStatus) {
   const add = async (url, meta, score, reason) => {
     if (!url) return false; const k = covKey(url); if (seen.has(k)) return false; seen.add(k);
     const p = await probeCover(url); if (!p) return false;
-    out.push({ ...p, ...meta, src: meta.src || covSrcName(url), score: score + (p.blob ? 0.3 : 0), reason });
+    out.push({ ...p, ...meta, src: meta.src || covSrcName(url), score, reason });
     return true;
   };
   // 1) Genau diese Ausgabe per ISBN
@@ -85,8 +69,7 @@ function decideCover(cands) {
   if (best.score >= 8 && (cands.length === 1 || cands[1].score <= best.score - 3)) return { kind: "sure", c: best };
   return { kind: "ask" };
 }
-// Ohne gespeichertes Bild (Quelle gibt es nicht heraus) wird das Cover nur verlinkt
-async function applyCover(id, c) { S.badCover.delete(id); await patchBook(id, c.blob ? { coverUrl: c.url, coverBlob: c.blob } : { coverUrl: c.url }); await clearCoverMiss(id); }
+async function applyCover(id, c) { if (!c?.blob) return; S.badCover.delete(id); await patchBook(id, { coverUrl: c.url || "", coverBlob: c.blob }); await clearCoverMiss(id); }
 async function applyOwnCover(id, file) { await patchBook(id, { coverBlob: await coverBlobFromFile(file), coverUrl: "" }); await clearCoverMiss(id); }
 
 /* Abschnitt im Cover-Dialog: weitere Ausgaben in den Katalogen suchen und deren Cover zum Antippen zeigen */
@@ -124,7 +107,7 @@ function covCard(c, best, onclick) {
   return el("button", { class: "covcand" + (best ? " best" : ""), type: "button", onclick },
     el("div", { class: "cover" }, el("img", { src: covUrl(c), alt: "", referrerpolicy: "no-referrer" })),
     el("b", { text: c.title || "" }), el("span", { text: [c.author, c.publisher, c.year].filter(Boolean).join(" · ") }),
-    el("small", { text: [c.src, c.isbn ? "ISBN " + c.isbn : "", c.reason, `${c.w}×${c.h}`, c.blob ? "" : "nur verlinkt"].filter(Boolean).join(" · ") }));
+    el("small", { text: [c.src, c.isbn ? "ISBN " + c.isbn : "", c.reason, `${c.w}×${c.h}`].filter(Boolean).join(" · ") }));
 }
 
 /* ---------- Einzelnes Buch: Auswahl-Dialog ---------- */
@@ -133,8 +116,8 @@ function coverPickDialog(b, cands, { skipLabel = "Ohne Cover lassen", title, goo
     const prevPaste = S.pasteHandler;
     let closed = false;
     const done = v => { if (closed) return; closed = true; if (S.pasteHandler === pasteH || (S.pasteHandler && S.pasteHandler.fixed)) S.pasteHandler = prevPaste; box.remove(); res(v); };
-    // eingefügte/abgelegte Bilder: gespeichertes Bild bevorzugt, sonst nur verlinkt
-    const pasteH = x => x instanceof Blob ? done({ ownFile: x }) : x.blob ? done({ ownFile: x.blob }) : done({ url: x.url, src: "Google Bilder", reason: "nur verlinkt" });
+    // eingefügte/abgelegte Bilder werden gespeichert (nicht speicherbare meldet deliverImage mit einem Hinweis)
+    const pasteH = x => x instanceof Blob ? done({ ownFile: x }) : x.blob ? done({ ownFile: x.blob }) : toast("Dieses Bild lässt sich nicht speichern. Bitte „Bild kopieren“ statt „Bildadresse kopieren“ verwenden.", 5000);
     pasteH.urlOk = true;
     const gsec = googleSection(b, done, pasteH);
     S.pasteHandler = pasteH;
@@ -177,28 +160,30 @@ async function findCoverFor(id, { auto = true } = {}) {
 }
 
 /* ---------- Viele Bücher: Sammellauf ---------- */
-/* Prüft Bücher, die nur eine Cover-Adresse (kein gespeichertes Bild) haben: liefert die Adresse kein Bild, gilt das Buch als „ohne Cover“. */
+/* Räumt verlinkte Cover auf (nur Adresse, kein gespeichertes Bild – z. B. Google Books aus älteren Versionen oder Pseudo-Cover):
+   erst ein speicherbares Bild derselben Ausgabe suchen (Link selbst, dann über die ISBN: Open Library, Amazon) und speichern;
+   gibt es keins, wird der Link entfernt – das Buch zählt dann als „ohne Cover“. bad = entfernt, fixed = durch gespeichertes Bild ersetzt. */
 async function verifyCoverLinks({ ids, onStatus, limit = 400 } = {}) {
-  let list = S.books.filter(b => inStock(b) && !b.coverBlob && b.coverUrl);
+  let list = S.books.filter(b => !b.coverBlob && b.coverUrl);
   if (ids) list = list.filter(b => ids.includes(b.id));
   list = list.slice(0, limit);
-  let bad = 0, fixed = 0, reachable = 0; const dead = [];
+  let bad = 0, fixed = 0; const left = [];
   for (let i = 0; i < list.length; i++) {
     const b = list[i];
-    onStatus && onStatus(`Prüfe vorhandene Cover-Adressen (${i + 1}/${list.length}) …`);
-    if (S.badCover.has(b.id)) { dead.push(b); continue; }                            // beim Anzeigen schon als tot erkannt
-    const blob = await fetchCoverBlob(b.coverUrl);
-    if (blob) { await patchBook(b.id, { coverBlob: blob }); fixed++; continue; }   // Bild da → dauerhaft speichern
-    if (await imgOk(b.coverUrl)) { reachable++; continue; }                         // Bild lädt, nur nicht speicherbar → ok
-    dead.push(b);
+    onStatus && onStatus(`Prüfe verlinkte Cover (${i + 1}/${list.length}) …`);
+    const sc = await storableCover([b.coverUrl, ...coverUrlsOf({ isbn: b.isbn })]);
+    const cur = S.books.find(x => x.id === b.id); if (!cur || cur.coverBlob) continue; // inzwischen geändert
+    if (sc) { S.badCover.delete(b.id); await patchBook(b.id, { coverUrl: sc.url, coverBlob: sc.blob }); fixed++; }
+    else left.push(b);
   }
-  // Entfernt wird nur, wenn das Internet nachweislich geht – bei schlechtem Empfang sähen sonst alle verlinkten Cover tot aus
-  if (dead.length && (fixed || reachable || await netReachable())) {
-    for (const b of dead) { S.badCover.add(b.id); await patchBook(b.id, { coverUrl: "" }); bad++; } // Pseudo-Cover → zählt als „ohne Cover“
+  // Entfernt wird nur, wenn das Internet nachweislich geht – bei schlechtem Empfang ließe sich sonst nichts laden und alles würde gelöscht
+  if (left.length && (fixed || await netReachable())) {
+    for (const b of left) { const cur = S.books.find(x => x.id === b.id); if (!cur || cur.coverBlob || !cur.coverUrl) continue; S.badCover.delete(b.id); await patchBook(b.id, { coverUrl: "" }); bad++; }
   }
   if (bad || fixed) renderAll();
   return { checked: list.length, bad, fixed };
 }
+const linkCleanText = r => [r.fixed ? `${r.fixed} verlinkte Cover durch gespeicherte ersetzt` : "", r.bad ? `${r.bad} verlinkte Cover ohne speicherbares Bild entfernt` : ""].filter(Boolean).join(", ");
 // Geht das Internet wirklich? (navigator.onLine sagt nur, dass ein Netz da ist.) Ein bekanntes Open-Library-Cover, nie aus dem Zwischenspeicher.
 function netReachable() { return navigator.onLine ? imgOk("https://covers.openlibrary.org/b/id/240727-M.jpg?probe=" + Date.now(), 6000) : Promise.resolve(false); }
 /* ids: bestimmte Bücher (z. B. gerade importierte) – die werden immer gesucht. Ohne ids: alle ohne Cover, außer denen,
@@ -206,7 +191,7 @@ function netReachable() { return navigator.onLine ? imgOk("https://covers.openli
 async function coverRun(ids, { retry = false } = {}) {
   const pre = await verifyCoverLinks({ ids, onStatus: t => toast(t, 4000) });
   document.querySelectorAll(".toast").forEach(t => t.remove());
-  if (pre.bad) toast(`${pre.bad} Pseudo-Cover erkannt – werden mitgesucht.`, 3000);
+  if (pre.bad || pre.fixed) toast(linkCleanText(pre) + (pre.bad ? " – werden mitgesucht." : "."), 4000);
   await coverMisses();
   const all = !ids;
   ids = (ids || S.books.filter(needsCover).map(b => b.id)).filter(id => { const b = S.books.find(x => x.id === id); return b && needsCover(b); });
@@ -318,7 +303,6 @@ function googleSection(b, onPick, pasteH) {
           card.classList.add("busy"); info.textContent = "Lade Bild …";
           const g = await grabImage(h); card.classList.remove("busy");
           if (g) onPick({ blob: g.blob, url: g.url, src: "Google Bilder · " + h.site, reason: "aus Bildersuche" });
-          else if (await imgOk(h.url)) onPick({ blob: null, url: h.url, src: "Google Bilder · " + h.site, reason: "nur verlinkt" }); // nicht speicherbar, aber anzeigbar
           else info.textContent = "Diese Seite erlaubt kein direktes Laden. Bild im Google-Tab mit Rechtsklick → „Bild kopieren“ und hier mit Strg+V einfügen.";
         } }, el("img", { src: h.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }), el("span", { text: h.site }));
         results.append(card);
@@ -352,8 +336,9 @@ function gcsKeyBox() {
       el("li", {}, el("a", { href: "https://console.cloud.google.com/apis/library/customsearch.googleapis.com", target: "_blank", rel: "noopener" }, "Custom Search API ↗"), " in der Google Cloud Console aktivieren → Anmeldedaten → API-Schlüssel erstellen. Derselbe Schlüssel funktioniert auch für Google Books, wenn dort die Books API aktiviert ist.")));
 }
 
-/* Beim Start im Hintergrund: Cover-Adressen ohne gespeichertes Bild prüfen (einmal pro Sitzung). */
+/* Beim Start im Hintergrund: verlinkte Cover aufräumen (einmal pro Sitzung, höchstens 150 Bücher – der Rest beim nächsten Start
+   oder mit „Cover nachtragen“). */
 setTimeout(async () => {
   if (!S.loaded || !navigator.onLine) return;
-  try { const r = await verifyCoverLinks({ limit: 150 }); if (r.bad) toast(`${r.bad} ${r.bad === 1 ? "Buch hat" : "Bücher haben"} nur ein Pseudo-Cover – jetzt als „ohne Cover“ markiert.`, 5000); } catch {}
+  try { const r = await verifyCoverLinks({ limit: 150 }); if (r.bad || r.fixed) toast(linkCleanText(r) + ".", 5000); } catch {}
 }, 4000);

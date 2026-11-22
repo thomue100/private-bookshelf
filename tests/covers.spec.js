@@ -153,19 +153,39 @@ test.describe("Bild aus der Google-Bildersuche übernehmen", () => {
   });
 });
 
-test("Cover ohne CORS-Freigabe (wie Google Books) wird verlinkt statt verworfen", async ({ page, catalog }) => {
+test("Nicht speicherbares Cover (wie Google Books) wird nie verlinkt – stattdessen das speicherbare derselben ISBN", async ({ page, catalog }) => {
   await page.context().route("https://nocors.test/**", r => r.fulfill({ status: 200, headers: { "content-type": "image/jpeg" }, body: fixtureBytes("cover-c.jpg") }));
   catalog.google = q => q === "isbn:9783423000000" ? [googleItem("Momo", "Michael Ende", "9783423000000", "https://nocors.test/momo.jpg", "dtv")] : [];
+  catalog.amazon = i10 => i10 === "3423000007" ? "b" : null;
   await openApp(page);
   await seedBooks(page);
   await page.evaluate(() => patchBook("b0", { isbn: "9783423000000" }));
   // Im Test lässt sich fehlendes CORS nicht nachstellen → Speichern-Versuch für diese Adresse scheitern lassen
   await page.evaluate(() => { const f = fetchCoverBlob; fetchCoverBlob = u => /nocors/.test(u) ? Promise.resolve(null) : f(u); });
-  const cands = await page.evaluate(async () => (await coverCandidates(S.books.find(b => b.id === "b0"))).map(c => [c.url, !!c.blob, c.score >= 10]));
-  expect(cands).toEqual([["https://nocors.test/momo.jpg", false, true]]);
+  const cands = await page.evaluate(async () => (await coverCandidates(S.books.find(b => b.id === "b0"))).map(c => [c.src, !!c.blob]));
+  expect(cands).toEqual([["Amazon", true]]);
   expect(await page.evaluate(() => findCoverFor("b0"))).toBe("set");
-  expect(await state(page, "b0")).toEqual([false, "https://nocors.test/momo.jpg"]);
-  expect(await page.evaluate(() => needsCover(S.books.find(b => b.id === "b0")))).toBe(false);
+  const [blob, url] = await state(page, "b0");
+  expect(blob).toBe(true);
+  expect(url).toContain("amazon");
+});
+
+test("Alte verlinkte Cover werden aufgeräumt: ersetzt, wo es ein speicherbares gibt, sonst entfernt", async ({ page, catalog }) => {
+  catalog.amazon = i10 => i10 === "3423000007" ? "b" : null;
+  await page.context().route("https://nocors.test/**", r => r.fulfill({ status: 200, headers: { "content-type": "image/jpeg" }, body: fixtureBytes("cover-c.jpg") }));
+  await openApp(page);
+  await page.evaluate(() => { const f = fetchCoverBlob; fetchCoverBlob = u => /nocors/.test(u) ? Promise.resolve(null) : f(u); });
+  const base = { status: "unread", rating: 0, notes: "", addedAt: "2020-01-01T00:00:00.000Z" };
+  await page.evaluate(base => Promise.all([
+    putBook({ ...base, id: "a", title: "Momo", isbn: "9783423000000", coverUrl: "https://nocors.test/a.jpg" }), // alter Datensatz: nur Link, Amazon hat ein Bild
+    putBook({ ...base, id: "b", title: "Krabat", coverUrl: "https://nocors.test/b.jpg" }),                        // nur Link, nichts Speicherbares
+    putBook({ ...base, id: "c", title: "Tschick", coverUrl: "https://img.test/c.jpg" }),                         // Link lässt sich doch speichern
+  ]), base);
+  expect(await page.evaluate(() => S.books.filter(needsCover).map(b => b.id).sort())).toEqual(["a", "b", "c"]); // Links zählen nicht als Cover
+  const r = await page.evaluate(() => verifyCoverLinks());
+  expect([r.fixed, r.bad]).toEqual([2, 1]);
+  const st = await page.evaluate(() => ["a", "b", "c"].map(id => { const b = S.books.find(x => x.id === id); return [!!b.coverBlob, b.coverUrl.replace(/^https:\/\/([^/]+).*/, "$1")]; }));
+  expect(st).toEqual([[true, "images-na.ssl-images-amazon.com"], [false, ""], [true, "img.test"]]);
 });
 
 test("Erfolglose Suche wird gemerkt: nächster Lauf überspringt, nach Änderung wird wieder gesucht", async ({ page, catalog }) => {
