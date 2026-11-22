@@ -208,3 +208,17 @@ test("„Weitere Ausgaben suchen“ im Cover-Dialog: Cover antippen übernimmt e
   await expect.poll(() => state(page, "b0")).toEqual([true, expect.stringContaining("img.test")]);
   await expect(page.locator(".confirm")).toHaveCount(0);
 });
+
+test("Amazon-Cover über die ISBN-10 wird gespeichert, Amazons 1×1-Platzhalter zählt nicht", async ({ page, catalog }) => {
+  catalog.amazon = i10 => i10 === "3423000007" ? "b" : null; // 978-3-423-00000-0 → ISBN-10 3423000007
+  await openApp(page);
+  await seedBooks(page);
+  await page.evaluate(() => { patchBook("b0", { isbn: "9783423000000" }); patchBook("b2", { isbn: "9783522000000" }); });
+  expect(await page.evaluate(() => isbn10of("9783423000000"))).toBe("3423000007");
+  expect(await page.evaluate(() => findCoverFor("b0"))).toBe("set");
+  const [blob, url] = await state(page, "b0");
+  expect(blob).toBe(true);
+  expect(url).toContain("amazon");
+  // kein Bild bei Amazon (1×1) und sonst nichts → kein Kandidat
+  expect(await page.evaluate(async () => (await coverCandidates(S.books.find(b => b.id === "b2"))).length)).toBe(0);
+});

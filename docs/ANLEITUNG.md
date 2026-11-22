@@ -170,7 +170,7 @@ Am Handy gibt es diese Funktion nicht – dort weiter „Sicherung exportieren�
 
 ## Cover aus dem Internet nachtragen
 
-Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books und Open Library:
+Bücher ohne Cover (z. B. aus Fach-Fotos) bekommen ihr Cover aus Google Books, Open Library und Amazon (über die ISBN; dabei geht nur die ISBN an Amazon):
 - **Alle auf einmal:** Hinweis oben in der Bibliothek („… Bücher ohne Cover“ → „🖼 Cover nachtragen“; „Später“ blendet ihn aus, bis weitere Bücher ohne Cover dazukommen), **Mehr → „Fehlende Cover nachtragen“** oder in der Tabelle „🖼 Cover nachtragen“. Direkt nach einem Fach-Foto-Import fragt die App von selbst.
 - **Eindeutig = automatisch:** Gibt es ein Cover genau zur ISBN, oder passt genau eine Ausgabe klar zu Titel, Autor und Verlag, wird es ohne Rückfrage übernommen.
 - **Unsicher = Nachfrage:** Bei mehreren passenden Ausgaben oder unsicheren Treffern zeigt die App am Ende des Laufs alle Kandidaten mit Bild, Verlag, Jahr und ISBN; der wahrscheinlichste ist markiert. Du wählst, nimmst ein eigenes Foto oder überspringst.

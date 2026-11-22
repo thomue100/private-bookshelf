@@ -19,7 +19,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
      Optional `photos` (Fach-Fotos ohne `blob`; offene mit `imageData`) – fehlt, wenn es keine gibt.
      Abgleich: neuere `updatedAt` gewinnt, Löschungen über `deleted` (Grabsteine).
 2. **Keine Cloud für Buchdaten.** Buchdaten gehen nur an den vom Nutzer selbst eingetragenen CouchDB-Server. Sonst erlaubt sind nur
-   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
+   Abfragen an Kataloge/Suchen (Google Books, DNB, lobid/hbz-Bibliotheksverbund, K10plus/GBV per SRU, Open Library, Amazon-Cover-Bilder über die ISBN-10, Google-Bildersuche) und – nur wenn eingerichtet – die Anthropic-API
    mit dem Schlüssel des Nutzers. Zugangsdaten (Server, KI-Schlüssel) gehören nie in Sicherungsdateien.
 3. **Läuft ohne Claude.** Alle KI-Funktionen sind optional; es gibt immer einen Weg ohne (Barcode, Hand-Eingabe, Claude-Chat-Brücke).
    Die frühere Texterkennung (Tesseract/OCR) ist bewusst entfernt – zu ungenau; nicht wieder einbauen.

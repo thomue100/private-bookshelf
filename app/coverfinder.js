@@ -21,7 +21,7 @@ async function probeCover(url) {
   const d = await imgProbe(url); return d ? { url, blob: null, w: d.w, h: d.h } : null;
 }
 const covKey = u => String(u).replace(/^https?:\/\//, "").replace(/[?&](zoom|edge|source)=[^&]*/g, "").replace(/-[SML]\.jpg/, ".jpg");
-const covSrcName = u => /openlibrary|archive\.org/.test(u) ? "Open Library" : /books\.google|googleusercontent/.test(u) ? "Google Books" : "";
+const covSrcName = u => /openlibrary|archive\.org/.test(u) ? "Open Library" : /books\.google|googleusercontent/.test(u) ? "Google Books" : /amazon\./.test(u) ? "Amazon" : "";
 // Bildadressen zu einem Katalogtreffer: eigenes Cover, dann Open Library und Google Books über die ISBN
 const hitCovers = c => [c.coverUrl, ...(c.altCovers || []), ...(toIsbn13(c.isbn) ? olCovers(toIsbn13(c.isbn)) : [])].filter((v, i, a) => v && a.indexOf(v) === i);
 const covUrl = c => c.blob ? URL.createObjectURL(c.blob) : c.url;

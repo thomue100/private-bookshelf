@@ -377,9 +377,11 @@ function fromK10(r) {
 function k10Query(cql, max = 10) {
   return catFetch("K10plus", `k10|${max}|${cql}`, () => sruQuery("https://sru.k10plus.de/opac-de-627", cql, max + "&recordSchema=marcxml", "K10plus", fromK10));
 }
-// Weitere Bildquellen zur ISBN: Open Library, dann das Google-Books-Cover zur ISBN (ohne Schlüssel, hat viele deutsche Ausgaben)
+// Weitere Bildquellen zur ISBN: Open Library, Amazon (über die ISBN-10, nur 978-ISBNs; Bild darf gespeichert werden, fehlt es: 1×1-Platzhalter),
+// dann das Google-Books-Cover zur ISBN (ohne Schlüssel, hat viele deutsche Ausgaben, nur verlinkbar)
 const gIsbnCover = isbn => `https://books.google.com/books/content?vid=ISBN${isbn}&printsec=frontcover&img=1&zoom=1`;
-const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null, gIsbnCover(isbn)].filter(Boolean); };
+const amzCover = i10 => `https://images-na.ssl-images-amazon.com/images/P/${i10}.01.LZZZZZZZ.jpg`;
+const olCovers = isbn => { const i10 = isbn10of(isbn); return [`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`, i10 ? `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg?default=false` : null, i10 ? amzCover(i10) : null, gIsbnCover(isbn)].filter(Boolean); };
 
 async function lookupIsbn(isbn, log) {
   const [g, ol, dnb, k10] = await Promise.allSettled([
