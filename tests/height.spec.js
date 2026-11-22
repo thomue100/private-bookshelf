@@ -73,7 +73,8 @@ test("Verwaltung: Buchhöhen aus der DNB nachtragen – nur Bücher mit ISBN ohn
   }, [I1, I2, I3]);
   await page.evaluate(() => { location.hash = "#mehr"; });
   await page.click("#heightRun");
-  await expect(page.locator(".sheet .saved")).toContainText("Fertig: 1 Höhen nachgetragen, 1 ohne Angabe.");
+  // „eig“ fehlt nur die Dicke → DNB wird nicht gefragt (Höhe da), Google hat nichts
+  await expect(page.locator(".sheet .saved")).toContainText("Fertig: 1 Buch ergänzt (Höhe 1, Dicke 0, Rückenbild 0), 2 ohne Angabe.");
   expect(asked.sort()).toEqual([`num=${I2}`, `num=${I3}`].sort());
   const r = await page.evaluate(() => ["alt", "eig", "ohne", "kein"].map(id => S.books.find(b => b.id === id).spine?.heightCm ?? null));
   expect(r).toEqual([24, 30, null, null]);

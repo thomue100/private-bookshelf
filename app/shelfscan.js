@@ -969,7 +969,7 @@ async function importScan(st, opt) {
     if (copy) dup = null;
     if (dup) {
       id = dup.id; reused++;
-      const patch = {}; if (!dup.spine) patch.spine = spine; if (isGone(dup)) patch.gone = null; if (isWish(dup)) { patch.wish = false; patch.addedAt = new Date().toISOString(); }
+      const patch = {}; const ms = mergeSpine(dup.spine, spine); if (ms) patch.spine = ms; if (isGone(dup)) patch.gone = null; if (isWish(dup)) { patch.wish = false; patch.addedAt = new Date().toISOString(); }
       if ((opt.tags || []).length) { const t = normTags([...(dup.tags || []), ...opt.tags]); if (t.length !== (dup.tags || []).length) patch.tags = t; }
       if (Object.keys(patch).length) await patchBook(id, patch);
     } else {

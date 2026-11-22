@@ -24,6 +24,7 @@ export function googleItem(title, author, isbn, img, publisher = "Verlag", year 
  */
 // catalog.dnb = (cql) => [{ title, part, author, publisher, year, isbn, series, seriesNo, extent, format }]  (wird zu MARC21-XML; extent/format = 300 $a/$c)
 // catalog.lobid = (q) => [lobid-Datensätze]
+// catalog.googleVolume = (id) => {volumeInfo:{dimensions:{height:"21.00 cm", thickness:"2.40 cm"}}} (Google-Books-Einzeldatensatz)
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const sf = (code, v) => v ? `<subfield code="${code}">${esc(v)}</subfield>` : "";
 const df = (tag, subs) => `<datafield tag="${tag}" ind1=" " ind2=" ">${subs}</datafield>`;
@@ -68,6 +69,8 @@ export const test = base.extend({
   page: async ({ page, context, catalog }, use) => {
     await context.route(url => !url.href.startsWith("http://localhost"), r => r.abort());
     await context.route("https://www.googleapis.com/books/**", r => {
+      const vol = new URL(r.request().url()).pathname.match(/\/volumes\/([^/]+)$/); // einzelner Datensatz (z. B. Maße)
+      if (vol) return json(r, catalog.googleVolume ? catalog.googleVolume(decodeURIComponent(vol[1])) || {} : {});
       const q = new URL(r.request().url()).searchParams.get("q") || "";
       return json(r, { items: catalog.google(q) });
     });

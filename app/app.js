@@ -288,6 +288,17 @@ function heightFromFormat(s) {
 }
 /* Höhe aus einem Katalog-Datensatz übernehmen – nur wenn das Buch noch keine hat (gemessen, Fach-Foto, Editor bleiben).
    Gibt das neue spine-Objekt zurück oder null. */
+/* Rücken aus einem Fach-Foto in einen vorhandenen einfügen: nur, was fehlt (Höhe, Dicke, Bild, Farben, Text).
+   Gibt das neue spine-Objekt zurück oder null, wenn nichts dazukommt. */
+function mergeSpine(old, add) {
+  if (!add || !Object.keys(add).length) return null;
+  if (!old) return { ...add };
+  const n = { ...old }; let ch = false;
+  const set = k => { if (add[k] !== undefined && add[k] !== "" && !n[k]) { n[k] = add[k]; ch = true; } };
+  ["heightCm", "thickCm", "imageBlob", "color", "fg"].forEach(set);
+  if (!old.text && !old.quer) ["text", "quer", "mode", "dir", "font"].forEach(set);
+  return ch ? n : null;
+}
 function spineWithHeight(b, rec) {
   if (!+rec?.heightCm || +b.spine?.heightCm) return null;
   return { ...(b.spine || {}), heightCm: +rec.heightCm };
@@ -1052,7 +1063,7 @@ function renderMore() {
         row("tableRun", "▦", "Tabelle", "Alle Bücher als Liste bearbeiten, filtern, auswählen", () => { location.hash = "#verwaltung"; }),
         row("coverRun", "🖼", "Fehlende Cover nachtragen", nCover ? `${nCover} ${nCover === 1 ? "Buch" : "Bücher"} ohne Cover` : "Alle Bücher haben ein Cover", call("coverRun"), nCover),
         row("dupRun", "🧩", "Dubletten prüfen", nDup ? `${nDup} Bücher sehen doppelt aus` : "Keine möglichen Dubletten", call("openDuplicates"), nDup, true),
-        row("heightRun", "📏", "Buchhöhen nachtragen", "Aus der Deutschen Nationalbibliothek, für das echte Regal", () => heightRun())),
+        row("heightRun", "📏", "Maße nachtragen", "Höhe, Dicke und Rückenbild – aus deinen Fach-Fotos, der DNB und Google Books", () => measureRun())),
       group("Daten & Sicherung",
         row("exportRun", "⬆", "Sicherung exportieren", "Als Datei speichern oder an den PC senden", exportFlow),
         row("importRun", "⬇", "Sicherung importieren", "Datei von einem anderen Gerät übernehmen und abgleichen", importFlow),
@@ -2080,40 +2091,7 @@ async function fillMissing(id, btn) {
   } catch { toast("Keine Internetverbindung."); }
   finally { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "🔎"; } }
 }
-/* Sammellauf: Buchhöhen aus der DNB für Bücher mit ISBN und ohne Höhe – nacheinander, mit Pause, abbrechbar. */
-async function heightRun() {
-  const ids = S.books.filter(b => !isWish(b) && toIsbn13(b.isbn) && !+b.spine?.heightCm).map(b => b.id);
-  if (!ids.length) { toast("Alle Bücher mit ISBN haben schon eine Höhe."); return; }
-  const sh = sheet("📏 Buchhöhen aus der DNB");
-  const bar = el("div", { class: "progress" }, el("div", {}));
-  const status = el("div", { class: "saved" });
-  const log = el("div", { class: "covlog" });
-  let stop = false, set = 0, none = 0;
-  const stopBtn = el("button", { class: "btn", onclick: () => { stop = true; stopBtn.disabled = true; stopBtn.textContent = "Wird beendet …"; } }, "Anhalten");
-  fillNode(sh.body,
-    el("p", { style: "margin-top:0", text: `${ids.length} ${ids.length === 1 ? "Buch" : "Bücher"} mit ISBN ohne Höhe. Die App fragt die Deutsche Nationalbibliothek nacheinander – selbst gemessene Höhen bleiben unverändert.` }),
-    bar, status, log, el("div", { class: "actions" }, stopBtn, el("span")));
-  sh.guard = async () => { stop = true; return true; };
-  const row = (b, txt, cls) => log.prepend(el("div", { class: "covrow " + (cls || "") }, el("span", { text: txt }), el("b", { text: b.title || "Ohne Titel" })));
-  for (let i = 0; i < ids.length && !stop; i++) {
-    const b = S.books.find(x => x.id === ids[i]); if (!b || +b.spine?.heightCm) continue;
-    bar.firstChild.style.width = Math.round(i / ids.length * 100) + "%";
-    status.textContent = `${i + 1} / ${ids.length}: „${b.title}“`;
-    const isbn = toIsbn13(b.isbn);
-    let recs; try { recs = await dnbQuery(`num=${isbn}`, 3); } catch { row(b, "⚠ offline", "warn"); break; }
-    const rec = recs.find(r => r.isbn === isbn) || recs[0];
-    const cur = S.books.find(x => x.id === b.id); // kann sich inzwischen geändert haben
-    const sp = cur && spineWithHeight(cur, rec);
-    if (sp) { await patchBook(b.id, { spine: sp }); set++; row(b, `✓ ${String(sp.heightCm).replace(".", ",")} cm`, "ok"); }
-    else { none++; row(b, "– keine Angabe", "none"); }
-    if (!stop && i < ids.length - 1) await new Promise(r => setTimeout(r, S.heightPause ?? 400)); // schonend
-  }
-  bar.firstChild.style.width = "100%";
-  sh.guard = null;
-  status.textContent = `Fertig: ${set} Höhen nachgetragen, ${none} ohne Angabe.` + (stop ? " (angehalten)" : "");
-  sh.body.querySelector(".actions").replaceWith(el("div", { class: "actions" }, el("span"), el("button", { class: "btn primary", onclick: closeSheet }, "Schließen")));
-  renderAll();
-}
+// Sammellauf für Höhe, Dicke und Rückenbild: measureRun (measures.js)
 
 /* ================= Echtes Regal (Montana-Würfel) ================= */
 // Maße laut Montana: 6112 = B 69,6 × H 35,4 × T 30 cm (2 Fächer, auch hochkant), 1112 = B 69,6 × H 69,6 × T 38 cm (4 Fächer).
