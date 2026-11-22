@@ -12,6 +12,7 @@ const fileKey = f => `${String(f.id).slice(0, 8)}__${String(f.name || "datei").r
    Jedes Bild wird nur einmal geschrieben, die Tagesdateien verweisen nur darauf und bleiben klein. */
 const IMG_DIR = "Bilder";
 const IMG_REF_RE = /"Bilder\/([0-9a-f]{32}\.[a-z0-9]{2,5})"/g;
+const IMG_OWN_RE = /^[0-9a-f]{32}\.[a-z0-9]{2,5}$/; // so heißen nur Bilder, die die App selbst schreibt
 const IMG_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif", "image/svg+xml": "svg" };
 const IMG_TYPE = Object.fromEntries(Object.entries(IMG_EXT).map(([t, e]) => [e, t]));
 const abNames = new WeakMap(); // Blob → Dateiname (Prüfsumme nur einmal je Sitzung)
@@ -92,7 +93,8 @@ async function abPruneImages(idir, have, autoNames) {
     const text = await (await (await AB.handle.getFileHandle(n)).getFile()).text(); // Fehler → abbrechen, nichts löschen
     for (const m of text.matchAll(IMG_REF_RE)) used.add(m[1]);
   }
-  for (const n of have) if (!used.has(n)) { await idir.removeEntry(n).catch(() => {}); have.delete(n); }
+  // nur Bilder, die die App selbst angelegt hat (Name = Prüfsumme) – eigene Dateien im Ordner bleiben unberührt
+  for (const n of have) if (IMG_OWN_RE.test(n) && !used.has(n)) { await idir.removeEntry(n).catch(() => {}); have.delete(n); }
 }
 function abAskBanner() {
   setBanner("Automatische Sicherung: Chrome möchte einmal bestätigt haben, dass die App in deinen Sicherungsordner schreiben darf.",
