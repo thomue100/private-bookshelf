@@ -127,19 +127,23 @@ async function attachmentStats() {
   return { ni, si, nf, sf };
 }
 async function attachmentsToBackup(b, opt) {
-  const conv = async (list, include) => Promise.all((list || []).map(async x => {
+  const conv = async (list, include, out) => Promise.all((list || []).map(async x => {
     if (!include) return { ...x };
     const r = await DB.getBlob(x.id).catch(() => null);
-    return r ? { ...x, data: await blobToDataURL(r.blob) } : { ...x };
+    if (!r) return { ...x };
+    return out ? { ...x, file: await out(r.blob) } : { ...x, data: await blobToDataURL(r.blob) };
   }));
-  return { images: await conv(b.images, opt.images), files: await conv(b.files, opt.files) };
+  return { images: await conv(b.images, opt.images, opt.imageOut), files: await conv(b.files, opt.files) };
 }
-async function attachmentsFromBackup(inc, local) {
+async function attachmentsFromBackup(inc, local, fromFile) {
   // speichert mitgelieferte Daten, behält vorhandene lokale Daten, räumt nicht mehr benutzte lokale Daten auf
   const keep = new Set();
   const take = async list => Promise.all((list || []).map(async x => {
-    const { data, ...meta } = x; keep.add(meta.id);
-    if (data) { try { const blob = await dataURLToBlob(data); await DB.putBlob({ id: meta.id, bookId: inc.id, blob }); forgetBlobUrl(meta.id); meta.size = meta.size || blob.size; } catch {} }
+    const { data, file, ...meta } = x; keep.add(meta.id);
+    // file: Bild liegt als eigene Datei im Sicherungsordner; fehlt sie, bleibt das lokale Bild erhalten
+    let blob = null;
+    if (data) { try { blob = await dataURLToBlob(data); } catch {} } else if (file && fromFile) blob = await fromFile(file);
+    if (blob) { try { await DB.putBlob({ id: meta.id, bookId: inc.id, blob }); forgetBlobUrl(meta.id); meta.size = meta.size || blob.size; } catch {} }
     return meta;
   }));
   // Sicherungen älterer App-Versionen kennen keine Bilder/Dateien → lokale behalten

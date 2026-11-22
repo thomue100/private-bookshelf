@@ -3673,14 +3673,16 @@ function saveFile(name, blob) {
 async function buildBackup(opt = { images: true, files: true }) {
   const books = [];
   for (const b of S.books) {
-    const { coverBlob, ...rest } = b; if (coverBlob) rest.coverData = await blobToDataURL(coverBlob);
+    // opt.imageOut(blob) → Pfad: Bilder liegen als eigene Dateien daneben (automatische Sicherung), sonst als data-URL in der Datei
+    const { coverBlob, ...rest } = b;
+    if (coverBlob) { if (opt.imageOut) rest.coverFile = await opt.imageOut(coverBlob); else rest.coverData = await blobToDataURL(coverBlob); }
     if ((b.images || []).length || (b.files || []).length) Object.assign(rest, await attachmentsToBackup(b, opt));
-    if (rest.spine?.imageBlob) { const { imageBlob, ...sp } = rest.spine; sp.imageData = await blobToDataURL(imageBlob); rest.spine = sp; }
+    if (rest.spine?.imageBlob) { const { imageBlob, ...sp } = rest.spine; if (opt.imageOut) sp.imageFile = await opt.imageOut(imageBlob); else sp.imageData = await blobToDataURL(imageBlob); rest.spine = sp; }
     books.push(rest);
   }
   // Fach-Fotos: offene mit Bild, erledigte/gelöschte nur als Angaben (damit das andere Gerät sie als erledigt sieht)
   const photos = [];
-  for (const p of S.photos || []) { const { blob, ...rest } = p; if (blob && !p.doneAt && !p.deletedAt && opt.photos !== false) rest.imageData = await blobToDataURL(blob); photos.push(rest); }
+  for (const p of S.photos || []) { const { blob, ...rest } = p; if (blob && !p.doneAt && !p.deletedAt && opt.photos !== false) { if (opt.imageOut) rest.imageFile = await opt.imageOut(blob); else rest.imageData = await blobToDataURL(blob); } photos.push(rest); }
   const out = { app: "buecherregal", version: 2, exportedAt: new Date().toISOString(), books, deleted: S.deleted, shelves: S.shelves };
   if (photos.length) out.photos = photos;
   return out;
@@ -3707,10 +3709,14 @@ async function importFlow() {
   let data;
   try { data = JSON.parse(await f.text()); } catch { toast("Die Datei ist keine gültige Sicherung."); return; }
   if (data?.app !== "buecherregal" || !Array.isArray(data.books)) { toast("Die Datei ist keine Bücherregal-Sicherung."); return; }
-  toast(await importData(data), 5000);
+  const msg = await importData(data);
+  toast(msg + (data.imagesInFolder ? ` Die Bilder dieser automatischen Sicherung liegen im Unterordner „${data.imagesInFolder}“ – dafür bitte „Aus Sicherungsordner wiederherstellen“ nutzen.` : ""), data.imagesInFolder ? 9000 : 5000);
 }
-async function importData(data) {
+async function importData(data, opt = {}) {
   // Sicherungen aller bisherigen Versionen (1 und 2) werden gelesen; unbekannte Felder bleiben einfach erhalten.
+  // Automatische Sicherung: Bilder als eigene Dateien (coverFile, spine.imageFile, images[].file, photos[].imageFile) –
+  // gelesen über opt.readFile(pfad); fehlt die Datei, bleibt das Bild auf dem Gerät erhalten.
+  const fromFile = async path => { if (!path || !opt.readFile) return null; try { return await opt.readFile(path); } catch { return null; } };
   let added = 0, updated = 0, removed = 0, skipped = 0;
   const del = { ...S.deleted, ...(data.deleted || {}) };
   for (const [id, when] of Object.entries(data.deleted || {})) {
@@ -3722,11 +3728,17 @@ async function importData(data) {
     if (del[inc.id] && del[inc.id] >= (inc.updatedAt || "")) { skipped++; continue; }
     const local = S.books.find(b => b.id === inc.id);
     if (local && (local.updatedAt || "") >= (inc.updatedAt || "")) { skipped++; continue; }
-    const { coverData, ...rest } = inc;
+    const { coverData, coverFile, ...rest } = inc;
     const b = { ...rest };
     if (coverData) { try { b.coverBlob = await dataURLToBlob(coverData); } catch {} }
-    if (b.spine?.imageData) { const { imageData, ...sp } = b.spine; try { sp.imageBlob = await dataURLToBlob(imageData); } catch {} b.spine = sp; }
-    if (inc.images || inc.files || local?.images || local?.files) Object.assign(b, await attachmentsFromBackup(inc, local));
+    else if (coverFile) { const blob = await fromFile(coverFile) || local?.coverBlob; if (blob) b.coverBlob = blob; }
+    if (b.spine?.imageData || b.spine?.imageFile) {
+      const { imageData, imageFile, ...sp } = b.spine;
+      if (imageData) { try { sp.imageBlob = await dataURLToBlob(imageData); } catch {} }
+      else { const blob = await fromFile(imageFile) || local?.spine?.imageBlob; if (blob) sp.imageBlob = blob; }
+      b.spine = sp;
+    }
+    if (inc.images || inc.files || local?.images || local?.files) Object.assign(b, await attachmentsFromBackup(inc, local, fromFile));
     await DB.put(b);
     if (local) { S.books[S.books.indexOf(local)] = b; updated++; } else { S.books.push(b); added++; }
     if (S.urls.has(b.id)) { URL.revokeObjectURL(S.urls.get(b.id)); S.urls.delete(b.id); }
@@ -3737,8 +3749,8 @@ async function importData(data) {
     if (!inc?.id) continue;
     const local = S.photos.find(p => p.id === inc.id);
     if (local && (local.updatedAt || "") >= (inc.updatedAt || "")) continue;
-    const { imageData, ...p } = inc;
-    if (!p.deletedAt) { if (imageData) { try { p.blob = await dataURLToBlob(imageData); } catch {} } if (!p.blob && local?.blob) p.blob = local.blob; }
+    const { imageData, imageFile, ...p } = inc;
+    if (!p.deletedAt) { if (imageData) { try { p.blob = await dataURLToBlob(imageData); } catch {} } else if (imageFile) { const blob = await fromFile(imageFile); if (blob) p.blob = blob; } if (!p.blob && local?.blob) p.blob = local.blob; }
     await storePhotoLocal(p); photoNote++;
   }
   let wallNote = "";
