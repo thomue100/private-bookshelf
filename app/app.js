@@ -3793,9 +3793,10 @@ function watchForUpdates(sw = navigator.serviceWorker) {
   // installierte Apps bleiben lange offen: beim Zurückkehren nach Updates sehen
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sw.getRegistration().then(r => r && r.update()).catch(() => {}); });
 }
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
   watchForUpdates();
 }
+window.addEventListener("offline", () => toast("Offline – deine Bücher sind alle da. Katalogsuche, Cover und Abgleich gehen wieder, sobald Internet da ist.", 5000));
 renderAll();
 loadAll().then(offerReviewDraft);

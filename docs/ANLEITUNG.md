@@ -351,7 +351,9 @@ Jede Erkennung schreibt ein Protokoll: Fach-Foto, Cover-Foto, Barcode, Titelsuch
 
 - **Neue Version:** Wurde die App aktualisiert, erscheint unten „Neue Version der App ist da“. „Jetzt aktualisieren“ lädt sie neu; mit ✕ geht es später beim nächsten Öffnen.
 
-- Erfassen braucht Internet (für Buchdaten und Cover). Ansehen, Notizen, Bewertungen und Tabelle funktionieren auch offline.
+- **Offline:** Nach dem ersten Öffnen mit Internet startet die App auch ohne Netz – sofort, auch bei schlechtem Empfang (die App wartet nicht auf den Server). Ansehen, Suchen in den eigenen Büchern, Notizen, Bewertungen, Regal und Tabelle funktionieren offline. Cover, die nur verlinkt sind, erscheinen offline, wenn sie vorher schon einmal angezeigt wurden.
+- Erfassen braucht Internet (für Buchdaten und Cover); ebenso Abgleich und Sicherung auf den Server.
+- **Updates:** Eine neue Version lädt die App im Hintergrund; danach erscheint „Neue Version der App ist da“ → „Jetzt aktualisieren“.
 - Diktieren (🎙) gibt es in Chrome, Edge und Safari. Sonst geht das Mikrofon der Handy-Tastatur.
 - Cover-Foto ohne KI-Schlüssel: Titel eintippen oder „💬 Mit Claude-Chat erkennen“.
 - **Kataloge schonen:** Die App merkt sich Suchergebnisse eine halbe Stunde („Neu suchen“ fragt nicht doppelt), fragt die DNB nacheinander statt gleichzeitig und lässt einen Katalog, der „zu viele Anfragen“ meldet, eine Weile aus (DNB 10 Minuten, Google 1 Stunde). Bei erkannten Rücken und Titellisten sucht sie gezielt nach Titel und Autor und lockert die Suche nur, wenn nichts gefunden wird.

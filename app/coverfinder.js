@@ -182,19 +182,25 @@ async function verifyCoverLinks({ ids, onStatus, limit = 400 } = {}) {
   let list = S.books.filter(b => inStock(b) && !b.coverBlob && b.coverUrl);
   if (ids) list = list.filter(b => ids.includes(b.id));
   list = list.slice(0, limit);
-  let bad = 0, fixed = 0;
+  let bad = 0, fixed = 0, reachable = 0; const dead = [];
   for (let i = 0; i < list.length; i++) {
     const b = list[i];
     onStatus && onStatus(`Prüfe vorhandene Cover-Adressen (${i + 1}/${list.length}) …`);
-    if (S.badCover.has(b.id)) { await patchBook(b.id, { coverUrl: "" }); bad++; continue; } // beim Anzeigen schon als tot erkannt
+    if (S.badCover.has(b.id)) { dead.push(b); continue; }                            // beim Anzeigen schon als tot erkannt
     const blob = await fetchCoverBlob(b.coverUrl);
     if (blob) { await patchBook(b.id, { coverBlob: blob }); fixed++; continue; }   // Bild da → dauerhaft speichern
-    if (await imgOk(b.coverUrl)) continue;                                          // Bild lädt, nur nicht speicherbar → ok
-    S.badCover.add(b.id); await patchBook(b.id, { coverUrl: "" }); bad++;           // Pseudo-Cover → zählt als „ohne Cover“
+    if (await imgOk(b.coverUrl)) { reachable++; continue; }                         // Bild lädt, nur nicht speicherbar → ok
+    dead.push(b);
+  }
+  // Entfernt wird nur, wenn das Internet nachweislich geht – bei schlechtem Empfang sähen sonst alle verlinkten Cover tot aus
+  if (dead.length && (fixed || reachable || await netReachable())) {
+    for (const b of dead) { S.badCover.add(b.id); await patchBook(b.id, { coverUrl: "" }); bad++; } // Pseudo-Cover → zählt als „ohne Cover“
   }
   if (bad || fixed) renderAll();
   return { checked: list.length, bad, fixed };
 }
+// Geht das Internet wirklich? (navigator.onLine sagt nur, dass ein Netz da ist.) Ein bekanntes Open-Library-Cover, nie aus dem Zwischenspeicher.
+function netReachable() { return navigator.onLine ? imgOk("https://covers.openlibrary.org/b/id/240727-M.jpg?probe=" + Date.now(), 6000) : Promise.resolve(false); }
 /* ids: bestimmte Bücher (z. B. gerade importierte) – die werden immer gesucht. Ohne ids: alle ohne Cover, außer denen,
    für die vor Kurzem nichts gefunden wurde (recentMiss) – es sei denn retry. */
 async function coverRun(ids, { retry = false } = {}) {

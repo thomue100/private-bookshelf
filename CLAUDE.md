@@ -57,7 +57,7 @@ Abgleich zwischen Geräten per Sicherungsdatei (Export/Import), automatischer Si
 | `app/perspective.js` | Perspektive entzerren: `homography`, `validQuad`, `quadsFromAnswer` (`cover_quad`/`spine_quad` aus der Cover-Erkennung), `warpQuad`, Ecken-Editor `quadEditor` („✂ Zuschneiden“) |
 | `app/stackscan.js` | „📚 Stapel erfassen“: Kamera bleibt offen (`openStackCapture`, Barcode über `barcodeLoop` aus `app.js`), Einträge im Store `stack` (`putStackEntry`/`patchStackEntry`/`dropStackEntry`), Hintergrundsuche `stackWork`, Erkennung ohne Barcode per Sammelauftrag (`kind:"stack"` in `aiBatches`, Ergebnis über `stackRecognized`) oder Claude-Chat-Brücke, Prüfliste `openStackReview`, `importStack`; Vorgaben (localStorage `capturePreset`, nur Gerät): `capturePreset`, `applyPreset`, `placePresetBooks`, `presetBarEl`, `presetDialog` – auch von `openAdd`/`openReview` genutzt |
 | `app/measures.js` | „📏 Maße nachtragen“ (`measureRun`, Zeile `#heightRun` auf „Mehr“): fehlende `spine.heightCm`/`thickCm`/`imageBlob` aus gespeicherten Fach-Fotos (`photoMeasures`: Rücken → Buch im Fach, eindeutig), DNB, Google Books (`googleDims`, Einzeldatensatz `volumes/<id>`). Nie überschreiben (`mergeSpine` in app.js, auch in `importScan` für vorhandene Bücher). Erfolglose Katalogabfragen in Meta `measureMiss` (60 Tage, nur Gerät) |
-| `app/sw.js` | Service Worker (offline) |
+| `app/sw.js` | Service Worker (offline): App-Dateien „cache first“ aus `shell-VERSION` (auf localhost Netz zuerst), CDN optional (darf Installation nicht verhindern), Bilder fremder Seiten in `runtime-v1` (max. 3000). Test `tests/offline.spec.js` über 127.0.0.1 |
 | `tests/` | Playwright-Tests, `helpers.js` sperrt das Internet und bildet Kataloge/KI nach |
 | `docs/ANLEITUNG.md` | Bedienungsanleitung für Nutzer |
 
@@ -96,7 +96,7 @@ oder `"gap"`, `orient` `"h"|"v"`; Fächer `L/R`, `T/B` (hochkant), `TL/TR/BL/BR`
   Pull Request `develop → main`, nachdem die Tests grün sind. Nie direkt auf `main` committen oder pushen.
 
 - **Vor jedem Abschluss `npm test` ausführen** – alle Tests müssen grün sein. Neue Funktionen bekommen einen Test in `tests/`.
-- Änderungen an Dateien in `app/`: **`VERSION` in `app/sw.js` erhöhen** (z. B. `"v18"` → `"v19"`), sonst sehen installierte Apps die Änderung nicht.
+- Änderungen an Dateien in `app/`: **`VERSION` in `app/sw.js` erhöhen** (z. B. `"v18"` → `"v19"`), sonst sehen installierte Apps die Änderung nicht (die App-Dateien kommen „cache first“ aus dem Zwischenspeicher der Version).
   Neue Dateien zusätzlich in `FILES` in `sw.js` eintragen (ein Test prüft das).
 - Bei Datenänderungen immer einen Test ergänzen, der eine **alte** Sicherung bzw. einen alten Datensatz lädt (siehe `tests/compat.spec.js`).
 - Tests nutzen nie das echte Internet. Neue externe Dienste in `tests/helpers.js` nachbilden.

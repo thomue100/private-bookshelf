@@ -67,7 +67,7 @@ export const test = base.extend({
   // catalog.amazon = (isbn10) => "a"|"b"|… (Testbild cover-<x>.jpg) oder null (wie Amazon: 1×1-GIF als Platzhalter)
   catalog: async ({}, use) => { await use({ google: () => [], dnb: () => [], lobid: () => [], k10: () => [], amazon: () => null }); },
   page: async ({ page, context, catalog }, use) => {
-    await context.route(url => !url.href.startsWith("http://localhost"), r => r.abort());
+    await context.route(url => !url.href.startsWith("http://localhost") && !url.href.startsWith("http://127.0.0.1:8765/"), r => r.abort()); // 127.0.0.1: Offline-Tests mit Service Worker
     await context.route("https://www.googleapis.com/books/**", r => {
       const vol = new URL(r.request().url()).pathname.match(/\/volumes\/([^/]+)$/); // einzelner Datensatz (z. B. Maße)
       if (vol) return json(r, catalog.googleVolume ? catalog.googleVolume(decodeURIComponent(vol[1])) || {} : {});
