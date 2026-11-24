@@ -45,6 +45,7 @@ async function mergeBooks(keepId, otherIds) {
     const lo = locationOf(o.id);
     if (lo && !locationOf(k.id)) { lo.list[lo.pos] = k.id; if (isLying(o.id)) setLying(k.id, true); shelvesChanged = true; }
     if (isLying(o.id)) { setLying(o.id, false); shelvesChanged = true; }
+    if (typeof layoutsReplaceId === "function" && layoutsReplaceId(o.id, k.id)) shelvesChanged = true; // andere Aufstellungen
     k.notDup = [...new Set([...(k.notDup || []), ...(o.notDup || [])])];
   }
   const merged = new Set(others.map(o => o.id));
