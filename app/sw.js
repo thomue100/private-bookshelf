@@ -2,12 +2,12 @@
    Wie bei professionellen PWAs: Die App-Dateien kommen sofort aus dem Zwischenspeicher („cache first“) – auch bei schlechtem
    Empfang startet die App ohne Warten. Neue Versionen kommen über eine neue VERSION: Der neue Service Worker lädt alle Dateien
    im Hintergrund, danach zeigt die App „Neue Version der App ist da“. Cover-Bilder werden beim ersten Anzeigen gemerkt. */
-const VERSION = "v70";
+const VERSION = "v71";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
 const CDN = ["https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"]; // optional: darf die Installation nicht verhindern
 const RUNTIME_MAX = 3000; // höchstens so viele gemerkte Bilder
-const FILES = ["./", "index.html", "app.js", "reclog.js", "attachments.js", "shelfscan.js", "spineread.js", "judge.js", "titlelist.js", "shelfphotos.js", "batchscan.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "webtake.js", "perspective.js", "stackscan.js", "measures.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const FILES = ["./", "index.html", "app.js", "reclog.js", "attachments.js", "shelfscan.js", "spineread.js", "judge.js", "titlelist.js", "shelfphotos.js", "batchscan.js", "autobackup.js", "coverfinder.js", "sync.js", "duplicates.js", "webtake.js", "perspective.js", "stackscan.js", "measures.js", "layouts.js", "style.css", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES).then(() => Promise.all(CDN.map(u => c.add(u).catch(() => {})))))

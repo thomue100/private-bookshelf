@@ -2203,6 +2203,7 @@ function locationBlock(id) {
   const go = (pick) => { closeSheet(); if (pick) S.pick = id; else { S.highlight = id; S.wallId = loc.w.id; if (loc.layer === "back") S.showBack.add(loc.m.id + ":" + loc.k); } if (location.hash === "#wand") renderAll(); else location.hash = "#wand"; };
   return el("div", { class: "sec" }, el("h3", { text: "Standort" }),
     el("div", { class: "meta", style: "margin-bottom:8px", text: loc ? locationText(loc) : "Noch nicht im echten Regal eingeräumt." }),
+    ...(typeof layoutLocations === "function" ? layoutLocations(id) : []).map(x => el("div", { class: "small muted lyloc", text: `In „${x.v.name}“: ${x.text}` })),
     el("div", { class: "covertools" },
       loc ? el("button", { class: "btn sm", onclick: () => go(false) }, "📍 Im Regal zeigen") : null,
       el("button", { class: "btn sm", onclick: () => go(true) }, loc ? "↔ Umstellen" : "📚 Einräumen"),
@@ -2299,16 +2300,20 @@ function renderWall() {
   const editBtn = () => el("button", { class: "btn sm" + (S.wallEdit ? " primary" : ""), onclick: () => { if (ov) { S.overview = false; try { localStorage.setItem("wallOverview", ""); } catch {} } S.wallEdit = !S.wallEdit; S.selMode = false; S.sel.clear(); renderWall(); } }, S.wallEdit ? "✓ Aufbau fertig" : "🧱 Aufbau ändern");
   const bigBtn = () => el("button", { class: "btn sm bigbtn" + (S.wallBig ? " primary" : ""), title: "Regalwand so groß wie möglich: ganze Fensterbreite, Bücherliste eingeklappt", onclick: () => setWallBig(!S.wallBig) }, S.wallBig ? "✓ Großansicht" : "⛶ Großansicht");
   const addWallBtn = () => el("button", { class: "btn sm", onclick: newWallDialog }, "＋ Weitere Wand");
+  // Aufstellungen (layouts.js): ab zwei Varianten sichtbar mit Namen, sonst unter „⋯ Mehr“
+  const lyList = Array.isArray(S.shelves.variants) ? S.shelves.variants : [], lyCur = lyList.length > 1 && lyList.find(x => x.id === S.shelves.variantId);
+  const lyBtn = () => el("button", { class: "btn sm lybtn" + (lyCur ? " primary" : ""), title: "Bücher in mehreren Varianten einsortieren und zwischen ihnen wechseln", onclick: call("openLayouts") }, lyCur ? "🗂 " + lyCur.name : "🗂 Aufstellungen");
   const more = (...items) => { const list = items.filter(Boolean); return list.length ? el("details", { class: "wmenu" }, el("summary", { class: "btn sm", title: "Weitere Regal-Funktionen" }, "⋯ Mehr"), el("div", { class: "wmenu-list" }, ...list)) : null; };
   const tools = el("div", { class: "tools walltools" },
     ov ? el("h2", { style: "font-size:20px", text: "Alle Regalwände" }) : S.shelves.walls.length > 1 ? sel : el("h2", { style: "font-size:20px", text: w.name }),
+    lyCur ? lyBtn() : null,
     ...(S.wallEdit ? [editBtn(), addWallBtn()]
       : [el("button", { class: "btn sm", onclick: () => openShelfScan() }, "📷 Fach-Foto einlesen"),
         el("button", { class: "btn sm selbtn" + (S.selMode ? " primary" : ""), title: "Mehrere Bücher markieren und gemeinsam umstellen", onclick: () => { S.selMode = !S.selMode; S.sel.clear(); endPick(); S.wallEdit = false; renderWall(); } }, S.selMode ? "✓ Auswahl beenden" : "☑ Auswählen"),
         el("button", { class: "btn sm lensbtn" + (S.lens ? " primary" : ""), title: "Lupe: Buchrücken vergrößert ansehen (Maus darüber bewegen bzw. Finger auflegen und ziehen)", onclick: () => { S.lens = !S.lens; renderWall(); } }, "🔍 Lupe"),
         ov ? ovBtn() : null,
         S.wallBig ? bigBtn() : null,
-        more(ov ? null : ovBtn(), editBtn(), addWallBtn(), S.wallBig ? null : bigBtn())]),
+        more(ov ? null : ovBtn(), editBtn(), addWallBtn(), S.wallBig ? null : bigBtn(), lyCur ? null : lyBtn())]),
     el("span", { style: "flex:1" }),
     el("div", { class: "zoombox" },
       el("button", { class: "btn sm", title: "Verkleinern", onclick: () => setWallZoom(S[zKey] / 1.25) }, "−"),

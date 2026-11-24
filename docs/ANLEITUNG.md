@@ -264,6 +264,7 @@ Im Bereich **Regal** baust du deine Regalwand nach und räumst die Bücher so ei
 - **Die Ansicht bleibt stehen:** Beim Einräumen, Auswählen, Ein- und Ausschalten der Lupe usw. bleibt das Fach, in dem du gerade arbeitest, auf seiner Höhe – das Regal springt nicht mehr nach oben.
 - **Standort:** Auf jeder Buchseite steht, wo das Buch steht („Wohnzimmer · Spalte 1 · 4er-Würfel, Fach oben links · 3. Buch von links“), mit „Im Regal zeigen“. In der Tabelle gibt es eine Spalte „Standort“ und den Filter „Nicht eingeräumt“.
 - Die Aufstellung wird mit der Sicherung exportiert und beim Import übernommen, wenn sie neuer ist.
+- **🗂 Mehrere Aufstellungen:** Du kannst deine Bücher in mehreren Varianten einsortieren – z. B. „Nach Autoren“ und „Nach Farben“ – und zwischen ihnen wechseln. Unter **„⋯ Mehr“ → „🗂 Aufstellungen“** legst du eine neue an: **„📋 Kopie der jetzigen“** übernimmt alles, wie es gerade steht (dann umstellen); **„🧱 Gleicher Aufbau, leer“** nimmt dieselben Würfel ohne Bücher – zum Neu-Einsortieren. Gibt es mehr als eine Aufstellung, steht ihr Name oben im Regal; ein Tipp darauf öffnet die Liste mit **„Zeigen“** (wechseln), Umbenennen und Löschen. Umstellen, Einräumen und „Aufbau ändern“ gelten immer für die Aufstellung, die gerade zu sehen ist. Die Bücher selbst gibt es nur einmal; auf der Buchseite steht unter „Standort“ zusätzlich, wo das Buch in den anderen Aufstellungen steht. Alle Aufstellungen sind in Sicherung und Abgleich dabei.
 
 ## Fach-Fotos einlesen (viele Bücher auf einmal)
 

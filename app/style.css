@@ -906,3 +906,9 @@ body.wandbig .wrap{max-width:none}
 .mpickall input{width:18px;height:18px;accent-color:var(--accent)}
 .mpickbar{position:sticky;bottom:0;padding:var(--sp-2) 0;background:var(--paper);display:flex;justify-content:flex-end}
 .mpickbar .btn{min-width:200px}
+/* Aufstellungen (layouts.js) */
+.lyrow{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);background:var(--bg)}
+.lyrow.active{border-color:var(--accent);background:var(--accent-soft)}
+.lyrow .grow{min-width:180px}
+.lybtn{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lyloc{margin-bottom:var(--sp-1)}
