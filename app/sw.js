@@ -2,7 +2,7 @@
    Wie bei professionellen PWAs: Die App-Dateien kommen sofort aus dem Zwischenspeicher („cache first“) – auch bei schlechtem
    Empfang startet die App ohne Warten. Neue Versionen kommen über eine neue VERSION: Der neue Service Worker lädt alle Dateien
    im Hintergrund, danach zeigt die App „Neue Version der App ist da“. Cover-Bilder werden beim ersten Anzeigen gemerkt. */
-const VERSION = "v71";
+const VERSION = "v72";
 const SHELL = `shell-${VERSION}`;
 const RUNTIME = "runtime-v1";
 const CDN = ["https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"]; // optional: darf die Installation nicht verhindern
