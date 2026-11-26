@@ -869,7 +869,7 @@ function tagFilterSelect(cur, onPick, list) {
     el("option", { value: "" }, tags.length ? "Alle Schlagworte" : "Keine Schlagworte"),
     ...tags.map(t => el("option", { value: t.name, selected: cur && cur.toLowerCase() === t.name.toLowerCase() || null }, `# ${t.name} (${t.n})`)));
   sel.addEventListener("change", () => onPick(sel.value));
-  if (!tags.length) sel.disabled = true;
+  if (!tags.length) { sel.disabled = true; sel.classList.add("hidden"); } // ohne Schlagworte nichts zu wählen
   return sel;
 }
 
@@ -972,7 +972,7 @@ function renderShelf() {
   // Hinweis „ohne Cover“: einzeilig; „Später“ gilt, bis neue Bücher ohne Cover dazukommen
   const noCov = S.books.filter(needsCover).length;
   let covSeen = 0; try { covSeen = +localStorage.getItem("covNoteSeen") || 0; } catch {}
-  const covNote = noCov && plain && !S.hideCovNote && noCov > covSeen ? el("div", { class: "hint", style: "grid-column:1/-1" },
+  const covNote = noCov && plain && !S.hideCovNote && noCov > covSeen ? el("div", { class: "hint covnote", style: "grid-column:1/-1" },
     el("span", { class: "grow", text: `${noCov} ${noCov === 1 ? "Buch" : "Bücher"} ohne Cover` }),
     el("button", { class: "btn sm primary", onclick: () => coverRun() }, "🖼 Cover nachtragen"),
     el("button", { class: "btn sm ghost", onclick: () => { S.hideCovNote = true; try { localStorage.setItem("covNoteSeen", String(noCov)); } catch {} renderShelf(); } }, "Später")) : null;
@@ -1028,6 +1028,7 @@ function renderWish() {
     const list = all.filter(b => matchQ(b, S.wishQ || ""));
     const cmp = { "added-desc": (a, b) => (b.addedAt || "").localeCompare(a.addedAt || ""), "title": (a, b) => (a.title || "").localeCompare(b.title || "", "de"), "author": (a, b) => lastName(a.author).localeCompare(lastName(b.author), "de"), "series": bySeries, "price": (a, b) => (priceNum(a.price) ?? 1e9) - (priceNum(b.price) ?? 1e9) }[S.wishSort || "added-desc"];
     list.sort(cmp);
+    host.classList.toggle("wishempty", !all.length); // leer: Suche, Sortierung und Hinweis ausblenden – der Leerzustand erklärt alles
     const sum = all.reduce((a, b) => a + (priceNum(b.price) || 0), 0);
     sumEl.textContent = all.length ? `${all.length} ${all.length === 1 ? "Wunsch" : "Wünsche"}${sum ? " · zusammen ca. " + fmtPrice(sum) : ""}` : "";
     if (!list.length) { fillNode(grid, el("div", { class: "empty", style: "grid-column:1/-1" }, all.length ? el("h2", { text: "Nichts gefunden" }) : el("div", {}, el("h2", { text: "Deine Wunschliste ist leer" }), el("p", { text: "Bücher, die du (noch) nicht besitzt, aber haben möchtest. Sie zählen nicht zu deinem Bestand." }), el("button", { class: "btn primary", onclick: () => openAdd(true) }, "＋ Ersten Wunsch hinzufügen")))); return; }
@@ -1766,6 +1767,11 @@ const fmtPrice = p => { const n = priceNum(p); return n == null ? String(p || ""
 function drawDetailView(sh, b) {
   sh.guard = null; sh.h2.textContent = b.title || "Buch";
   S.pasteHandler = null;
+  // Titel steht groß im Blatt – in der Kopfzeile erst beim Herunterrollen einblenden (sonst doppelt)
+  const shEl = sh.body.parentElement;
+  shEl.classList.add("dsheet");
+  if (!sh.titleOnScroll) { sh.titleOnScroll = true; shEl.addEventListener("scroll", () => shEl.classList.toggle("scrolled", shEl.scrollTop > 90), { passive: true }); }
+  shEl.classList.remove("scrolled");
   const book = { ...b };
   const quickSave = async patch => { Object.assign(book, patch); await patchBook(b.id, patch); toast("✓ Gespeichert", 1400); };
   // Schnellzugriff: Status & Sterne (speichern sofort)
@@ -1793,8 +1799,8 @@ function drawDetailView(sh, b) {
   const kv = [["ISBN", book.isbn], ["Verlag", book.publisher], ["Jahr", book.year], ["Seiten", book.pages], ["Genre", book.genre], ["Sprache", book.language], ["Reihe", seriesText(book)], ["Preis", book.price ? fmtPrice(book.price) : ""], ["Heutiger Wert", book.value ? fmtPrice(book.value) : ""], ["Hinzugefügt", fmtDate(book.addedAt)], ["Zuletzt geändert", fmtDate(book.updatedAt)]].filter(([, v]) => v);
   const miss = missingOf(book);
   fillNode(sh.body,
-    el("div", { class: "dtop" }, el("div", {}, cover),
-      el("div", {}, head,
+    el("div", { class: "dtop dview" }, el("div", { class: "dcov" }, cover), el("div", { class: "dhead" }, head),
+      el("div", { class: "dquick" },
         el("label", { class: "lbl", style: "margin-top:12px", text: "Lesestatus" }), seg,
         el("label", { class: "lbl", style: "margin-top:12px", text: "Deine Bewertung" }),
         el("div", { class: "rateRow" }, stars, el("button", { type: "button", class: "favbtn" + (book.favorite ? " on" : ""), "aria-pressed": !!book.favorite, onclick: () => quickSave({ favorite: !book.favorite }).then(() => drawDetailView(sh, S.books.find(x => x.id === b.id))) }, book.favorite ? "♥ Lieblingsbuch" : "♡ Lieblingsbuch")),
@@ -1917,6 +1923,7 @@ function drawDetailEdit(sh, b, keep) {
   const draft = keep ? keep.draft : { ...b };
   const st = keep ? keep.st : { dirty: false, coverChanged: false, previewUrl: null };
   sh.h2.textContent = "Bearbeiten: " + (b.title || "Buch");
+  sh.body.parentElement.classList.remove("dsheet");
   const saveBtn = el("button", { class: "btn primary", disabled: !st.dirty || null }, "💾 Speichern");
   const dirtyInfo = el("span", { class: "saved", text: st.dirty ? "Ungespeicherte Änderungen" : "" });
   const markDirty = () => { st.dirty = true; saveBtn.disabled = false; dirtyInfo.textContent = "Ungespeicherte Änderungen"; };
@@ -3613,7 +3620,7 @@ function renderTableBar(list, anyFilter) {
       el("span", { class: "tlbl", text: "Sortiert:" }), ...S.tSorts.map(sortChip), addSel,
       el("span", { style: "flex:1" }),
       viewsMenu(), columnsMenu(),
-      el("button", { class: "btn sm" + (S.showColF ? " on" : ""), title: "Filterzeile unter den Spaltenüberschriften", onclick: () => { S.showColF = !S.showColF; saveTableView(); renderTable(); } }, S.showColF ? "Spaltenfilter ausblenden" : "⛃ Spaltenfilter"),
+      el("button", { class: "btn sm" + (S.showColF ? " on" : ""), "aria-pressed": S.showColF ? "true" : "false", title: S.showColF ? "Filterzeile ausblenden" : "Filterzeile unter den Spaltenüberschriften zeigen", onclick: () => { S.showColF = !S.showColF; saveTableView(); renderTable(); } }, "⛃ Spaltenfilter"),
       anyFilter && list.length ? el("button", { class: "btn sm", onclick: () => exportCsv(list) }, `⬇ CSV (${list.length} gefiltert)`) : null),
     anyFilter ? el("div", { class: "tbrow" },
       el("span", { class: "tlbl", text: "Filter:" }),

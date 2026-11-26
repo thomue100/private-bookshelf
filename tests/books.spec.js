@@ -61,13 +61,15 @@ test("Wunschliste ist vom Bestand getrennt; doppelt Erfassen übernimmt den Wuns
   await openApp(page);
   await seedBooks(page);
   await page.goto("/#wunsch");
-  await page.click("#v-wunsch >> text=＋ Wunsch hinzufügen");
+  await expect(page.locator("#v-wunsch .wishtools")).toBeHidden(); // leer: nur der Leerzustand
+  await page.click("#v-wunsch >> text=＋ Ersten Wunsch hinzufügen");
   await page.click("text=Ganz von Hand eintragen");
   let f = page.locator(".sec:has(h3:text-is('Buchdaten')) .fgrid input.field");
   await f.nth(0).fill("Der Seewolf"); await f.nth(1).fill("Jack London");
   await page.fill("input[placeholder='z. B. 12,90']", "14,00");
   await page.click(".actions .btn.primary");
   await expect(page.locator("#v-wunsch .card .ti")).toHaveText(["Der Seewolf"]);
+  await expect(page.locator("#v-wunsch .wishtools")).toBeVisible();
 
   await page.goto("/#regal");
   await page.fill("#q", "Seewolf");

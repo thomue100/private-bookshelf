@@ -912,3 +912,27 @@ body.wandbig .wrap{max-width:none}
 .lyrow .grow{min-width:180px}
 .lybtn{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lyloc{margin-bottom:var(--sp-1)}
+
+/* ================= Feinschliff Oberfläche ================= */
+/* Buch ansehen: Cover links über zwei Zeilen; am kleinen Handy Lesestatus und Bewertung in voller Breite darunter */
+.dtop.dview{grid-template-areas:"cov head" "cov quick";grid-template-rows:auto 1fr;row-gap:0}
+.dview > .dcov{grid-area:cov}
+.dview > .dhead{grid-area:head;min-width:0}
+.dview > .dquick{grid-area:quick;min-width:0}
+@media (max-width:480px){
+  .dtop.dview{grid-template-areas:"cov head" "quick quick";grid-template-rows:auto auto;row-gap:var(--sp-1);align-items:start}
+  .dview .dhead h2{font-size:var(--fs-xl)}
+  .dview .seg{flex-wrap:nowrap}
+  .dview .seg button{flex:1 1 0;font-size:var(--fs-sm);padding:8px 4px}
+}
+/* Titel in der Kopfzeile erst beim Herunterrollen (er steht groß im Blatt) */
+.sheet.dsheet .sheet-h h2{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:opacity .15s}
+.sheet.dsheet:not(.scrolled) .sheet-h h2{opacity:0}
+/* Hinweis „ohne Cover“ am Handy: Text eine Zeile, Knöpfe darunter */
+@media (max-width:480px){
+  .covnote{padding:10px 12px;gap:6px 8px}
+  .covnote > .grow{flex:1 1 100%}
+  .covnote > .btn.primary{flex:1}
+}
+/* Wunschliste leer: nur der Leerzustand */
+#v-wunsch.wishempty .wishtools,#v-wunsch.wishempty .vnote{display:none}
